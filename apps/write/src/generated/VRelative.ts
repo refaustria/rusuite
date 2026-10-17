@@ -4,4 +4,4 @@
  * What a floating object's vertical position is measured from
  * (docx `wp:positionV/@relativeFrom`).
  */
-export type VRelative = "margin" | "page" | "paragraph" | "line";
+export type VRelative = "margin" | "page" | "paragraph" | "line" | "topMargin" | "bottomMargin" | "insideMargin" | "outsideMargin";

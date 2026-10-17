@@ -35,10 +35,19 @@ name?: string | null,
  */
 anchor?: Anchor, 
 /**
+ * Hidden (Selection Pane; docx `wp:docPr/@hidden`).
+ */
+hidden?: boolean, 
+/**
  * Crop, border, outline shape, shadow and corrections.
  */
 format?: PictureFormat, 
 /**
  * The hyperlink of the picture (docx `a:hlinkClick` in `wp:docPr`).
  */
-link?: Hyperlink, };
+link?: Hyperlink, 
+/**
+ * Marked as decorative (the `adec:decorative` extension of
+ * `wp:docPr`; screen readers skip the picture).
+ */
+decorative?: boolean, };

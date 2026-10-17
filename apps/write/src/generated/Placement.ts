@@ -7,4 +7,4 @@
  * Serializes as `{"kind":"align","value":"center"}` or
  * `{"kind":"offset","value":914400}` (EMU).
  */
-export type Placement<A> = { "kind": "align", "value": A } | { "kind": "offset", "value": number };
+export type Placement<A> = { "kind": "align", "value": A } | { "kind": "offset", "value": number } | { "kind": "percent", "value": number };

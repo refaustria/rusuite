@@ -325,6 +325,7 @@ impl Document {
     pub fn normalize(&mut self) {
         self.fix_comments();
         self.fix_bookmarks();
+        self.fix_text_chains();
         let mut next_id = self.next_id;
         for c in self.containers_mut() {
             normalize_blocks(c, &mut next_id);
@@ -350,7 +351,7 @@ impl Document {
                         }
                     }
                     Block::Paragraph(p) => {
-                        for d in p.drawings() {
+                        for d in p.drawings().flat_map(|d| d.walk()) {
                             *max = (*max).max(d.id.0);
                             walk(d.blocks(), max);
                         }
@@ -858,12 +859,14 @@ fn normalize_blocks(blocks: &mut Vec<Block>, next_id: &mut u64) {
             Block::Paragraph(p) => {
                 merge_runs(&mut p.inlines);
                 for d in p.drawings_mut() {
-                    if d.kind == crate::drawing::DrawingKind::TextBox && d.text.is_none() {
-                        d.text = Some(crate::drawing::DrawingText::new(Vec::new()));
-                    }
-                    if let Some(blocks) = d.blocks_mut() {
-                        normalize_blocks(blocks, next_id);
-                    }
+                    d.walk_mut(&mut |d| {
+                        if d.kind == crate::drawing::DrawingKind::TextBox && d.text.is_none() {
+                            d.text = Some(crate::drawing::DrawingText::new(Vec::new()));
+                        }
+                        if let Some(blocks) = d.blocks_mut() {
+                            normalize_blocks(blocks, next_id);
+                        }
+                    });
                 }
             }
             Block::Table(t) => {

@@ -14,7 +14,7 @@
 
 import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { base64ToBytes, savedName, type SaveResult } from "@rusuite/ui-shared";
 import type { StyleSet } from "../generated/StyleSet";
@@ -33,7 +33,7 @@ import type { StyleSheet } from "../generated/StyleSheet";
 import type { WriteCommand } from "../generated/WriteCommand";
 import type { WritePatch } from "../generated/WritePatch";
 import { blockAt, fromPM, notesFromPM, notesNode } from "./fromPM";
-import { blockKey, canonNote, drawingsOf, stableStringify, substituteBlock, walkAllBlocks, walkBlocks } from "./model";
+import { allMembers, blockKey, canonNote, drawingsOf, stableStringify, substituteBlock, walkAllBlocks, walkBlocks } from "./model";
 import { ID_NODE_TYPES, LIST_TYPES } from "./schema";
 import { blocksToPM, notesToPM, orderNotes, sectionIndexes, toPM } from "./toPM";
 import { mapDocChange, topBlocks, type MapperOptions, type MapResult } from "./transactionMapper";
@@ -41,7 +41,9 @@ import { mapDocChange, topBlocks, type MapperOptions, type MapResult } from "./t
 /** Ids inside the drawings of a paragraph block (the drawings and their text blocks). */
 function drawingBlockIds(b: Block): number[] {
   if (b.kind !== "paragraph") return [];
-  return drawingsOf(b.value).flatMap((d) => [d.id, ...[...walkAllBlocks(d.text?.blocks ?? [])].map((x) => x.value.id)]);
+  return drawingsOf(b.value)
+    .flatMap(allMembers)
+    .flatMap((d) => [d.id, ...[...walkAllBlocks(d.text?.blocks ?? [])].map((x) => x.value.id)]);
 }
 
 /** Transaction meta key: `"remote"` marks changes that come from Rust. */
@@ -1025,8 +1027,12 @@ export class SyncController {
     }
     const an = resolvePoint(tr.doc, pa, tr.mapping.map(anchor));
     const hd = resolvePoint(tr.doc, ph, tr.mapping.map(head));
+    // A selected object (picture, shape, group) stays selected when its paragraph is replaced (P9-W4).
+    const wasNode = view.state.selection instanceof NodeSelection ? view.state.selection.node.type : null;
     try {
-      tr.setSelection(TextSelection.between(tr.doc.resolve(an), tr.doc.resolve(hd)));
+      const after = tr.doc.resolve(an).nodeAfter;
+      if (wasNode && after?.type === wasNode && hd === an + after.nodeSize) tr.setSelection(NodeSelection.create(tr.doc, an));
+      else tr.setSelection(TextSelection.between(tr.doc.resolve(an), tr.doc.resolve(hd)));
     } catch {
       // Keep the mapped selection.
     }

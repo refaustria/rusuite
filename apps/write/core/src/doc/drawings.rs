@@ -87,6 +87,11 @@ impl WriteDocument {
                 d.text = Some(t);
                 d
             }
+            // Insert › Shapes › New Drawing Canvas: an empty canvas.
+            DrawingKind::Canvas => Drawing::canvas(id, *width, *height, Vec::new()),
+            DrawingKind::Group | DrawingKind::Picture => {
+                return Err(invalid("groups are made from existing drawings"))
+            }
         };
         if let Some(blocks) = d.blocks_mut() {
             blocks.push(Block::Paragraph(para));
@@ -142,6 +147,70 @@ impl WriteDocument {
         };
         if d.kind == DrawingKind::TextBox && d.text.is_none() {
             return Err(invalid("a text box keeps its text"));
+        }
+        if d.kind != old.kind && (d.kind.is_container() || old.kind.is_container()) {
+            return Err(invalid("a group or canvas stays one"));
+        }
+        if d.kind == DrawingKind::Group && d.children.is_empty() {
+            return Err(invalid("a group needs members"));
+        }
+        // A box later in a chain shows the first box's text: it has none.
+        if d.chain.is_some_and(|c| c.seq > 0) {
+            if d.kind != DrawingKind::TextBox {
+                return Err(invalid("only text boxes are linked"));
+            }
+            if let Some(t) = d.text.as_mut() {
+                let pid = t.blocks.iter().find_map(|b| match b {
+                    Block::Paragraph(p) => Some(p.id),
+                    _ => None,
+                });
+                let empty =
+                    matches!(t.blocks.as_slice(), [Block::Paragraph(p)] if p.inlines.is_empty());
+                if !empty {
+                    let id = pid.unwrap_or_else(|| self.doc.alloc_id());
+                    t.blocks = vec![Block::Paragraph(Paragraph::new(id))];
+                    ch.block(id);
+                }
+            }
+        }
+        // Group members (and their text) come with the command; their ids
+        // are kept where unused, else fresh.
+        let freed: Vec<NodeId> = old
+            .children
+            .iter()
+            .flat_map(|c| c.walk())
+            .flat_map(|c| std::iter::once(c.id).chain(subtree_ids(c.blocks())))
+            .collect();
+        let mut ids = Ids::new(&self.doc, &freed);
+        let mut fail = None;
+        for c in &mut d.children {
+            c.walk_mut(&mut |m| {
+                m.id = ids.keep_or_alloc(&mut self.doc, m.id);
+                if let Some(t) = m.text.as_mut() {
+                    let mut out = Vec::with_capacity(t.blocks.len());
+                    for b in &t.blocks {
+                        match ids.block(&mut self.doc, ch, &NewBlock::from(b)) {
+                            Ok(mut b) => {
+                                strip_nested_drawings(&mut b);
+                                out.push(b);
+                            }
+                            Err(e) => fail = Some(e),
+                        }
+                    }
+                    if !matches!(out.last(), Some(Block::Paragraph(_))) {
+                        out.push(Block::Paragraph(Paragraph::new(self.doc.alloc_id())));
+                    }
+                    t.blocks = out;
+                }
+                if m.kind == DrawingKind::TextBox && m.text.is_none() {
+                    m.text = Some(DrawingText::new(vec![Block::Paragraph(Paragraph::new(
+                        self.doc.alloc_id(),
+                    ))]));
+                }
+            });
+        }
+        if let Some(e) = fail {
+            return Err(e);
         }
         self.replace_drawing(block, offset, d, ch)
     }
@@ -225,6 +294,17 @@ impl WriteDocument {
         }
         if f.geometry.as_deref() == Some("rect") {
             f.geometry = None;
+        }
+        if f.soft_edge.is_some_and(|r| r.0 <= 0) {
+            f.soft_edge = None;
+        }
+        if let Some(b) = &f.bevel {
+            if b.preset.is_empty() || !b.preset.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return Err(invalid(format!("invalid bevel {:?}", b.preset)));
+            }
+            if b.width.0 < 0 || b.height.0 < 0 {
+                return Err(invalid("negative bevel size"));
+            }
         }
         self.edit_image(block, offset, ch, |img| img.format = f)
     }

@@ -81,7 +81,7 @@ export function inlinesToPM(schema: Schema, inlines: Inline[]): PMNode[] {
         const img = inline.value;
         out.push(
           schema.nodes.image!.create({
-            mediaId: img.media, width: img.width, height: img.height, alt: img.alt ?? null, name: img.name ?? null, anchor: img.anchor ? canonValue(img.anchor) : null,
+            mediaId: img.media, width: img.width, height: img.height, alt: img.alt ?? null, name: img.name ?? null, decorative: !!img.decorative, hidden: !!img.hidden, anchor: img.anchor ? canonValue(img.anchor) : null,
             format: img.format ? emptyToNull(img.format) : null, link: img.link ? canonValue(img.link) : null,
           }),
         );

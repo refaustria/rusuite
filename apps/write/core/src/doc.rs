@@ -285,10 +285,12 @@ impl Ids {
         }
         for inline in inlines {
             if let Inline::Drawing(d) = inline {
-                d.id = self.keep_or_alloc(doc, d.id);
-                if let Some(blocks) = d.blocks_mut() {
-                    walk(self, doc, blocks);
-                }
+                d.walk_mut(&mut |d| {
+                    d.id = self.keep_or_alloc(doc, d.id);
+                    if let Some(blocks) = d.blocks_mut() {
+                        walk(self, doc, blocks);
+                    }
+                });
             }
         }
     }
@@ -1196,9 +1198,36 @@ impl WriteDocument {
                     img.height = h;
                 })
             }
-            C::SetImageAlt { block, offset, alt } => {
+            C::SetImageAlt {
+                block,
+                offset,
+                alt,
+                decorative,
+            } => {
                 let alt = alt.clone().filter(|a| !a.is_empty());
-                self.edit_image(*block, *offset, ch, |img| img.alt = alt)
+                let decorative = *decorative;
+                self.edit_image(*block, *offset, ch, |img| {
+                    img.alt = alt;
+                    if let Some(d) = decorative {
+                        img.decorative = d;
+                    }
+                })
+            }
+            C::SetImageMeta {
+                block,
+                offset,
+                name,
+                hidden,
+            } => {
+                let (name, hidden) = (name.clone(), *hidden);
+                self.edit_image(*block, *offset, ch, |img| {
+                    if let Some(n) = name {
+                        img.name = (!n.trim().is_empty()).then(|| n.trim().to_owned());
+                    }
+                    if let Some(h) = hidden {
+                        img.hidden = h;
+                    }
+                })
             }
             C::SetRowProps {
                 table,
@@ -4330,6 +4359,7 @@ fn affects_labels(cmd: &WriteCommand) -> bool {
         | C::InsertImage { .. }
         | C::SetImageSize { .. }
         | C::SetImageAlt { .. }
+        | C::SetImageMeta { .. }
         | C::SetImageAnchor { .. }
         | C::SetImageWrap { .. }
         | C::SetImageFormat { .. }
@@ -4395,6 +4425,7 @@ fn may_touch_markers(cmd: &WriteCommand) -> bool {
         | C::InsertImage { .. }
         | C::SetImageSize { .. }
         | C::SetImageAlt { .. }
+        | C::SetImageMeta { .. }
         | C::SetImageAnchor { .. }
         | C::SetImageWrap { .. }
         | C::SetImageFormat { .. }

@@ -8,7 +8,8 @@ import { useRef, useSyncExternalStore, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 import {
-  ColorPicker, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton, RibbonRow, RibbonStack, type RibbonGalleryItem, type RibbonMenuItem, type RibbonTab,
+  ColorPicker, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack, type RibbonGalleryItem, type RibbonMenuItem,
+  type RibbonTab,
 } from "@rusuite/ui-shared";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { Anchor } from "../generated/Anchor";
@@ -20,14 +21,21 @@ import type { ShapeLine } from "../generated/ShapeLine";
 import type { TextCase } from "../generated/TextCase";
 import type { VAlignPos } from "../generated/VAlignPos";
 import {
-  DEFAULT_LINE, EMU_PER_CM, EMU_PER_PT, LINE_DASHES, LINE_WEIGHTS, SHAPE_GROUPS, SHAPE_STYLES, editSelectedDrawing, flipped, insertDrawing, rotated, withShapeStyle,
-  type ShapeStyle,
+  DEFAULT_LINE, EMU_PER_CM, EMU_PER_PT, LINE_DASHES, LINE_WEIGHTS, SHAPE_GROUPS, SHAPE_STYLES, editSelectedDrawing, flipped, insertDrawing, rotated, selectedDrawing,
+  withShapeStyle, type ShapeStyle,
 } from "../features/drawings/drawings";
+import { breakLinkAt, hasNext, startLinkMode } from "../features/drawings/chainCommands";
+import { armDrawTool } from "../features/drawings/drawTool";
+import { canGroup, canRegroup, groupSelected, regroup, ungroupSelected } from "../features/drawings/objects";
+import { scaleGroup, type AlignMode } from "../features/drawings/geometry";
+import type { WriteFeatures } from "../features/WriteFeatures";
+import { alignObjectsMenu, fitCanvasButton, orderMenus, selectionPaneButton } from "./arrangeControls";
 import { pathQuery, rectOutline, shapePaths } from "../features/drawings/paths";
 import { changeCaseCommand, TEXT_CASES } from "../features/changeCase";
 import { newAnchor, POSITION_PRESETS, presetAnchor, presetOf, withWrap, WRAP_CHOICES, wrapOf } from "../features/floating";
 import { selectedImage } from "../features/images";
-import { toggleCropMode } from "../features/imageView";
+import { croppedSize, toggleCropMode } from "../features/imageView";
+import { ASPECT_RATIOS, aspectCrop, BEVELS, fitCrop, fullImageSize, SOFT_EDGES, withBevel, withSoftEdge } from "../features/pictures";
 import { clearEffects, formatTarget, TEXT_EFFECTS, toggleEffect } from "../features/runFormat";
 import { colorCss } from "../sync/schema";
 import type { RunProperties } from "../sync/model";
@@ -69,7 +77,7 @@ export function ShapeIcon({ preset }: { preset: string }) {
 const shapeItems = (ids: readonly string[]): RibbonGalleryItem[] => ids.map((id) => ({ id, label: t(`write.shape.${id}`), preview: <ShapeIcon preset={id} /> }));
 
 /** The grouped shape library (Insert › Shapes, Change Shape with `presetsOnly`). */
-export function ShapeLibrary({ onPick, presetsOnly }: { onPick: (id: string) => void; presetsOnly?: boolean }) {
+export function ShapeLibrary({ onPick, presetsOnly, onCanvas }: { onPick: (id: string) => void; presetsOnly?: boolean; onCanvas?: () => void }) {
   const groups = SHAPE_GROUPS.map((g) => ({ ...g, items: presetsOnly ? g.items.filter((i) => i !== "textBox" && i !== "line") : g.items })).filter((g) => g.items.length);
   return (
     <div className="flex max-h-[70vh] w-max flex-col gap-1 overflow-y-auto p-1" data-testid="shape-library">
@@ -79,11 +87,16 @@ export function ShapeLibrary({ onPick, presetsOnly }: { onPick: (id: string) => 
           <RibbonGallery label={t(`write.shapeGroup.${g.id}`)} items={shapeItems(g.items)} columns={8} hideLabels itemClassName="h-8 w-8" autoFocus={n === 0} onSelect={onPick} />
         </section>
       ))}
+      {!presetsOnly && onCanvas && (
+        <button type="button" className="mt-1 rounded border-t border-ui-border px-2 py-1 text-left text-xs hover:bg-ui-hover" onClick={onCanvas}>
+          {t("write.canvas.new")}
+        </button>
+      )}
     </div>
   );
 }
 
-/** Insert › Illustrations: Shapes ▾ and Text Box ▾. */
+/** Insert › Illustrations: Shapes ▾ (arms the drawing tool: click or drag on the page) and Text Box ▾. */
 export function insertDrawingButtons(editor: Editor, ctl: SyncController): ReactNode {
   const run = (id: string, anchor?: Anchor | null) => void insertDrawing(editor, ctl, id, anchor ? { anchor } : {}).catch((e) => ctl.pushError(e));
   return (
@@ -92,11 +105,16 @@ export function insertDrawingButtons(editor: Editor, ctl: SyncController): React
         label={t("write.shapes")}
         icon="shapes"
         size="large"
+        tooltip={t("write.shapes.drawTip")}
         menu={(close) => (
           <ShapeLibrary
             onPick={(id) => {
               close();
-              run(id);
+              armDrawTool(editor, ctl, id);
+            }}
+            onCanvas={() => {
+              close();
+              run("canvas");
             }}
           />
         )}
@@ -108,11 +126,55 @@ export function insertDrawingButtons(editor: Editor, ctl: SyncController): React
         menu={[
           { id: "simple", label: t("write.textBox.simple"), icon: "textBox", onSelect: () => run("textBox") },
           { id: "draw", label: t("write.textBox.draw"), icon: WRAP_ICONS.square, onSelect: () => run("textBox", newAnchor("square")) },
+          { id: "drawBox", label: t("write.textBox.drawBox"), icon: "textBox", onSelect: () => armDrawTool(editor, ctl, "textBox") },
         ]}
       />
     </>
   );
 }
+
+/** Arrange › Group ▾: Group, Ungroup, Regroup (floating objects). */
+export function groupMenu(editor: Editor): ReactNode {
+  const view = editor.view;
+  const sel = editor.state.selection;
+  const isGroup = sel instanceof NodeSelection && sel.node.type.name === "drawing" && (sel.node.attrs.value as Drawing | null)?.kind === "group";
+  return (
+    <RibbonMenuButton
+      label={t("write.group")}
+      icon={GROUP_ICON}
+      size="large"
+      menu={[
+        { id: "group", label: t("write.group.group"), disabled: !canGroup(editor.state), onSelect: () => groupSelected(view) },
+        { id: "ungroup", label: t("write.group.ungroup"), disabled: !isGroup, onSelect: () => ungroupSelected(view) },
+        { id: "regroup", label: t("write.group.regroup"), disabled: !canRegroup(editor.state), onSelect: () => regroup(view) },
+      ]}
+    />
+  );
+}
+
+const GROUP_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="2.5" y="2.5" width="8" height="7" />
+    <circle cx="13" cy="13" r="4.5" />
+    <path d="M1 1h2M17 1h2M1 19h2M17 19h2" strokeWidth="1" />
+  </svg>
+);
+
+const UNLINK_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="1.5" y="3" width="7" height="6" />
+    <rect x="11.5" y="11" width="7" height="6" />
+    <path d="M8.5 6h2M14 9.5V11M11 7.5l3 3" />
+  </svg>
+);
+
+const LINK_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="1.5" y="3" width="7" height="6" />
+    <rect x="11.5" y="11" width="7" height="6" />
+    <path d="M8.5 6h3.5v8" />
+  </svg>
+);
 
 // ----- Shape Format -------------------------------------------------------------------
 
@@ -167,13 +229,20 @@ export function outlineMenu(line: ShapeLine | null | undefined, set: (l: ShapeLi
  * relative to the margin): the drawing floats (square wrapping when it was
  * inline) aligned on one axis, the other keeps its position.
  */
-export function alignAnchor(a: Anchor | null, to: { h?: "left" | "center" | "right"; v?: "top" | "center" | "bottom" }): Anchor {
+export function alignAnchor(a: Anchor | null, to: { h?: "left" | "center" | "right"; v?: "top" | "center" | "bottom" }, relativeTo: "margin" | "page" = "margin"): Anchor {
   const base = a ?? newAnchor("square");
   return {
     ...base,
-    ...(to.h ? { h: { relativeTo: "margin", place: { kind: "align", value: to.h } } } : {}),
-    ...(to.v ? { v: { relativeTo: "margin", place: { kind: "align", value: to.v } } } : {}),
+    ...(to.h ? { h: { relativeTo, place: { kind: "align", value: to.h } } } : {}),
+    ...(to.v ? { v: { relativeTo, place: { kind: "align", value: to.v } } } : {}),
   } as Anchor;
+}
+
+/** One object's Align: semantic (relative to the page or margin, kept when the text moves). */
+export function alignOne(mode: AlignMode, to: "page" | "margin", set: (make: (a: Anchor | null) => Anchor | null) => void): void {
+  const h = mode === "left" || mode === "center" || mode === "right" ? mode : undefined;
+  const v = mode === "top" ? "top" : mode === "middle" ? "center" : mode === "bottom" ? "bottom" : undefined;
+  set((a) => alignAnchor(a, { h, v }, to));
 }
 
 /** Applies `make(anchor)` to the selected drawing (Position ▾ / Wrap Text ▾). */
@@ -187,7 +256,7 @@ function setDrawingAnchor(editor: Editor, make: (a: Anchor | null) => Anchor | n
   });
 }
 
-export function arrangeMenus(anchor: Anchor | null, set: (make: (a: Anchor | null) => Anchor | null) => void): ReactNode {
+export function arrangeMenus(anchor: Anchor | null, set: (make: (a: Anchor | null) => Anchor | null) => void, more?: () => void): ReactNode {
   const wrap = wrapOf(anchor);
   const preset = presetOf(anchor);
   return (
@@ -200,6 +269,7 @@ export function arrangeMenus(anchor: Anchor | null, set: (make: (a: Anchor | nul
           { id: "inline", label: t("write.inLineWithText"), icon: WRAP_ICONS.inline, checked: wrap === "inline", onSelect: () => set(() => null) },
           { separator: true as const, label: t("write.withTextWrapping") },
           ...POSITION_PRESETS.map((p) => ({ id: p, label: t(`write.pos.${p}`), icon: presetIcon(p), checked: preset === p, onSelect: () => set((a) => presetAnchor(a, p)) })),
+          ...(more ? [{ separator: true as const }, { id: "more", label: t("write.layout.more"), onSelect: more }] : []),
         ]}
       />
       <RibbonMenuButton
@@ -242,7 +312,8 @@ const VALIGN_ICON = (v: VAlignPos) => (
 );
 
 /** The Shape Format tab of the selected drawing. */
-export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, ui: { openDialog: (id: "altText") => void }): RibbonTab {
+export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, features: WriteFeatures): RibbonTab {
+  const ui = features.ui;
   const edit = (f: (x: Drawing) => Drawing) => {
     editSelectedDrawing(editor, f);
     editor.commands.focus();
@@ -321,30 +392,57 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
       {
         label: t("write.text"),
         items: (
-          <RibbonStack>
-            <RibbonMenuButton
-              label={t("write.alignText")}
-              icon={VALIGN_ICON(text?.verticalAlign ?? "top")}
-              showLabel
-              disabled={!text}
-              menu={(["top", "center", "bottom"] as VAlignPos[]).map((v) => ({
-                id: v,
-                label: t(`write.valign.${v}`),
-                icon: VALIGN_ICON(v),
-                checked: (text?.verticalAlign ?? "top") === v,
-                onSelect: () => edit((x) => (x.text ? { ...x, text: { ...x.text, verticalAlign: v } } : x)),
-              }))}
-            />
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input
-                type="checkbox"
+          <>
+            <RibbonStack>
+              <RibbonMenuButton
+                label={t("write.alignText")}
+                icon={VALIGN_ICON(text?.verticalAlign ?? "top")}
+                showLabel
                 disabled={!text}
-                checked={text?.autofit === "resize"}
-                onChange={(e) => edit((x) => (x.text ? { ...x, text: { ...x.text, autofit: e.target.checked ? "resize" : "none" } } : x))}
+                menu={(["top", "center", "bottom"] as VAlignPos[]).map((v) => ({
+                  id: v,
+                  label: t(`write.valign.${v}`),
+                  icon: VALIGN_ICON(v),
+                  checked: (text?.verticalAlign ?? "top") === v,
+                  onSelect: () => edit((x) => (x.text ? { ...x, text: { ...x.text, verticalAlign: v } } : x)),
+                }))}
               />
-              {t("write.resizeToFit")}
-            </label>
-          </RibbonStack>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input
+                  type="checkbox"
+                  disabled={!text}
+                  checked={text?.autofit === "resize"}
+                  onChange={(e) => edit((x) => (x.text ? { ...x, text: { ...x.text, autofit: e.target.checked ? "resize" : "none" } } : x))}
+                />
+                {t("write.resizeToFit")}
+              </label>
+            </RibbonStack>
+            {d.kind === "textBox" && (
+              <RibbonStack>
+                <RibbonButton
+                  label={t("write.createLink")}
+                  icon={LINK_ICON}
+                  showLabel
+                  tooltip={t("write.createLinkTip")}
+                  disabled={hasNext(editor.state.doc, d)}
+                  onClick={() => {
+                    const sel = selectedDrawing(editor.state);
+                    if (sel) startLinkMode(editor, sel.pos, (e) => ctl.pushError(new Error(t(`write.linkError.${e}`))));
+                  }}
+                />
+                <RibbonButton
+                  label={t("write.breakLink")}
+                  icon={UNLINK_ICON}
+                  showLabel
+                  disabled={!d.chain}
+                  onClick={() => {
+                    const sel = selectedDrawing(editor.state);
+                    if (sel) breakLinkAt(editor.view, sel.pos);
+                  }}
+                />
+              </RibbonStack>
+            )}
+          </>
         ),
       },
       {
@@ -355,15 +453,11 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
         label: t("write.arrange"),
         items: (
           <>
-            {arrangeMenus((d.anchor as Anchor | undefined) ?? null, (make) => setDrawingAnchor(editor, make))}
-            <RibbonMenuButton
-              label={t("write.alignObjects")}
-              icon={presetIcon("top-left")}
-              size="large"
-              menu={(["left", "center", "right"] as const)
-                .map((h) => ({ id: `h-${h}`, label: t(`write.alignObj.${h}`), onSelect: () => setDrawingAnchor(editor, (a) => alignAnchor(a, { h })) }))
-                .concat((["top", "center", "bottom"] as const).map((v) => ({ id: `v-${v}`, label: t(`write.alignObj.v${v}`), onSelect: () => setDrawingAnchor(editor, (a) => alignAnchor(a, { v })) })))}
-            />
+            {arrangeMenus((d.anchor as Anchor | undefined) ?? null, (make) => setDrawingAnchor(editor, make), () => ui.openDialog("layout"))}
+            {groupMenu(editor)}
+            {alignObjectsMenu(editor, (mode, to) => alignOne(mode, to, (make) => setDrawingAnchor(editor, make)))}
+            {orderMenus(editor)}
+            {selectionPaneButton(features)}
             <RibbonMenuButton
               label={t("write.rotate")}
               icon="arrange"
@@ -381,10 +475,13 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
       {
         label: t("write.size"),
         items: (
-          <RibbonStack>
-            <SizeField label={t("write.heightCm")} value={d.height} onCommit={(v) => edit((x) => ({ ...x, height: v }))} />
-            <SizeField label={t("write.widthCm")} value={d.width} onCommit={(v) => edit((x) => ({ ...x, width: v }))} />
-          </RibbonStack>
+          <>
+            <RibbonStack>
+              <SizeField label={t("write.heightCm")} value={d.height} onCommit={(v) => edit((x) => (x.kind === "group" ? scaleGroup(x, x.width, v) : { ...x, height: v }))} />
+              <SizeField label={t("write.widthCm")} value={d.width} onCommit={(v) => edit((x) => (x.kind === "group" ? scaleGroup(x, v, x.height) : { ...x, width: v }))} />
+            </RibbonStack>
+            {fitCanvasButton(editor, d)}
+          </>
         ),
       },
     ],
@@ -498,6 +595,7 @@ export function pictureFormatGroups(editor: Editor, format: PictureFormat | null
       items: (
         <>
           <RibbonGallery label={t("write.pictureStyles")} variant="dropdown" icon="image" columns={5} items={pictureStyleItems()} onSelect={(id) => setSelectedFormat(editor, (x) => withPictureStyle(x, id))} />
+          {pictureEffectsMenu(editor, f)}
           <RibbonStack>
             <ColorPicker
               label={t("write.pictureBorder")}
@@ -531,21 +629,130 @@ export function pictureFormatGroups(editor: Editor, format: PictureFormat | null
   ];
 }
 
-/** Picture Format › Size › Crop (Word's place: before the height and width). */
+/** Changes the selected picture's size and format at once (kept selected). */
+function setSelectedPicture(editor: Editor, f: (attrs: { width: number; height: number; format: PictureFormat }) => { width: number; height: number; format: PictureFormat }): boolean {
+  const img = selectedImage(editor.state);
+  if (!img) return false;
+  const a = img.node.attrs;
+  const next = f({ width: a.width as number, height: a.height as number, format: { ...((a.format as PictureFormat | null) ?? {}) } });
+  const format = next.format;
+  const c = format.crop;
+  if (c && !c.left && !c.top && !c.right && !c.bottom) delete format.crop;
+  const tr = editor.state.tr.setNodeMarkup(img.pos, undefined, { ...a, width: next.width, height: next.height, format: Object.keys(format).length ? format : null });
+  tr.setSelection(NodeSelection.create(tr.doc, img.pos));
+  editor.view.dispatch(tr);
+  return true;
+}
+
+/** Crop ▾: Crop to Shape, Aspect Ratio, Fill, Fit (Word's Crop split button). */
+function CropPanel({ editor, close }: { editor: Editor; close: () => void }) {
+  const crop = () => {
+    const img = selectedImage(editor.state);
+    if (img) toggleCropMode(editor.view, img.pos, true);
+  };
+  const ratio = (rw: number, rh: number) => {
+    setSelectedPicture(editor, ({ width, height, format }) => {
+      const full = fullImageSize(width, height, format.crop);
+      const c = aspectCrop(full.w, full.h, rw, rh);
+      const size = croppedSize(width, height, format.crop, c);
+      return { ...size, format: { ...format, crop: c } };
+    });
+    close();
+    crop();
+  };
+  const fill = (fit: boolean) => {
+    setSelectedPicture(editor, ({ width, height, format }) => {
+      const full = fullImageSize(width, height, format.crop);
+      const c = fit ? fitCrop(width, height, full.w, full.h) : aspectCrop(full.w, full.h, width, height);
+      return { width, height, format: { ...format, crop: c } };
+    });
+    close();
+  };
+  return (
+    <div className="flex w-72 flex-col gap-1 p-1" data-testid="crop-panel">
+      <button type="button" className="rounded px-2 py-1 text-left text-xs hover:bg-ui-hover" onClick={() => (close(), crop())}>
+        {t("write.crop")}
+      </button>
+      <h3 className="px-1 text-[11px] font-medium text-ui-muted">{t("write.cropToShape")}</h3>
+      <ShapeLibrary
+        presetsOnly
+        onPick={(id) => {
+          close();
+          setSelectedFormat(editor, (x) => ({ ...x, geometry: id }));
+        }}
+      />
+      <h3 className="px-1 text-[11px] font-medium text-ui-muted">{t("write.aspectRatio")}</h3>
+      <div className="grid grid-cols-5 gap-0.5" role="group" aria-label={t("write.aspectRatio")}>
+        {ASPECT_RATIOS.map(([w, h]) => (
+          <button key={`${w}:${h}`} type="button" className="rounded px-1 py-0.5 text-xs hover:bg-ui-hover" onClick={() => ratio(w, h)}>
+            {`${w}:${h}`}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1">
+        <button type="button" className="flex-1 rounded px-2 py-1 text-xs hover:bg-ui-hover" title={t("write.cropFillTip")} onClick={() => fill(false)}>
+          {t("write.cropFill")}
+        </button>
+        <button type="button" className="flex-1 rounded px-2 py-1 text-xs hover:bg-ui-hover" title={t("write.cropFitTip")} onClick={() => fill(true)}>
+          {t("write.cropFit")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Picture Format › Size › Crop ▾ (Word's place: before the height and width). */
 export function pictureCropButton(editor: Editor) {
   return (
-    <RibbonButton
+    <RibbonSplitButton
       label={t("write.crop")}
       icon={CROP_ICON}
       size="large"
       tooltip={t("write.cropTip")}
+      menuLabel={t("write.cropOptions")}
       onClick={() => {
         const img = selectedImage(editor.state);
         if (img) toggleCropMode(editor.view, img.pos);
       }}
+      menu={(close) => <CropPanel editor={editor} close={close} />}
     />
   );
 }
+
+/** Picture Effects ▾: Shadow, Soft Edges, Bevel. */
+export function pictureEffectsMenu(editor: Editor, f: PictureFormat): ReactNode {
+  return (
+    <RibbonMenuButton
+      label={t("write.pictureEffects")}
+      icon={EFFECTS_PIC_ICON}
+      menu={[
+        { id: "shadow", label: t("write.picEffect.shadow"), checked: !!f.shadow, onSelect: () => setSelectedFormat(editor, (x) => ({ ...x, shadow: !x.shadow })) },
+        { separator: true as const, label: t("write.picEffect.softEdges") },
+        ...SOFT_EDGES.map((pt) => ({
+          id: `soft-${pt}`,
+          label: pt ? t("write.pt", { n: pt }) : t("write.picEffect.noSoftEdges"),
+          checked: pt ? Math.abs((f.softEdge ?? 0) - pt * EMU_PER_PT) < 1 : !f.softEdge,
+          onSelect: () => setSelectedFormat(editor, (x) => withSoftEdge(x, pt)),
+        })),
+        { separator: true as const, label: t("write.picEffect.bevel") },
+        { id: "bevel-none", label: t("write.picEffect.noBevel"), checked: !f.bevel, onSelect: () => setSelectedFormat(editor, (x) => withBevel(x, null)) },
+        ...BEVELS.map((b) => ({
+          id: `bevel-${b}`,
+          label: t(`write.bevel.${b}`),
+          checked: f.bevel?.preset === b,
+          onSelect: () => setSelectedFormat(editor, (x) => withBevel(x, b)),
+        })),
+      ]}
+    />
+  );
+}
+
+const EFFECTS_PIC_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="3" y="3" width="12" height="12" />
+    <path d="M5 17h12V5" strokeOpacity="0.45" strokeWidth="2.5" />
+  </svg>
+);
 
 const CROP_ICON = (
   <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">

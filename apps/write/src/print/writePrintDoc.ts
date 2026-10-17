@@ -93,7 +93,8 @@ export const WRITE_PRINT_CSS = `.rs-write-body { position: absolute; }
 .rs-write-content .drawing-wrap span[data-tag] { display: block; }
 .rs-write-content .drawing-wrap span.drawing-text { display: flex; }
 .rs-write-content .drawing-wrap span[data-tag="p"] { margin: 0 0 8pt; }
-.rs-write-content .image-handle, .rs-write-content .drawing-rotate, .rs-write-content .drawing-adjust, .rs-write-content .crop-handle, .rs-write-content .crop-window { display: none !important; }
+.rs-write-content .image-handle, .rs-write-content .drawing-rotate, .rs-write-content .drawing-adjust, .rs-write-content .crop-handle, .rs-write-content .crop-window, .rs-write-content .crop-mask, .rs-write-content .chain-caret { display: none !important; }
+.rs-write-content .drawing-member { outline: none !important; }
 .rs-write-content .drawing-box, .rs-write-content .inline-image-wrap img { outline: none !important; }
 .rs-write-content .field { background: none !important; }
 .rs-write-content [data-section-label]::after { display: none !important; }

@@ -105,7 +105,12 @@ body,
 .inline-image-wrap .picture-frame { display: inline-block; overflow: hidden; line-height: 0; vertical-align: baseline; box-sizing: border-box; }
 .inline-image-wrap .picture-frame img.inline-image { display: block; max-width: none; }
 .inline-image-wrap.cropping .picture-frame { overflow: visible; }
-.inline-image-wrap.cropping .picture-frame img.inline-image { opacity: 0.45; }
+.inline-image-wrap .picture-frame { position: relative; }
+.inline-image-wrap .picture-bevel, .drawing-member .picture-bevel { position: absolute; inset: 0; pointer-events: none; }
+.inline-image-wrap .picture-bevel[hidden] { display: none; }
+.inline-image-wrap .crop-mask { display: none; position: absolute; background: rgba(0, 0, 0, 0.55); pointer-events: none; z-index: 1; }
+.inline-image-wrap.cropping .crop-mask:not([hidden]) { display: block; }
+.picture-clip { position: absolute; }
 .inline-image-wrap .crop-window { display: none; position: absolute; outline: 1px solid #000; pointer-events: none; }
 .inline-image-wrap.cropping .crop-window { display: block; }
 .crop-handle { display: none; position: absolute; background: #000; z-index: 2; touch-action: none; }
@@ -134,6 +139,30 @@ body,
 .drawing-adjust { display: none; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #ffd500; border: 1px solid #7a6000; box-sizing: border-box; cursor: pointer; z-index: 2; touch-action: none; }
 .drawing-wrap.selected .drawing-adjust { display: block; }
 .drawing-wrap.floating.selected { cursor: move; touch-action: none; }
+/* P9-W4: handles in a frame that rotates with the shape; group members; linked text boxes. */
+.drawing-wrap .drawing-frame { position: absolute; inset: 0; pointer-events: none; }
+.drawing-wrap .drawing-frame > * { pointer-events: auto; }
+.drawing-wrap .drawing-members { position: absolute; inset: 0; display: block; }
+.drawing-wrap .drawing-members[hidden] { display: none; }
+.drawing-member { position: absolute; display: block; box-sizing: border-box; }
+.drawing-member .drawing-shape { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.drawing-member .drawing-text { position: absolute; inset: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; user-select: text; cursor: text; }
+.drawing-member .drawing-text .ProseMirror { outline: none; min-height: 1em; white-space: pre-wrap; }
+.drawing-member .picture-frame { display: block; position: relative; overflow: hidden; line-height: 0; }
+.drawing-member .picture-frame img.inline-image { display: block; max-width: none; }
+.drawing-wrap.selected .drawing-member.member-selected { outline: 1px dashed #4472c4; outline-offset: 1px; }
+.drawing-wrap[data-kind="group"].selected .drawing-box { outline-style: dotted; }
+.drawing-wrap[data-kind="canvas"].selected .drawing-box { outline-style: dashed; }
+.drawing-wrap[data-kind="canvas"] .drawing-rotate { display: none !important; }
+.drawing-wrap .chain-host { position: relative; overflow: hidden; height: 100%; }
+.drawing-wrap .chain-host .chain-copy { pointer-events: none; user-select: none; }
+.drawing-wrap .chain-caret { position: absolute; width: 1px; background: currentColor; animation: chain-blink 1.06s steps(1) infinite; }
+@keyframes chain-blink { 50% { opacity: 0; } }
+.drawing-wrap[data-chain="follower"] .drawing-text { cursor: text; }
+.tiptap-content.drawing-tool, .write-page.drawing-tool, .drawing-tool .ProseMirror { cursor: crosshair; }
+.draw-band { position: fixed; z-index: 50; border: 1px solid #4472c4; background: rgba(68, 114, 196, 0.12); pointer-events: none; }
+.drawing-wrap.multi-selected .drawing-box, .inline-image-wrap.multi-selected img { outline: 1px solid #4472c4; outline-offset: 1px; }
+.drawing-wrap[data-snapped="1"] .drawing-box { outline-color: #c00000; }
 /* Touch-sized hit areas around the small handles (docs/mobile-plan.md guardrails: ≥ 32 px). */
 /* They grow outwards only, so the text next to the box edge stays clickable. */
 .drawing-handle::before, .drawing-rotate::before, .drawing-adjust::before { content: ""; position: absolute; inset: -12px; }
@@ -147,7 +176,10 @@ body,
 .drawing-handle.image-handle-sw::before { inset: 4px 4px -12px -12px; }
 .drawing-adjust::before { inset: -6px; }
 .drawing-wrap.moving, .drawing-wrap.resizing { opacity: 0.8; }
-.tiptap-content :is(p, h1, h2, h3, h4, h5, h6):has(> .drawing-wrap.behind, > .drawing-wrap.front) { position: relative; }
+.tiptap-content :is(p, h1, h2, h3, h4, h5, h6):has(> .drawing-wrap.behind, > .drawing-wrap.front, > .drawing-wrap.both) { position: relative; }
+.tiptap-content :is(p, h1, h2, h3, h4, h5, h6):has(> .inline-image-wrap.both) { position: relative; }
+/* Wrap Text both sides (P9-W4): the gap a line leaves for a picture in its middle. */
+.wrap-spacer { display: inline-block; height: 1px; vertical-align: baseline; }
 /* Hidden text (w:vanish): not shown, not printed; View › Hidden Text shows it dotted. */
 .tiptap-content .hidden-text { display: none; }
 /* Word's underline kinds (the underline mark's data-u); "words" is drawn per word by wordsUnderline.ts. */

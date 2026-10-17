@@ -153,7 +153,7 @@ describe("templates, Save As and Info", () => {
     const { backend } = await mount();
     const memo = makeDoc([para(1, "MEMO")]);
     memo.properties = { title: "Memo", author: "Template author" };
-    const fetchMock = vi.fn(async () => new Response(new TextEncoder().encode(JSON.stringify(memo))));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(new TextEncoder().encode(JSON.stringify(memo))));
     vi.stubGlobal("fetch", fetchMock);
     fireEvent.click(tab("File"));
     fireEvent.click(await screen.findByRole("button", { name: "New" }, T));

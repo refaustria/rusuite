@@ -23,6 +23,7 @@ export const WRAP_ICONS: Record<WrapChoice, ReactNode> = {
   inline: svg(<><path d={lines([4, 16])} /><rect x="7" y="7" width="5" height="6" fill="currentColor" fillOpacity="0.35" /><path d="M2 12h4M13 12h5" /></>),
   square: svg(<><rect x="2.5" y="6" width="7" height="7" fill="currentColor" fillOpacity="0.35" /><path d={`${lines([3, 17])}${lines([7, 10, 13], 11)}`} /></>),
   tight: svg(<><circle cx="6" cy="10" r="3.5" fill="currentColor" fillOpacity="0.35" /><path d={`${lines([3, 17])}${lines([7, 10, 13], 11)}`} /></>),
+  through: svg(<><path d="M2.5 13.5l3.5-7 3.5 7z" fill="currentColor" fillOpacity="0.35" /><path d={`${lines([3, 17])}${lines([7, 10, 13], 11)}M5 13h1.5`} /></>),
   topAndBottom: svg(<><rect x="6" y="6.5" width="8" height="7" fill="currentColor" fillOpacity="0.35" /><path d={lines([3, 17])} /></>),
   behind: svg(<><rect x="5" y="4" width="10" height="12" fill="currentColor" fillOpacity="0.2" stroke="none" /><path d={lines([5, 8.5, 12, 15.5])} /></>),
   inFront: svg(<><path d={lines([5, 8.5, 12, 15.5])} /><rect x="5" y="4" width="10" height="12" fill="currentColor" fillOpacity="0.6" stroke="none" /></>),
@@ -45,7 +46,7 @@ export function setSelectedAnchor(editor: Editor, make: (current: Anchor | null)
 }
 
 /** Position ▾ and Wrap Text ▾ for the Picture Format tab. */
-export function pictureArrangeItems(editor: Editor, anchor: Anchor | null) {
+export function pictureArrangeItems(editor: Editor, anchor: Anchor | null, more?: () => void) {
   const wrap = wrapOf(anchor);
   const preset = presetOf(anchor);
   return (
@@ -64,6 +65,7 @@ export function pictureArrangeItems(editor: Editor, anchor: Anchor | null) {
             checked: preset === p,
             onSelect: () => setSelectedAnchor(editor, (a) => presetAnchor(a, p)),
           })),
+          ...(more ? [{ separator: true as const }, { id: "more", label: t("write.layout.more"), onSelect: more }] : []),
         ]}
       />
       <RibbonMenuButton

@@ -97,6 +97,11 @@ export function canonDrawing(d: DrawingValue): DrawingValue {
   if (out.fill?.kind === "none") delete out.fill;
   if (out.line && out.line.fill.kind === "none" && out.line.width === 9525 && (out.line.dash ?? "solid") === "solid") delete out.line;
   if (out.line?.dash === "solid") out.line = { fill: out.line.fill, width: out.line.width };
+  if (!out.x) delete out.x;
+  if (!out.y) delete out.y;
+  if (out.children?.length) out.children = out.children.map(canonDrawing);
+  else delete out.children;
+  if (out.picture && (!out.picture.format || !Object.keys(out.picture.format).length)) out.picture = { media: out.picture.media };
   if (out.text) {
     const t = { ...out.text, blocks: (out.text.blocks ?? []).map(canonBlock) };
     const ins = t.insets;
@@ -203,9 +208,16 @@ export function* walkAllBlocks(blocks: Block[]): Generator<Block> {
     if (b.kind === "table") {
       for (const row of b.value.rows) for (const cell of row.cells) yield* walkAllBlocks(cell.blocks);
     } else if (b.kind === "paragraph") {
-      for (const d of drawingsOf(b.value)) yield* walkAllBlocks(d.text?.blocks ?? []);
+      for (const d of drawingsOf(b.value).flatMap(allMembers)) yield* walkAllBlocks(d.text?.blocks ?? []);
     }
   }
+}
+
+type DrawingNodeValue = Extract<Inline, { kind: "drawing" }>["value"];
+
+/** A drawing and its group members (depth first). */
+export function allMembers(d: DrawingNodeValue): DrawingNodeValue[] {
+  return [d, ...(d.children ?? []).flatMap(allMembers)];
 }
 
 /** Every block (recursively, cells included) in document order. */

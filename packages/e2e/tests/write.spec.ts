@@ -1025,6 +1025,9 @@ test.describe("Write drawings and character formatting (P8-34)", () => {
     await page.getByRole("tab", { name: "Insert" }).click();
     await page.getByRole("button", { name: "Shapes" }).click();
     await page.getByRole("button", { name: "Rounded rectangle" }).first().click();
+    // P9-W4: picking a shape arms the drawing tool (Word); Enter inserts it at the caret.
+    await expect(main(page)).toHaveAttribute("data-draw-tool", "roundRect");
+    await page.keyboard.press("Enter");
     const shape = page.locator(".drawing-wrap[data-preset='roundRect']");
     await expect(shape).toHaveCount(1);
     await expect(page.getByRole("tab", { name: "Shape Format" })).toBeVisible();
@@ -1093,7 +1096,7 @@ test.describe("Write drawings and character formatting (P8-34)", () => {
     const img = main(page).locator(".inline-image-wrap").first();
     await img.click();
     await page.getByRole("tab", { name: "Picture Format" }).click();
-    await page.getByRole("button", { name: "Crop" }).click();
+    await page.getByRole("button", { name: "Crop", exact: true }).click();
     await expect(img).toHaveClass(/cropping/);
     const handle = img.locator(".crop-handle-e");
     const box = (await handle.boundingBox())!;

@@ -78,7 +78,7 @@ export function selectedImage(state: EditorState): { node: PMNode; pos: number }
 }
 
 /** Changes attributes of the image at `pos` (optimistic; the mapper sends `SetImageSize`/`SetImageAlt`). */
-export function setImageAttrs(view: EditorView, pos: number, attrs: { width?: number; height?: number; alt?: string | null; anchor?: Anchor | null }): boolean {
+export function setImageAttrs(view: EditorView, pos: number, attrs: { width?: number; height?: number; alt?: string | null; anchor?: Anchor | null; decorative?: boolean }): boolean {
   const node = view.state.doc.nodeAt(pos);
   if (!node || node.type.name !== "image") return false;
   const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs });
