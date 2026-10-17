@@ -199,6 +199,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     if let Some(n) = numbering {
         doc.numbering = n.numbering;
         context.numbering = n.instances;
+        link_style_levels(&mut doc);
     }
 
     let mut media = HashMap::new();
@@ -1804,5 +1805,65 @@ fn flush(text: &mut String, props: &RunProperties, out: &mut Vec<Inline>) {
             std::mem::take(text),
             props.clone(),
         )));
+    }
+}
+
+/// A style numbered with a list that has a level linked to it (`w:pStyle`
+/// in the level, Word's heading numbering) uses that level: Word writes
+/// the style's `w:numPr` without `w:ilvl`.
+fn link_style_levels(doc: &mut Document) {
+    let numbering = &doc.numbering;
+    for style in doc.styles.styles.iter_mut() {
+        let Some(n) = style.paragraph.numbering.as_mut().filter(|n| n.num_id != 0) else {
+            continue;
+        };
+        let linked = numbering.get(n.num_id).and_then(|d| {
+            d.levels
+                .iter()
+                .position(|l| l.style.as_deref() == Some(style.id.as_str()))
+        });
+        if let Some(i) = linked {
+            n.level = i as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod style_link_tests {
+    use super::*;
+    use model_text::{Level, LevelKind, NumberingDef, NumberingRef};
+
+    #[test]
+    fn style_numbering_takes_the_linked_level() {
+        let mut doc = Document::new();
+        let levels = (0..3)
+            .map(|i| Level {
+                style: Some(format!("Heading{}", i + 1)),
+                ..Level::new(LevelKind::Decimal, format!("%{}", i + 1))
+            })
+            .collect();
+        doc.numbering.insert(NumberingDef::standalone(4, levels));
+        // Word writes `<w:numPr><w:numId w:val="4"/></w:numPr>` (level 0 on read).
+        for id in ["Heading2", "Heading3", "Normal"] {
+            let s = doc.styles.styles.iter_mut().find(|s| s.id == id).unwrap();
+            s.paragraph.numbering = Some(NumberingRef {
+                num_id: 4,
+                level: 0,
+            });
+        }
+        link_style_levels(&mut doc);
+        let level = |id: &str| {
+            doc.styles
+                .get(id)
+                .unwrap()
+                .paragraph
+                .numbering
+                .unwrap()
+                .level
+        };
+        assert_eq!(
+            (level("Heading2"), level("Heading3"), level("Normal")),
+            (1, 2, 0)
+        );
     }
 }

@@ -1,6 +1,5 @@
 //! Shapes and text boxes (`InsertDrawing`, `SetDrawingProps`,
-//! `SetDrawingText`), picture formatting and links, Change Case and list
-//! presets (`ApplyNumbering`).
+//! `SetDrawingText`), picture formatting and links and Change Case.
 //!
 //! A drawing is one inline position of its paragraph; its text blocks are
 //! a nested container (the drawing's id is the container id) that the text
@@ -8,7 +7,7 @@
 //! replaces the inline (`RestoreInlines` is the exact inverse, ids
 //! included); edits inside its text report the paragraph holding it.
 
-use model_text::{Alignment, Drawing, DrawingKind, DrawingText, Level, PictureFormat, VAlignPos};
+use model_text::{Alignment, Drawing, DrawingKind, DrawingText, PictureFormat, VAlignPos};
 
 use super::*;
 use crate::command::TextCase;
@@ -263,44 +262,6 @@ impl WriteDocument {
             });
         }
         self.restore_inlines(block, from, to, inl, false, ch)
-    }
-
-    pub(super) fn apply_numbering(
-        &mut self,
-        levels: &[Level],
-        items: &[(NodeId, u8)],
-        ch: &mut Changes,
-    ) -> R<C> {
-        if levels.is_empty() || levels.len() > 9 {
-            return Err(invalid("a list needs 1 to 9 levels"));
-        }
-        if items.is_empty() {
-            return Err(invalid("no paragraphs"));
-        }
-        let ids: Vec<NodeId> = items.iter().map(|(id, _)| *id).collect();
-        self.paras(&ids)?;
-        let old = self.doc.numbering.clone();
-        let old_styles = self.doc.styles.clone();
-        let list_style = self.list_paragraph_targets(&ids);
-        let num_id = self.doc.numbering.next_id();
-        self.doc
-            .numbering
-            .insert(NumberingDef::standalone(num_id, levels.to_vec()));
-        let levels_of: HashMap<NodeId, u8> = items.iter().copied().collect();
-        let restore = self.edit_paragraph_props(&ids, ch, |id, p| {
-            p.numbering = Some(NumberingRef {
-                num_id,
-                level: levels_of.get(&id).copied().unwrap_or(0).min(8),
-            });
-            if list_style.contains(&id) {
-                p.style = Some(super::LIST_PARAGRAPH.to_owned());
-            }
-        })?;
-        let restore = self.with_styles(restore, old_styles, ch);
-        ch.numbering = true;
-        Ok(C::Compound {
-            commands: vec![restore, C::RestoreNumbering { numbering: old }],
-        })
     }
 }
 
