@@ -23,6 +23,7 @@ import type { PivotSourceSpec } from "../generated/PivotSourceSpec";
 import type { PivotItemInfo } from "../generated/PivotItemInfo";
 import type { LineColors } from "../generated/LineColors";
 import type { Rect } from "../generated/Rect";
+import type { FillMode } from "../generated/FillMode";
 import type { SheetRect } from "../generated/SheetRect";
 import type { SheetThreads } from "../generated/SheetThreads";
 import type { RegionSnapshot } from "../generated/RegionSnapshot";
@@ -122,6 +123,8 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     decoded: { decoded: "object" },
     preview: { rows: "array" },
     pictures: { pictures: "array" },
+    // `text` is null for a copied formula.
+    fillPreview: {},
     errorChecks: { issues: "array" },
     evaluation: { evaluation: "object" },
     watch: { items: "array" },
@@ -350,6 +353,11 @@ export class CalcApi {
   /** The notes, threads and hyperlinks intersecting a rectangle, with its `HYPERLINK()` targets. */
   async cellAnnotations(sheet: number, r0: number, c0: number, r1: number, c1: number): Promise<CellAnnotations> {
     return (await this.call({ type: "cellAnnotations", sheet, r0, c0, r1, c1 }, "annotations")).annotations;
+  }
+
+  /** The fill handle's tip: what the farthest cell of `dst` would show after filling it from `src` (`null`: none). */
+  async fillPreview(sheet: number, src: Rect, dst: Rect, mode: FillMode): Promise<string | null> {
+    return (await this.call({ type: "fillPreview", sheet, src, dst, mode }, "fillPreview")).text;
   }
 
   /** The threads of `sheet`, or of every sheet with any (`null`). */

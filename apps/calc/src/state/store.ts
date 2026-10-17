@@ -33,7 +33,7 @@ import type { SheetInfo } from "../generated/SheetInfo";
 import type { SheetView } from "../generated/SheetView";
 import type { SheetViewPatch } from "../generated/SheetViewPatch";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
-import { AxisGeometry, colGeometry, DEFAULT_FORMAT, rowGeometry, rowHeightPx } from "../grid/geometry";
+import { AxisGeometry, colGeometry, colWidthPx, DEFAULT_FORMAT, rowGeometry, rowHeightPx } from "../grid/geometry";
 import { CELL_PADDING } from "../grid/render";
 import { approxMeasure, lineHeightPx, wrapLines, type Measure } from "../grid/textLayout";
 import { colName, sheetPrefix } from "../grid/address";
@@ -1907,11 +1907,21 @@ export class CalcStore {
     const full: CellStyle = patch.font?.underline !== undefined && !("underlineAccounting" in patch) ? { ...(patch as CellStyle), underlineAccounting: false } : (patch as CellStyle);
     const command: CalcCommand = { type: "applyStyle", sheet, ...r, patch: full };
     const wrap = patch.alignment?.wrapText;
-    if (wrap === undefined || wrap === null || r.r1 - r.r0 > 500) return this.apply(command);
-    // Wrap text on/off: rows without an explicit height follow (Excel).
+    const size = patch.font?.size;
+    const sizing = (wrap !== undefined && wrap !== null) || (size !== undefined && size !== null);
+    if (!sizing || r.r1 - r.r0 > 500) return this.apply(command);
+    // Wrap text on/off and font size: rows without an explicit height follow (Excel).
     const rows: number[] = [];
     for (let row = r.r0; row <= r.r1; row++) rows.push(row);
-    const fit = this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap } : undefined));
+    const cache = this.cache(sheet);
+    const styles = this.styles();
+    const fit = this.rowFitCommands(sheet, rows, (c, row) => {
+      if (c < r.c0 || c > r.c1) return undefined;
+      if (size === undefined || size === null) return { wrap: wrap ?? undefined };
+      // The style as it will be: the patched font size over each cell's own style.
+      const own = styleAt(styles, styleIdIn(cache, row, c));
+      return { wrap: wrap ?? undefined, style: { ...own, font: { ...(own.font ?? {}), size } } };
+    });
     return this.apply(fit.length === 0 ? command : { type: "compound", commands: [command, ...fit] });
   }
 
@@ -1928,7 +1938,9 @@ export class CalcStore {
    * edit being committed, a style being applied). Measures cached cells only.
    */
   private rowFitCommands(
-    sheet: number, rows: number[], override: (col: number) => { text?: string; wrap?: boolean; rotation?: number } | undefined, extraCols: number[] = [],
+    sheet: number, rows: number[],
+    override: (col: number, row: number) => { text?: string; wrap?: boolean; rotation?: number; style?: CellStyle; width?: number } | undefined,
+    extraCols: number[] = [],
   ): CalcCommand[] {
     const cache = this.cache(sheet);
     const geo = this.geometry(sheet);
@@ -1943,9 +1955,11 @@ export class CalcStore {
       for (const c of extraCols) cols.add(c);
       let need = 0;
       for (const col of cols) {
-        const o = override(col);
+        const o = override(col, row);
         const cell = cache.cells.get(row)?.get(col);
-        const style = styleAt(styles, styleIdIn(cache, row, col));
+        // Merged cells never grow their rows (Excel).
+        if (cache.merges.some((m) => m.r0 <= row && row <= m.r1 && m.c0 <= col && col <= m.c1)) continue;
+        const style = o?.style ?? styleAt(styles, styleIdIn(cache, row, col));
         const text = o?.text ?? cell?.display ?? "";
         const wrap = o?.wrap ?? !!style.alignment?.wrapText;
         const rotation = o?.rotation ?? style.alignment?.textRotation ?? 0;
@@ -1955,8 +1969,12 @@ export class CalcStore {
           need = Math.max(need, rotatedHeight(this.measure(text, font), lineHeightPx(font), rotation));
           continue;
         }
-        if (!wrap) continue;
-        const lines = wrapLines(text, geo.col.size(col) - 2 * CELL_PADDING, font, this.measure).length;
+        // A larger font grows the row even without wrapping (Excel fits rows to their tallest font).
+        if (!wrap) {
+          need = Math.max(need, lineHeightPx(font));
+          continue;
+        }
+        const lines = wrapLines(text, (o?.width ?? geo.col.size(col)) - 2 * CELL_PADDING, font, this.measure).length;
         need = Math.max(need, lines * lineHeightPx(font));
       }
       if (need <= def) {
@@ -2356,7 +2374,20 @@ export class CalcStore {
 
   setColWidth(col: number, widthPx: number | null): Promise<void> {
     const width = widthPx === null ? null : pxToChars(widthPx);
-    return this.apply({ type: "setColWidth", sheet: this.state.activeSheet, col, width });
+    const sheet = this.state.activeSheet;
+    const command: CalcCommand = { type: "setColWidth", sheet, col, width };
+    // Rows with wrapped text in the column refit to the new width (Excel), when their height is automatic.
+    const cache = this.cache(sheet);
+    const styles = this.styles();
+    const rows: number[] = [];
+    for (const [row, cells] of cache.cells) {
+      const cell = cells.get(col);
+      if (cell && cell.display !== "" && styleAt(styles, cell.style).alignment?.wrapText) rows.push(row);
+    }
+    if (rows.length === 0 || rows.length > 2000) return this.apply(command);
+    const px = widthPx ?? colWidthPx(cache.format.defaultColWidth);
+    const fit = this.rowFitCommands(sheet, rows, (c) => (c === col ? { width: px } : undefined));
+    return this.apply(fit.length === 0 ? command : { type: "compound", commands: [command, ...fit] });
   }
 
   setRowHeight(row: number, heightPx: number | null): Promise<void> {

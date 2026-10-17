@@ -242,6 +242,15 @@ pub enum Request {
     },
     /// The pictures of a sheet (with their images).
     SheetPictures { sheet: u32 },
+    /// The fill handle's tip while dragging `src` over `dst` → `fillPreview`
+    /// (the text the farthest filled cell would show; `null` for a copied
+    /// formula).
+    FillPreview {
+        sheet: u32,
+        src: Rect,
+        dst: Rect,
+        mode: crate::command::FillMode,
+    },
 }
 
 /// The successful part of a [`Response`].
@@ -305,6 +314,10 @@ pub enum ResponseBody {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         color: Option<String>,
+    },
+    /// The reply to `fillPreview`.
+    FillPreview {
+        text: Option<String>,
     },
     /// The reply to `names`.
     Names {
@@ -751,6 +764,14 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         }
         Request::SheetPictures { sheet } => ResponseBody::Pictures {
             pictures: host.doc().sheet_pictures(sheet)?,
+        },
+        Request::FillPreview {
+            sheet,
+            src,
+            dst,
+            mode,
+        } => ResponseBody::FillPreview {
+            text: host.doc().fill_preview(sheet, src, dst, mode)?,
         },
     })
 }

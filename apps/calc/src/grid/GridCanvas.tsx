@@ -145,6 +145,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const perf = useRef({ frames: 0, totalMs: 0, maxMs: 0, lastFrameAt: 0, intervals: 0, intervalSum: 0 });
   /** Fill-handle drag: the range that would be filled. */
   const fillPreview = useRef<Rect | null>(null);
+  /** The fill handle's tip while dragging (Excel): the value the last filled cell gets, near the pointer. */
+  const [fillTip, setFillTip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: ContextMenuItem[]; label: string } | null>(null);
   const actions = useMemo(() => calcActions(store), [store]);
   const clipMark = useCalc(store, (s) => s.clipMark);
@@ -1036,6 +1038,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
     if (hit.kind === "fillHandle") {
       const src = normalize(sel);
+      const sheet = store.getState().activeSheet;
+      let asked = "";
       const move = (ev: MouseEvent) => {
         const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
         const to = h.kind === "cell" ? h.cell : null;
@@ -1044,10 +1048,33 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           fillPreview.current = next;
           schedule();
         }
+        // The tip follows the pointer; its text comes from the core once per target.
+        const root = scroller.current?.parentElement;
+        const box = root?.getBoundingClientRect();
+        const scale = scroller.current ? screenScale(scroller.current) : 1;
+        const at = box ? { x: (ev.clientX - box.left) / scale + 14, y: (ev.clientY - box.top) / scale + 16 } : { x: 0, y: 0 };
+        const key = next ? `${next.r0},${next.c0},${next.r1},${next.c1}` : "";
+        if (!next) {
+          asked = "";
+          setFillTip(null);
+          return;
+        }
+        setFillTip((tip) => (tip ? { ...tip, ...at } : tip));
+        if (key === asked) return;
+        asked = key;
+        void store.api.fillPreview(sheet, src, next, ev.ctrlKey || ev.metaKey ? "alternate" : "auto").then(
+          (text) => {
+            if (asked !== key) return;
+            setFillTip(text === null ? null : { text, ...at });
+          },
+          () => setFillTip(null),
+        );
       };
       const up = (ev: MouseEvent) => {
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
+        asked = "\u0000";
+        setFillTip(null);
         const dst = fillPreview.current;
         fillPreview.current = null;
         schedule();
@@ -1400,6 +1427,16 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         <AnnotationLayer store={store} />
         <SlicerLayer store={store} />
         <FlashPreviewLayer store={store} />
+        {fillTip && (
+          <div
+            role="tooltip"
+            data-testid="fill-tip"
+            className="pointer-events-none absolute z-30 whitespace-nowrap border border-ui-border bg-ui-panel px-1.5 py-0.5 text-xs text-ui-fg shadow"
+            style={{ left: fillTip.x, top: fillTip.y }}
+          >
+            {fillTip.text}
+          </div>
+        )}
         {showPerf && (
           <div
             ref={perfBox}

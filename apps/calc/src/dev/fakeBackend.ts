@@ -2526,6 +2526,18 @@ export class FakeCalcCore {
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
         case "dependents":
           return { ok: { type: "trace", refs: this.dependents(req.sheet, req.row, req.col) } };
+        case "fillPreview": {
+          // A toy: numbers continue by one step of the source's last difference; anything else copies its display.
+          const s = this.sheet(req.sheet);
+          const down = req.dst.r0 > req.src.r1 || req.dst.c0 > req.src.c1;
+          const vertical = req.dst.c0 === req.src.c0 && req.dst.c1 === req.src.c1;
+          const end = down ? (vertical ? this.view(s, req.src.r1, req.src.c0) : this.view(s, req.src.r0, req.src.c1)) : this.view(s, req.src.r0, req.src.c0);
+          if (end.input.startsWith("=") || end.display === "") return { ok: { type: "fillPreview", text: null } };
+          const n = Number(end.input);
+          const steps = vertical ? (down ? req.dst.r1 - req.src.r1 : req.src.r0 - req.dst.r0) : (down ? req.dst.c1 - req.src.c1 : req.src.c0 - req.dst.c0);
+          const text = Number.isFinite(n) && req.mode !== "copy" ? String(n + (down ? steps : -steps)) : end.display;
+          return { ok: { type: "fillPreview", text } };
+        }
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");

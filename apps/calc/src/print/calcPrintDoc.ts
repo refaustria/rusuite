@@ -10,7 +10,7 @@ import { loadUsedRange } from "./loadUsed";
 import { CALC_MARGINS, HEADING_COL_PX, HEADING_ROW_PX, colLetters, paginate, printableArea, type CalcPrintOptions, type PageSlice, type PrintTitlesSpec } from "./layout";
 import { parseRange } from "../charts/refs";
 import { lettersToCol } from "../formula/refs";
-import { buildPrintTable, type PrintLook, type PrintTable } from "./printTable";
+import { buildPrintTable, type PrintCell, type PrintLook, type PrintTable } from "./printTable";
 import type { IconSetKind } from "../generated/IconSetKind";
 import type { NameInfo } from "../generated/NameInfo";
 import { iconGlyph } from "../grid/cf";
@@ -124,6 +124,14 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
           const text = c.rotation
             ? `<span class="rs-rot" style="display:inline-block;white-space:nowrap;transform:rotate(${-c.rotation}deg)">${escapeHtml(c.text)}</span>`
             : escapeHtml(c.text);
+          const spill = c.overflow && !c.span ? overflowExtent(r.cells, colIdx, k, cols, c.overflow) : null;
+          if (spill && (spill.left > 0 || spill.right > 0)) {
+            // Text wider than its cell runs over the empty cells beside it on this page (Excel), cut at the page edge.
+            const justify = c.overflow!.align === "left" ? "flex-start" : c.overflow!.align === "right" ? "flex-end" : "center";
+            const valign = c.style.verticalAlign === "top" ? "flex-start" : c.style.verticalAlign === "middle" ? "center" : "flex-end";
+            const inner = `<div class="rs-spill" style="position:absolute;top:0;bottom:0;left:${-spill.left}px;right:${-spill.right}px;display:flex;justify-content:${justify};align-items:${valign};overflow:hidden;white-space:nowrap;padding:0 3px">${text}</div>`;
+            return `<td${attrs} style="${styleText(c.style)};position:relative;overflow:visible">${c.icon ? iconHtml(c.icon.set, c.icon.index) : ""}${inner}</td>`;
+          }
           return `<td${attrs} style="${styleText(c.style)}${c.rotation ? ";overflow:hidden" : ""}">${c.icon ? iconHtml(c.icon.set, c.icon.index) : ""}${text}</td>`;
         })
         .join("");
@@ -131,6 +139,32 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
     })
     .join("");
   return `<table class="rs-calc-table${o.gridlines ? " rs-grid" : ""}" style="width:${width}px"><colgroup>${colgroup}</colgroup>${head}${body}</table>`;
+}
+
+/**
+ * How far (px) an overflowing text at slice column `k` runs over its empty neighbours on the page: right for
+ * left-aligned text, left for right-aligned, both ways (half each) when centred; a non-empty or merged cell and
+ * the page's first / last column stop it.
+ */
+export function overflowExtent(
+  cells: readonly PrintCell[], colIdx: readonly number[], k: number, cols: readonly { width: number }[], o: { width: number; align: "left" | "center" | "right" },
+): { left: number; right: number } {
+  const own = cols[k]!.width;
+  const need = o.width - own;
+  const empty = (j: number) => {
+    const c = cells[colIdx[j]!];
+    return !!c && c.text === "" && !c.covered && !c.span;
+  };
+  const grow = (dir: 1 | -1, budget: number) => {
+    let got = 0;
+    // Only columns next to each other on this page (a hidden column ends the run like Excel's print).
+    for (let j = k + dir; got < budget && j >= 0 && j < colIdx.length && colIdx[j] === colIdx[j - dir]! + dir && empty(j); j += dir) got += cols[j]!.width;
+    return got;
+  };
+  if (need <= 0) return { left: 0, right: 0 };
+  if (o.align === "left") return { left: 0, right: grow(1, need) };
+  if (o.align === "right") return { left: grow(-1, need), right: 0 };
+  return { left: grow(-1, need / 2), right: grow(1, need / 2) };
 }
 
 /** The charts of one page: absolutely placed SVGs over the slice's table, cut at the page's cell area. */
@@ -318,7 +352,7 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     const x0 = geo.col.offset(r.c0);
     const y0 = geo.row.offset(r.r0);
     const box = { x: x0, y: y0, w: geo.col.offset(r.c1 + 1) - x0, h: geo.row.offset(r.r1 + 1) - y0 };
-    let table = buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, box0.r0, box0.c0, printLooks(store, id));
+    let table = buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, box0.r0, box0.c0, printLooks(store, id), store.measure);
     const inRows = (row: number) => (row >= r.r0 && row <= r.r1) || (!!up && row >= up[0] && row <= Math.min(up[1], r.r0 - 1));
     const inCols = (col: number) => (col >= r.c0 && col <= r.c1) || (!!left && col >= left[0] && col <= Math.min(left[1], r.c0 - 1));
     if (up || left) table = filterTable(table, inRows, inCols);
@@ -366,7 +400,7 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
       lastCol = Math.max(lastCol, geo.col.indexAt(n.x + n.w - 1));
     }
     if (lastRow > used.lastRow || lastCol > used.lastCol) await store.ensureRegion(id, 0, 0, lastRow, lastCol);
-    const table = buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol, 0, 0, printLooks(store, id));
+    const table = buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol, 0, 0, printLooks(store, id), store.measure);
     const titles: PrintTitlesSpec = { rows: indexRange(table.rows, (x) => x.row, names.rows), cols: indexRange(table.cols, (x) => x.col, names.cols) };
     parts.push({ sheetName: nameOf(id), table, charts: [...charts, ...annots.boxes], annotations: annots.list, breaks: tableBreaks(store, id, table), titles });
   };

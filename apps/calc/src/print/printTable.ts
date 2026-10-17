@@ -11,7 +11,8 @@ import type { IconSetKind } from "../generated/IconSetKind";
 import { barFillCss, cfKey, cfStyle } from "../grid/cf";
 import { colWidthPx, rowHeightPx } from "../grid/geometry";
 import type { SheetCache } from "../state/store";
-import { colorCss, fontFamily, fontPx, horizontalAlign, styleAt, verticalAlign } from "../grid/style";
+import { colorCss, fontCss, fontFamily, fontPx, horizontalAlign, styleAt, verticalAlign, type TextAlign } from "../grid/style";
+import { approxMeasure, fitNumber, type Measure } from "../grid/textLayout";
 import { patternBackground } from "../grid/patterns";
 import { underlineKindOf } from "../grid/render";
 
@@ -27,6 +28,11 @@ export interface PrintCell {
   icon?: { set: IconSetKind; index: number };
   /** Format Cells › Alignment › Orientation (degrees counter-clockwise). */
   rotation?: number;
+  /**
+   * A one-line text wider than its cell (px, padding included): it overflows into the empty cells beside it on
+   * the same page, as on the screen (`align`: which way), never past the printed area's edge.
+   */
+  overflow?: { width: number; align: TextAlign };
 }
 
 export interface PrintRow {
@@ -94,7 +100,33 @@ export function cellCss(style: CellStyle, kind: Parameters<typeof horizontalAlig
     if (b.diagonalDown) images.unshift(diagonal(b.diagonalDown, "to top right"));
   }
   if (images.length) css.backgroundImage = images.join(", ");
+  // Wrap text (and Justify) prints in lines inside the cell.
+  if (style.alignment?.wrapText || style.alignment?.horizontal === "justify") {
+    css.whiteSpace = "pre-wrap";
+    css.overflowWrap = "anywhere";
+  }
+  // Indent levels as on the screen (9 px each, from the aligned edge).
+  const indent = (style.alignment?.indent ?? 0) * 9;
+  if (indent > 0) {
+    const side = horizontalAlign(style, kind);
+    if (side === "left") css.paddingLeft = 3 + indent;
+    else if (side === "right") css.paddingRight = 3 + indent;
+  }
   return css;
+}
+
+/**
+ * The printed text of a cell `width` px wide: numbers that do not fit lose decimals, go scientific (General)
+ * or print as `####` (Excel); other text is as displayed.
+ */
+export function printedText(cell: CellView | undefined, style: CellStyle, width: number, measure: Measure = approxMeasure): string {
+  const text = cell?.display ?? "";
+  if (!cell || text === "" || cell.kind !== "number" || style.alignment?.wrapText) return text;
+  const avail = width - 6;
+  const font = fontCss(style);
+  if (cell.narrow) return "#".repeat(Math.max(1, Math.floor(avail / Math.max(1, measure("#", font)))));
+  const code = style.numberFormat;
+  return fitNumber(text, avail, font, measure, !code || code.trim().toLowerCase() === "general");
 }
 
 /**
@@ -120,7 +152,10 @@ function lookCss(style: CellStyle, kind: Parameters<typeof horizontalAlign>[1], 
   return css;
 }
 
-export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[], lastRow: number, lastCol: number, firstRow = 0, firstCol = 0, looks?: PrintLook): PrintTable {
+export function buildPrintTable(
+  cache: SheetCache, styles: readonly CellStyle[], lastRow: number, lastCol: number, firstRow = 0, firstCol = 0, looks?: PrintLook,
+  measure: Measure = approxMeasure,
+): PrintTable {
   const cols: PrintTable["cols"] = [];
   for (let c = firstCol; c <= lastCol; c++) {
     const v = cache.cols.get(c);
@@ -139,8 +174,19 @@ export function buildPrintTable(cache: SheetCache, styles: readonly CellStyle[],
       const id = cell ? cell.style : (v?.style ?? cache.cols.get(col)?.style ?? 0);
       const cf = cfMap.get(cfKey(r, col));
       const look = looks?.(cell, r, col);
-      const rotation = styleAt(styles, id).alignment?.textRotation;
-      if (!cf) return { col, text: cell?.display ?? "", style: lookCss(styleAt(styles, id), cell?.kind ?? "empty", look), ...(rotation ? { rotation } : {}) };
+      const own = styleAt(styles, id);
+      const rotation = own.alignment?.textRotation;
+      if (!cf) {
+        const text = printedText(cell, own, width, measure);
+        const out: PrintCell = { col, text, style: lookCss(own, cell?.kind ?? "empty", look), ...(rotation ? { rotation } : {}) };
+        // One-line text wider than the cell may overflow into empty neighbours (numbers never do).
+        if (text !== "" && cell && cell.kind !== "number" && !rotation && !own.alignment?.wrapText && !own.alignment?.shrinkToFit
+          && own.alignment?.horizontal !== "fill" && own.alignment?.horizontal !== "justify") {
+          const tw = measure(text.replace(/\n/g, " "), fontCss(own)) + 6;
+          if (tw > width) out.overflow = { width: tw, align: horizontalAlign(own, cell.kind) };
+        }
+        return out;
+      }
       // Conditional formatting: the highlight format / colour scale fill, a data bar as a background, an icon.
       const style = cellCss(cfStyle(styleAt(styles, id), cf), cell?.kind ?? "empty");
       if (cf.bar) {

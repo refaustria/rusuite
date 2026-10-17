@@ -115,6 +115,18 @@ export function shrunkFont(style: CellStyle, text: string, avail: number, font: 
   return font.replace(m[0], `${px.toFixed(2)}px`);
 }
 
+/** `null` unless the cell's number format has a fill character (`*x`). */
+function filledText(cell: Pick<CellView, "fillAt" | "fillChar">): string | null {
+  return cell.fillAt !== undefined && cell.fillChar ? cell.fillChar : null;
+}
+
+/** Horizontal alignment Fill: `text` repeated as often as it fits in `width` (at least once). */
+export function repeatToFill(text: string, width: number, font: string, measure: Measure): string {
+  if (text === "") return text;
+  const unit = Math.max(1, measure(text, font));
+  return text.repeat(Math.max(1, Math.floor(width / unit)));
+}
+
 export function hashes(width: number, font: string, measure: Measure): string {
   return "#".repeat(Math.max(1, Math.floor(width / Math.max(1, measure("#", font)))));
 }
@@ -351,48 +363,26 @@ export function computeRenderOps(
       const style = styleAt(styles, styleId);
       const align = horizontalAlign(style, cell.kind);
       // An icon sits at the left edge: the text starts after it (and after a pivot label's +/- button and the indent).
-      const indent = align === "left" ? (style.alignment?.indent ?? 0) * INDENT_PX : 0;
+      // A right-aligned text is indented from the right edge (Excel).
+      const indentPx = (style.alignment?.indent ?? 0) * INDENT_PX;
+      const indent = align === "left" ? indentPx : 0;
       const shift = (cf?.icon !== undefined && cf.iconSet ? ICON_SIZE + 2 : 0) + (look?.shift ?? 0) + indent;
       const x = xOf(c) + shift;
-      const w = colGeo.size(c) - shift;
+      const w = colGeo.size(c) - shift - (align === "right" ? indentPx : 0);
       if (w <= 0) continue;
       const t0attrs = withFormatColor(look ? resolveText(cfStyle(withLook(style, look), cf)) : textAttrs(styleId, style, cf), cell, cf);
       const avail = w - 2 * CELL_PADDING;
       const t = { ...t0attrs, font: shrunkFont(style, cell.display, avail, t0attrs.font, measure) };
       const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };
-      const rotation = style.alignment?.textRotation ?? 0;
-      if (rotation !== 0) {
-        // Rotated text stays inside its cell (Excel lets it overflow; kept simple).
-        if (c < vis.c0 || c > vis.c1) continue;
-        texts.push({ ...base, text: cell.display.replace(/\n/g, " "), clipX: x, clipW: w, rotation });
-        continue;
-      }
-      const filled = fillText(cell, avail, t.font, measure);
-      if (filled !== null && !style.alignment?.wrapText) {
-        if (c < vis.c0 || c > vis.c1) continue;
-        const text = cell.kind === "number" && (cell.narrow || measure(cell.display, t.font) > avail) ? hashes(avail, t.font, measure) : filled;
-        texts.push({ ...base, align: "left", text, clipX: x, clipW: w });
-        continue;
-      }
-      if (style.alignment?.wrapText) {
-        if (c < vis.c0 || c > vis.c1) continue;
-        const wrapped = wrapLines(cell.display, avail, t.font, measure);
-        texts.push({ ...base, text: cell.display, clipX: x, clipW: w, lines: wrapped, lineHeight: lineHeightPx(t.font) });
-        continue;
-      }
-      let text = cell.display.includes("\n") ? cell.display.replace(/\n/g, " ") : cell.display;
-      if (cell.kind === "number") {
-        if (c < vis.c0 || c > vis.c1) continue;
-        const code = style.numberFormat;
-        text = cell.narrow ? hashes(avail, t.font, measure) : fitNumber(text, avail, t.font, measure, !code || code.trim().toLowerCase() === "general");
-        texts.push({ ...base, text, clipX: x, clipW: w });
-        continue;
-      }
-      // Overflow into empty neighbours (text, booleans and errors alike).
-      let clipX = x;
-      let clipW = w;
-      const need = measure(text, t.font) - avail;
-      if (need > 0) {
+      /**
+       * The clip span of a text `need` px wider than its cell: the cell plus the empty neighbours it overflows into
+       * (left-aligned to the right, right-aligned to the left, centred both ways), stopped by a non-empty cell, a
+       * merged range or the overflow limit; the neighbours' gridlines are masked.
+       */
+      const overflowSpan = (need: number): { clipX: number; clipW: number } => {
+        let clipX = x;
+        let clipW = w;
+        if (need <= 0) return { clipX, clipW };
         const grow = (dir: 1 | -1, budget: number) => {
           let got = 0;
           for (let k = c + dir, n = 0; budget > got && n < MAX_OVERFLOW_COLS && k >= 0 && k <= LAST_COL && isEmpty(k); k += dir, n++) {
@@ -415,9 +405,52 @@ export function computeRenderOps(
           grow(-1, need / 2);
           grow(1, need / 2);
         }
+        return { clipX, clipW };
+      };
+      const rotation = style.alignment?.textRotation ?? 0;
+      if (rotation !== 0) {
+        // Rotated text that is wider than its cell overflows into empty neighbours like any text (Excel): the
+        // horizontal extent of the turned line decides; vertical text (±90°) never does.
+        const text = cell.display.replace(/\n/g, " ");
+        const rad = (rotation * Math.PI) / 180;
+        const extent = Math.abs(Math.cos(rad)) * measure(text, t.font) + Math.abs(Math.sin(rad)) * lineHeightPx(t.font);
+        const span = overflowSpan(cell.kind === "number" ? 0 : extent - avail);
+        if (span.clipX + span.clipW < 0 || span.clipX > vp.width) continue;
+        texts.push({ ...base, text, ...span, rotation });
+        continue;
       }
-      if (clipX + clipW < 0 || clipX > vp.width) continue;
-      texts.push({ ...base, text, clipX, clipW });
+      if (style.alignment?.horizontal === "fill" && !style.alignment.wrapText && filledText(cell) === null) {
+        // Horizontal alignment Fill: the content repeated across the cell, never overflowing (Excel).
+        if (c < vis.c0 || c > vis.c1) continue;
+        texts.push({ ...base, align: "left", text: repeatToFill(cell.display.replace(/\n/g, " "), avail, t.font, measure), clipX: x, clipW: w });
+        continue;
+      }
+      const filled = fillText(cell, avail, t.font, measure);
+      if (filled !== null && !style.alignment?.wrapText) {
+        if (c < vis.c0 || c > vis.c1) continue;
+        const text = cell.kind === "number" && (cell.narrow || measure(cell.display, t.font) > avail) ? hashes(avail, t.font, measure) : filled;
+        texts.push({ ...base, align: "left", text, clipX: x, clipW: w });
+        continue;
+      }
+      if (style.alignment?.wrapText || style.alignment?.horizontal === "justify") {
+        // Justify breaks into lines like wrap text (Excel).
+        if (c < vis.c0 || c > vis.c1) continue;
+        const wrapped = wrapLines(cell.display, avail, t.font, measure);
+        texts.push({ ...base, text: cell.display, clipX: x, clipW: w, lines: wrapped, lineHeight: lineHeightPx(t.font) });
+        continue;
+      }
+      let text = cell.display.includes("\n") ? cell.display.replace(/\n/g, " ") : cell.display;
+      if (cell.kind === "number") {
+        if (c < vis.c0 || c > vis.c1) continue;
+        const code = style.numberFormat;
+        text = cell.narrow ? hashes(avail, t.font, measure) : fitNumber(text, avail, t.font, measure, !code || code.trim().toLowerCase() === "general");
+        texts.push({ ...base, text, clipX: x, clipW: w });
+        continue;
+      }
+      // Overflow into empty neighbours (text, booleans and errors alike).
+      const span = overflowSpan(measure(text, t.font) - avail);
+      if (span.clipX + span.clipW < 0 || span.clipX > vp.width) continue;
+      texts.push({ ...base, text, ...span });
     }
   }
   for (const m of visMerges) {
@@ -597,14 +630,15 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
         if (o.rotation) {
           ctx.save();
           ctx.beginPath();
-          ctx.rect(o.x, o.y, o.w - 1, o.h - 1);
+          ctx.rect(o.clipX, o.y, o.clipW - 1, o.h - 1);
           ctx.clip();
-          ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+          const r = rotatedAnchor(o);
+          ctx.translate(r.x, r.y);
           ctx.rotate((-o.rotation * Math.PI) / 180);
-          ctx.textAlign = "center";
+          ctx.textAlign = r.align;
           ctx.textBaseline = "middle";
           ctx.fillText(o.text, 0, 0);
-          if (o.underline || o.strike) decorate(ctx, { ...o, align: "center", underlineKind: o.underlineKind === "doubleAccounting" ? "double" : o.underlineKind === "singleAccounting" ? undefined : o.underlineKind }, o.text, 0, 0, "middle");
+          if (o.underline || o.strike) decorate(ctx, { ...o, align: r.align, underlineKind: o.underlineKind === "doubleAccounting" ? "double" : o.underlineKind === "singleAccounting" ? undefined : o.underlineKind }, o.text, 0, 0, "middle");
           ctx.restore();
           break;
         }
@@ -626,6 +660,20 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: RenderOp[], bg: stri
       }
     }
   }
+}
+
+/**
+ * Where rotated text is drawn from: a text that fits turns around the cell centre; one that overflows starts at
+ * the cell's lower (positive angle) or upper (negative) corner on its alignment side and runs into the
+ * neighbours, centred text stays centred.
+ */
+export function rotatedAnchor(o: Pick<TextOp, "x" | "y" | "w" | "h" | "clipX" | "clipW" | "align" | "rotation">): { x: number; y: number; align: TextAlign } {
+  const overflowing = o.clipW > o.w + 0.5;
+  if (!overflowing || o.align === "center") return { x: o.x + o.w / 2, y: o.y + o.h / 2, align: "center" };
+  const up = (o.rotation ?? 0) > 0;
+  const pad = CELL_PADDING + 4;
+  if (o.align === "right") return { x: o.x + o.w - pad, y: up ? o.y + pad : o.y + o.h - pad, align: "right" };
+  return { x: o.x + pad, y: up ? o.y + o.h - pad : o.y + pad, align: "left" };
 }
 
 /** Underline / strike-through of one line of text. */
