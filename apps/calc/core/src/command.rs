@@ -288,6 +288,11 @@ pub enum CalcCommand {
         keys: Vec<SortKey>,
         has_header: bool,
         case_sensitive: bool,
+        /// Left to right (Sort › Options › Orientation): columns move,
+        /// the keys are rows. Absent = false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        columns: bool,
     },
     /// "Sort A to Z / Z to A" from a single cell: sorts by column `col`
     /// the AutoFilter range when `(row, col)` lies inside it (header

@@ -6,8 +6,9 @@ use core_model::{Color, Rgb, ThemeColorSlot};
 use engine_formula::{CellCoord, CellRect, RangeRef};
 use fmt_ooxml::{Package, PartName};
 use model_sheet::{
-    BorderSide, BorderStyle, Borders, CfKind, CfRule, CfValue, ColorPoint, CompareOp,
-    DataValidation, DxfStyle, ErrorStyle, IconSetKind, ListSource, ValidationKind, Workbook,
+    BorderSide, BorderStyle, Borders, CfKind, CfRule, CfValue, ColorPoint, CompareOp, DataBarAxis,
+    DataBarDirection, DataValidation, DxfStyle, ErrorStyle, IconSetKind, ListSource, TimePeriod,
+    ValidationKind, Workbook,
 };
 
 fn rect(r0: u32, c0: u32, r1: u32, c1: u32) -> CellRect {
@@ -95,14 +96,41 @@ fn build() -> Workbook {
         CfKind::AboveAverage {
             above: false,
             equal: true,
+            std_dev: None,
+        },
+        CfKind::AboveAverage {
+            above: true,
+            equal: false,
+            std_dev: Some(2),
+        },
+        CfKind::TimePeriod {
+            period: TimePeriod::LastWeek,
+        },
+        CfKind::TimePeriod {
+            period: TimePeriod::NextMonth,
         },
         CfKind::DuplicateValues,
         CfKind::UniqueValues,
+        CfKind::data_bar(
+            Color::Rgb(Rgb::new(0x63, 0x8E, 0xC6)),
+            CfValue::Num("1".into()),
+            CfValue::Formula("$B$2".into()),
+            false,
+        ),
         CfKind::DataBar {
-            color: Color::Rgb(Rgb::new(0x63, 0x8E, 0xC6)),
-            min: CfValue::Num("1".into()),
-            max: CfValue::Formula("$B$2".into()),
-            show_value: false,
+            color: Color::Rgb(Rgb::new(0x63, 0xBE, 0x7B)),
+            min: CfValue::AutoMin,
+            max: CfValue::AutoMax,
+            show_value: true,
+            gradient: false,
+            border: Some(Color::Rgb(Rgb::new(0x10, 0x20, 0x30))),
+            negative_color: Some(Color::Rgb(Rgb::new(0, 0, 0xFF))),
+            negative_border: Some(Color::Rgb(Rgb::new(0, 0x80, 0))),
+            axis_color: Some(Color::Rgb(Rgb::new(0x80, 0x80, 0x80))),
+            axis: DataBarAxis::Midpoint,
+            direction: DataBarDirection::RightToLeft,
+            min_length: 0,
+            max_length: 100,
         },
         CfKind::ColorScale {
             points: vec![
@@ -125,6 +153,7 @@ fn build() -> Workbook {
             thresholds: vec![pct("0"), pct("25"), pct("50"), pct("75")],
             reverse: true,
             show_value: false,
+            greater: vec![false, true, false, true],
         },
     ];
     let rules: Vec<CfRule> = kinds
@@ -242,8 +271,16 @@ fn rules_and_validations_roundtrip() {
     let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(back.cf_rules(s), wb.cf_rules(s));
-    assert_eq!(back.validations(s), wb.validations(s));
-    assert_eq!(back.to_snapshot(), wb.to_snapshot());
+    // Cross-sheet lists are written (and read) as x14, after the others.
+    let sorted = |w: &Workbook| {
+        let mut v = w.validations(s).to_vec();
+        v.sort_by_key(|dv| (dv.ranges[0].r0, dv.ranges[0].c0));
+        v
+    };
+    assert_eq!(sorted(&back), sorted(&wb));
+    let xml = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(xml.contains("<x14:formula1><xm:f>Lists!"), "{xml}");
+    assert!(xml.contains("<x14:dataBar"), "{xml}");
     // Evaluation agrees too.
     let all = RangeRef::new(s, 0, 0, 30, 10);
     assert_eq!(back.effective_cf(all), wb.effective_cf(all));
@@ -269,7 +306,8 @@ fn rules_and_validations_roundtrip() {
         r#"<cfRule type="top10" dxfId="1" priority="12" percent="1" bottom="1" rank="10"/></conditionalFormatting>"#,
         r#"<dataBar showValue="0"><cfvo type="num" val="1"/><cfvo type="formula" val="$B$2"/><color rgb="FF638EC6"/></dataBar>"#,
         r#"<iconSet iconSet="4Rating" reverse="1" showValue="0"><cfvo type="percent" val="0"/>"#,
-        r#"<dataValidations count="9"><dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" promptTitle="Colour" prompt="Pick a colour" sqref="F1:F10"><formula1>Lists!$A$1:$A$3</formula1></dataValidation>"#,
+        r#"<dataValidations count="8"><dataValidation type="list" showDropDown="1""#,
+        r#"<x14:dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" promptTitle="Colour" prompt="Pick a colour"><x14:formula1><xm:f>Lists!$A$1:$A$3</xm:f></x14:formula1><xm:sqref>F1:F10</xm:sqref></x14:dataValidation>"#,
         r#"<dataValidation type="list" showDropDown="1" showInputMessage="1" showErrorMessage="1" sqref="G1 G4:H5"><formula1>"yes,no,say ""maybe"""</formula1></dataValidation>"#,
         r#"<dataValidation type="whole" errorStyle="warning" operator="notBetween" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="Careful" error="Outside" sqref="A11:A21"><formula1>1</formula1><formula2>$B$1</formula2></dataValidation>"#,
         r#"<dataValidation allowBlank="1" showInputMessage="1" showErrorMessage="1" prompt="Anything" sqref="B12"/>"#,
@@ -314,16 +352,12 @@ fn excel_style_rules_are_read() {
     let s = wb.sheet_id("Sheet1").unwrap();
     let all = warnings.join("\n");
     for w in [
-        "conditional formatting rule dropped (rule type \"timePeriod\")",
         "conditional formatting rule dropped (unknown dxfId)",
         "conditional formatting rule dropped (invalid rule: formula",
-        "standard deviation of an above/below average rule ignored",
-        "icon set threshold",
-        "1 Excel 2010 conditional formatting extension(s) (x14) dropped",
-        "1 Excel 2010 data validation(s) (x14) read",
     ] {
         assert!(all.contains(w), "{w}\n{all}");
     }
+    assert!(!all.contains("x14"), "{all}");
     let rules = wb.cf_rules(s);
     // Ordered by priority across <conditionalFormatting> elements.
     let types: Vec<&str> = rules
@@ -334,13 +368,47 @@ fn excel_style_rules_are_read() {
             CfKind::CellIs { .. } => "cellIs",
             CfKind::AboveAverage { .. } => "aboveAverage",
             CfKind::IconSet { .. } => "iconSet",
+            CfKind::TimePeriod { .. } => "timePeriod",
             _ => "other",
         })
         .collect();
     assert_eq!(
         types,
-        ["expression", "dataBar", "cellIs", "aboveAverage", "iconSet"]
+        [
+            "expression",
+            "dataBar",
+            "cellIs",
+            "timePeriod",
+            "aboveAverage",
+            "iconSet"
+        ]
     );
+    assert_eq!(
+        rules[3].kind,
+        CfKind::TimePeriod {
+            period: TimePeriod::Today
+        }
+    );
+    assert!(matches!(
+        rules[4].kind,
+        CfKind::AboveAverage {
+            std_dev: Some(1),
+            ..
+        }
+    ));
+    // The x14 extension's lengths are merged into the data bar.
+    assert!(matches!(
+        rules[1].kind,
+        CfKind::DataBar {
+            min_length: 0,
+            max_length: 100,
+            ..
+        }
+    ));
+    let CfKind::IconSet { greater, .. } = &rules[5].kind else {
+        panic!("icon set")
+    };
+    assert_eq!(greater, &[false, true, false]);
     assert!(rules[0].stop_if_true);
     assert_eq!(
         rules[0].kind,
@@ -357,7 +425,7 @@ fn excel_style_rules_are_read() {
         Some(Color::Rgb(Rgb::new(0xFF, 0xC7, 0xCE)))
     );
     assert!(matches!(
-        rules[4].kind,
+        rules[5].kind,
         CfKind::IconSet {
             set: IconSetKind::TrafficLights3,
             ..
@@ -367,7 +435,8 @@ fn excel_style_rules_are_read() {
     let cf = wb.effective_cf(RangeRef::new(s, 0, 0, 4, 0));
     assert_eq!(cf.len(), 2);
     assert_eq!(cf[1].1.dxf.as_ref().unwrap().bold, Some(true));
-    assert_eq!(cf[1].1.bar, Some(1.0));
+    let bar = cf[1].1.bar.as_ref().unwrap();
+    assert_eq!((bar.from, bar.to), (0.0, 1.0));
 
     let dvs = wb.validations(s);
     assert_eq!(dvs.len(), 3);
@@ -390,12 +459,24 @@ fn excel_style_rules_are_read() {
         }
     );
     assert_eq!(dvs[2].ranges, vec![rect(0, 4, 8, 4)]);
-    // Written back: x14 validation as a standard one, the x14 extension gone.
+    // Written back: the cross-sheet list as x14, the others standard.
     let out = fmt_xlsx::write(&wb).unwrap();
     let xml = part(&out, "/xl/worksheets/sheet1.xml");
     assert!(
-        xml.contains(r#"sqref="E1:E9"><formula1>Sheet2!$A$1:$A$3</formula1>"#),
+        xml.contains(r#"<x14:formula1><xm:f>Sheet2!$A$1:$A$3</xm:f></x14:formula1><xm:sqref>E1:E9</xm:sqref>"#),
         "{xml}"
     );
-    assert!(!xml.contains("x14"), "{xml}");
+    assert!(xml.contains(r#"<dataValidations count="2">"#), "{xml}");
+    assert!(
+        xml.contains(r#"<x14:dataBar minLength="0" maxLength="100">"#),
+        "{xml}"
+    );
+    assert!(xml.contains(r#"timePeriod="today""#), "{xml}");
+    assert!(
+        xml.contains(r#"<cfvo type="percent" val="33" gte="0"/>"#),
+        "{xml}"
+    );
+    let back = fmt_xlsx::read(&out).unwrap();
+    assert_eq!(back.cf_rules(s), wb.cf_rules(s));
+    assert_eq!(back.validations(s), wb.validations(s));
 }

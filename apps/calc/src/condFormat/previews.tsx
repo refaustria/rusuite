@@ -29,8 +29,8 @@ export function IconSetPreview({ set, size = 16 }: { set: IconSetKind; size?: nu
   );
 }
 
-/** Four gradient bars of growing length. */
-export function DataBarPreview({ color }: { color: string }) {
+/** Four gradient (or solid) bars of growing length. */
+export function DataBarPreview({ color, solid = false }: { color: string; solid?: boolean }) {
   const id = `bar-${color}`;
   return (
     <svg aria-hidden="true" focusable="false" width="32" height="32" viewBox="0 0 32 32">
@@ -41,7 +41,7 @@ export function DataBarPreview({ color }: { color: string }) {
         </linearGradient>
       </defs>
       {[10, 18, 26, 14].map((w, i) => (
-        <rect key={i} x="2" y={3 + i * 7} width={w} height="5" fill={`url(#${id})`} stroke={`#${color}`} strokeWidth="0.75" />
+        <rect key={i} x="2" y={3 + i * 7} width={w} height="5" fill={solid ? `#${color}` : `url(#${id})`} stroke={solid ? undefined : `#${color}`} strokeWidth="0.75" />
       ))}
     </svg>
   );

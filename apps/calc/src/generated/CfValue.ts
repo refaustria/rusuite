@@ -4,4 +4,4 @@
  * Mirror of `model_sheet::CfValue`: a threshold. The strings are numbers
  * or formulas without `=` (evaluated at the rule's top-left cell).
  */
-export type CfValue = { "type": "min" } | { "type": "max" } | { "type": "num", "value": string } | { "type": "percent", "value": string } | { "type": "percentile", "value": string } | { "type": "formula", "value": string };
+export type CfValue = { "type": "min" } | { "type": "max" } | { "type": "autoMin" } | { "type": "autoMax" } | { "type": "num", "value": string } | { "type": "percent", "value": string } | { "type": "percentile", "value": string } | { "type": "formula", "value": string };

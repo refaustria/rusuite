@@ -184,9 +184,11 @@ fn spill_guards_refuse_partial_edits() {
             col: 0,
             ascending: false,
             kind: SortKind::Auto,
+            ..Default::default()
         }],
         has_header: false,
         case_sensitive: false,
+        columns: false,
     };
     assert_eq!(code(&mut h, sort), "spill_part");
     let fill = C::FillRange {

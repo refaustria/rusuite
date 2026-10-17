@@ -6,7 +6,7 @@
 // Print Titles) and View › Page Break Preview.
 
 import { useRef } from "react";
-import { RibbonButton, RibbonMenuButton, RibbonStack, type RibbonMenuItem as MenuItem, type RibbonGroup, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
+import { RibbonButton, RibbonMenuButton, RibbonSplitButton, RibbonStack, type RibbonMenuItem as MenuItem, type RibbonGroup, type RibbonTab, type TFunction as T } from "@rusuite/ui-shared";
 import type { PasteSpecial } from "../generated/PasteSpecial";
 import { isWholeCols, isWholeRows, normalize } from "../grid/Selection";
 import type { CalcStore } from "../state/store";
@@ -124,7 +124,19 @@ export function dataTabGroups(store: CalcStore, t: T, off: boolean, validation: 
             <RibbonButton label={t("calc.dup.button")} icon={duplicatesIcon(16)} showLabel disabled={off} onClick={() => openRemoveDuplicates(store)} />
           </RibbonStack>
           <RibbonStack>
-            <RibbonButton label={t("calc.dv.button")} icon={validationIcon(16)} showLabel tooltip={t("calc.dv.title")} disabled={off} onClick={validation} />
+            <RibbonSplitButton
+              label={t("calc.dv.button")}
+              icon={validationIcon(16)}
+              showLabel
+              tooltip={t("calc.dv.title")}
+              disabled={off}
+              onClick={validation}
+              menu={[
+                { id: "validation", label: t("calc.dv.menuDialog"), onSelect: validation },
+                { id: "circle", label: t("calc.dv.circle"), onSelect: run(() => store.circleInvalidData()) },
+                { id: "clearCircles", label: t("calc.dv.clearCircles"), onSelect: run(() => store.clearValidationCircles()) },
+              ]}
+            />
             <RibbonButton label={t("calc.consolidate.button")} icon={consolidateIcon(16)} showLabel tooltip={t("calc.consolidate.tip")} disabled={off} onClick={() => store.openDialog({ kind: "consolidate" })} />
           </RibbonStack>
         </>

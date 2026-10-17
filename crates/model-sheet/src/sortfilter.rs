@@ -33,6 +33,9 @@ use engine_formula::value::{format_general, parse_number_text};
 use engine_formula::{offset_relative, CellContent, CellCoord, Recalc, SheetId, Value};
 use serde::{Deserialize, Serialize};
 
+use crate::condfmt::{CfResult, IconSetKind};
+use core_model::{Color, ColorScheme, Rgb};
+
 use crate::numfmt::display_value;
 use crate::sheet::RowInfo;
 use crate::style::StyleId;
@@ -58,22 +61,118 @@ pub enum SortKind {
     Text,
 }
 
-/// One level of a sort: the column (absolute index) and its direction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// What a sort level compares (Excel's Sort On).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum SortOn {
+    /// The cells' values.
+    #[default]
+    Values,
+    /// Cells with this fill (`None`: no fill), conditional formats
+    /// included, go on top (`ascending`) or to the bottom; the others keep
+    /// their order.
+    CellColor {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<Color>,
+    },
+    /// Cells with this font colour (`None`: automatic).
+    FontColor {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<Color>,
+    },
+    /// Cells showing this conditional formatting icon.
+    Icon { set: IconSetKind, icon: u8 },
+}
+
+impl SortOn {
+    pub fn is_values(&self) -> bool {
+        *self == SortOn::Values
+    }
+}
+
+/// One level of a sort: the column (absolute index; the row of a
+/// left-to-right sort) and its direction.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SortKey {
     pub col: u32,
+    /// Ascending, or (colour and icon keys) "On Top".
     pub ascending: bool,
     #[serde(default, skip_serializing_if = "is_auto")]
     pub kind: SortKind,
+    #[serde(default, skip_serializing_if = "SortOn::is_values")]
+    pub sort_on: SortOn,
+    /// Excel's Custom List order (`Mon, Tue, …`): matching values
+    /// (case-insensitive) sort in the list's order, before the others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_list: Option<Vec<String>>,
 }
+
+impl Default for SortKey {
+    fn default() -> Self {
+        SortKey {
+            col: 0,
+            ascending: true,
+            kind: SortKind::Auto,
+            sort_on: SortOn::Values,
+            custom_list: None,
+        }
+    }
+}
+
+impl SortKey {
+    /// A value key on column `col`.
+    pub fn new(col: u32, ascending: bool) -> Self {
+        SortKey {
+            col,
+            ascending,
+            ..Default::default()
+        }
+    }
+}
+
+/// Excel's built-in custom lists (Sort › Order › Custom List…): days and
+/// months, short and long.
+pub const BUILTIN_CUSTOM_LISTS: [&[&str]; 4] = [
+    &["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    &[
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ],
+    &[
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ],
+    &[
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ],
+];
 
 fn is_auto(k: &SortKind) -> bool {
     *k == SortKind::Auto
 }
 
 /// The last sort of a sheet: the sorted rows (header excluded) and keys.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SortState {
     pub r0: u32,
@@ -83,6 +182,9 @@ pub struct SortState {
     pub keys: Vec<SortKey>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub case_sensitive: bool,
+    /// A left-to-right sort (`sortState/@columnSort`): the keys are rows.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub column_sort: bool,
 }
 
 /// The operator of a custom filter [`Criterion`].
@@ -151,6 +253,45 @@ pub enum Filter {
     Dynamic {
         filter: DynamicFilter,
     },
+    /// Excel's date tree: dates in one of `groups` (and the other entries
+    /// of `values`, `""` = blanks, as a values filter).
+    DateGroups {
+        groups: Vec<DateGroup>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        values: Vec<String>,
+    },
+    /// Filter by Color: cells with this fill (`font`: font colour), `None`
+    /// = no fill / automatic; conditional formats included.
+    Color {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<Color>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        font: bool,
+    },
+    /// Cells showing this conditional formatting icon.
+    Icon {
+        set: IconSetKind,
+        icon: u8,
+    },
+}
+
+/// One entry of the date tree of [`Filter::DateGroups`]: a year, a month
+/// of it, or a day (`dateGroupItem`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DateGroup {
+    pub year: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub month: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day: Option<u32>,
+}
+
+impl DateGroup {
+    /// Whether the date `(y, m, d)` lies in the group.
+    pub fn contains(&self, (y, m, d): (i32, u32, u32)) -> bool {
+        self.year == y && self.month.map_or(true, |x| x == m) && self.day.map_or(true, |x| x == d)
+    }
 }
 
 /// A filtered column: `col` is the absolute column index.
@@ -213,6 +354,22 @@ impl AutoFilter {
 pub struct FilterValue {
     pub display: String,
     pub count: u32,
+    /// The date (year, month, day) of a date-formatted number, for the
+    /// dropdown's date tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<[u32; 3]>,
+}
+
+/// The fills, font colours and icons of the cells of a column (or row),
+/// for Sort by Color / Filter by Color (first-seen order).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineColors {
+    /// `None`: cells without fill.
+    pub fills: Vec<Option<Color>>,
+    /// `None`: automatic.
+    pub fonts: Vec<Option<Color>>,
+    pub icons: Vec<(IconSetKind, u8)>,
 }
 
 // --- sort order ------------------------------------------------------------------
@@ -220,6 +377,8 @@ pub struct FilterValue {
 /// Excel's sort classes; blanks are handled separately.
 #[derive(Debug, Clone, PartialEq)]
 enum SortValue {
+    /// The position in a custom list (before everything else).
+    Rank(usize),
     Number(f64),
     Text(String),
     Bool(bool),
@@ -245,11 +404,12 @@ impl SortValue {
 
     fn class(&self) -> u8 {
         match self {
-            SortValue::Number(_) => 0,
-            SortValue::Text(_) => 1,
-            SortValue::Bool(_) => 2,
-            SortValue::Error => 3,
-            SortValue::Blank => 4,
+            SortValue::Rank(_) => 0,
+            SortValue::Number(_) => 1,
+            SortValue::Text(_) => 2,
+            SortValue::Bool(_) => 3,
+            SortValue::Error => 4,
+            SortValue::Blank => 5,
         }
     }
 }
@@ -290,6 +450,7 @@ fn compare_for_sort(
         _ => {}
     }
     let ord = match (a, b) {
+        (SortValue::Rank(x), SortValue::Rank(y)) => x.cmp(y),
         (SortValue::Number(x), SortValue::Number(y)) => x.partial_cmp(y).unwrap_or(Ordering::Equal),
         (SortValue::Text(x), SortValue::Text(y)) => compare_text(x, y, case_sensitive),
         (SortValue::Bool(x), SortValue::Bool(y)) => x.cmp(y),
@@ -310,11 +471,39 @@ pub fn sort_order(rows: &[Vec<Value>], keys: &[SortKey], case_sensitive: bool) -
         .map(|vals| {
             keys.iter()
                 .zip(vals)
-                .map(|(k, v)| SortValue::of(v, k.kind))
+                .map(|(k, v)| value_key(k, v))
                 .collect()
         })
         .collect();
-    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order_of(&prepared, keys, case_sensitive)
+}
+
+/// The sort value of a value key (custom lists by position).
+fn value_key(k: &SortKey, v: &Value) -> SortValue {
+    if let Some(list) = &k.custom_list {
+        if let Ok(t) = engine_formula::value::to_text(&v.clone().into_scalar()) {
+            let t = fold(&t);
+            if let Some(i) = list.iter().position(|x| fold(x) == t) {
+                return SortValue::Rank(i);
+            }
+        }
+    }
+    SortValue::of(v, k.kind)
+}
+
+/// Whether two colours look the same (resolved with the default theme);
+/// `None` is no fill / automatic.
+fn same_color(a: Option<Color>, b: Option<Color>) -> bool {
+    let rgb = |c: Option<Color>| match c {
+        None | Some(Color::Auto) => None,
+        Some(c) => Some(c.resolve(&ColorScheme::default(), Rgb::BLACK)),
+    };
+    rgb(a) == rgb(b)
+}
+
+/// The stable order of prepared rows.
+fn order_of(prepared: &[Vec<SortValue>], keys: &[SortKey], case_sensitive: bool) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..prepared.len()).collect();
     order.sort_by(|&i, &j| {
         keys.iter()
             .enumerate()
@@ -332,6 +521,14 @@ pub fn sort_order(rows: &[Vec<Value>], keys: &[SortKey], case_sensitive: bool) -
     order
 }
 
+/// What sorting and filtering by colour or icon look at in a cell.
+#[derive(Debug, Clone, Copy, Default)]
+struct CellLook {
+    fill: Option<Color>,
+    font: Option<Color>,
+    icon: Option<(IconSetKind, u8)>,
+}
+
 // --- filter matching -------------------------------------------------------------
 
 /// A column filter prepared against the column's values.
@@ -342,7 +539,15 @@ enum Matcher<'f> {
     Threshold(Option<f64>, bool),
     Average(f64, bool),
     Day(f64),
+    /// Dates in the groups, or one of the (folded) values.
+    Dates(&'f [DateGroup], Vec<String>),
+    /// Fill (`font`: font colour) and the column's conditional formats.
+    Color(Option<Color>, bool, CfMap),
+    Icon(IconSetKind, u8, CfMap),
 }
+
+/// Conditional formatting results by cell.
+type CfMap = std::collections::HashMap<(u32, u32), CfResult>;
 
 fn fold(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
@@ -352,6 +557,11 @@ impl<'f> Matcher<'f> {
     fn new(filter: &'f Filter, numbers: &[f64], today: f64) -> Self {
         match filter {
             Filter::Values { values } => Matcher::Values(values.iter().map(|v| fold(v)).collect()),
+            Filter::DateGroups { groups, values } => {
+                Matcher::Dates(groups, values.iter().map(|v| fold(v)).collect())
+            }
+            Filter::Color { color, font } => Matcher::Color(*color, *font, CfMap::new()),
+            Filter::Icon { set, icon } => Matcher::Icon(*set, *icon, CfMap::new()),
             Filter::Custom { criteria, and } => Matcher::Custom(criteria, *and),
             Filter::Top10 {
                 top,
@@ -395,12 +605,31 @@ impl<'f> Matcher<'f> {
         }
     }
 
-    fn matches(&self, value: &Value, display: &str) -> bool {
+    /// Whether cell `c` (its `value` and displayed text) passes.
+    fn matches(&self, wb: &Workbook, c: CellCoord, value: &Value, display: &str) -> bool {
         let num = match value {
             Value::Number(n) => Some(*n),
             _ => None,
         };
         match self {
+            Matcher::Dates(groups, list) => {
+                if let Some(ymd) = wb.cell_date(c, value) {
+                    return groups.iter().any(|g| g.contains(ymd));
+                }
+                let d = if matches!(value, Value::Empty) {
+                    String::new()
+                } else {
+                    fold(display)
+                };
+                list.contains(&d)
+            }
+            Matcher::Color(color, font, cf) => {
+                let look = wb.cell_look(c, cf.get(&(c.row, c.col)));
+                same_color(if *font { look.font } else { look.fill }, *color)
+            }
+            Matcher::Icon(set, icon, cf) => {
+                wb.cell_look(c, cf.get(&(c.row, c.col))).icon == Some((*set, *icon))
+            }
             Matcher::Values(list) => {
                 let d = if matches!(value, Value::Empty) {
                     String::new()
@@ -492,12 +721,15 @@ pub fn criterion_matches(c: &Criterion, value: &Value, display: &str) -> bool {
 // --- workbook operations ---------------------------------------------------------
 
 /// The sort of [`Workbook::sort_range`].
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct SortSpec {
     pub keys: Vec<SortKey>,
     /// The first row of the range is a header and stays in place.
     pub has_header: bool,
     pub case_sensitive: bool,
+    /// Left to right: columns are reordered by the values of key rows
+    /// (`SortKey::col` is a row); `has_header` keeps the first column.
+    pub columns: bool,
 }
 
 /// What a filter operation changed.
@@ -543,7 +775,8 @@ impl Workbook {
         Ok(())
     }
 
-    /// Sorts the rows of `range` (see the module docs). Rows below the
+    /// Sorts the rows of `range` (see the module docs); with
+    /// `spec.columns` its columns, left to right. Rows (columns) beyond the
     /// used range are blank and stay put. Returns the recalculation; every
     /// cell of the range may have changed.
     pub fn sort_range(&mut self, range: CellRange, spec: &SortSpec) -> Result<Recalc, Error> {
@@ -551,12 +784,15 @@ impl Workbook {
         if range.r0 > range.r1 || range.c0 > range.c1 || range.r1 > MAX_ROW || range.c1 > MAX_COL {
             return Err(Error::InvalidRange);
         }
-        if spec.keys.is_empty()
-            || spec
-                .keys
-                .iter()
-                .any(|k| !(range.c0..=range.c1).contains(&k.col))
-        {
+        let cols = spec.columns;
+        // Lines are rows (columns for a left-to-right sort); keys index
+        // the other axis.
+        let (k0, k1) = if cols {
+            (range.r0, range.r1)
+        } else {
+            (range.c0, range.c1)
+        };
+        if spec.keys.is_empty() || spec.keys.iter().any(|k| !(k0..=k1).contains(&k.col)) {
             return Err(Error::InvalidRange);
         }
         self.sheet_data_mut(sheet)?;
@@ -564,50 +800,101 @@ impl Workbook {
         if self.merges(sheet).iter().any(|m| m.intersects(&rect)) {
             return Err(Error::CannotSortMerged);
         }
-        let first = range.r0 + u32::from(spec.has_header);
+        let (l0, l1) = if cols {
+            (range.c0, range.c1)
+        } else {
+            (range.r0, range.r1)
+        };
+        let first = l0 + u32::from(spec.has_header);
         let state = SortState {
-            r0: first.min(range.r1),
-            c0: range.c0,
+            r0: if cols { range.r0 } else { first.min(range.r1) },
+            c0: if cols { first.min(range.c1) } else { range.c0 },
             r1: range.r1,
             c1: range.c1,
             keys: spec.keys.clone(),
             case_sensitive: spec.case_sensitive,
+            column_sort: cols,
         };
         let Some((used_row, used_col)) = self.used_range(sheet) else {
             self.sheet_data_mut(sheet)?.sort_state = Some(state);
             return Ok(Recalc::default());
         };
-        let last = range.r1.min(used_row);
-        let rows: Vec<u32> = if first > last {
+        let last = l1.min(if cols { used_col } else { used_row });
+        let lines: Vec<u32> = if first > last {
             Vec::new()
         } else {
             (first..=last)
-                .filter(|&r| !self.row_info(sheet, r).hidden)
+                .filter(|&l| {
+                    if cols {
+                        !self.col_info(sheet, l).hidden
+                    } else {
+                        !self.row_info(sheet, l).hidden
+                    }
+                })
                 .collect()
         };
-        let keyed: Vec<Vec<Value>> = rows
+        let at = |line: u32, key: u32| {
+            if cols {
+                CellCoord::new(sheet, key, line)
+            } else {
+                CellCoord::new(sheet, line, key)
+            }
+        };
+        // Colour and icon keys look at conditional formatting too.
+        let looks = spec
+            .keys
             .iter()
-            .map(|&r| {
+            .any(|k| !k.sort_on.is_values())
+            .then(|| self.cf_map(range));
+        let prepared: Vec<Vec<SortValue>> = lines
+            .iter()
+            .map(|&l| {
                 spec.keys
                     .iter()
-                    .map(|k| self.value(CellCoord::new(sheet, r, k.col)))
+                    .map(|k| {
+                        let c = at(l, k.col);
+                        match &k.sort_on {
+                            SortOn::Values => value_key(k, &self.value(c)),
+                            on => {
+                                let look = self.cell_look(
+                                    c,
+                                    looks.as_ref().and_then(|m| m.get(&(c.row, c.col))),
+                                );
+                                let hit = match on {
+                                    SortOn::CellColor { color } => same_color(look.fill, *color),
+                                    SortOn::FontColor { color } => same_color(look.font, *color),
+                                    SortOn::Icon { set, icon } => look.icon == Some((*set, *icon)),
+                                    SortOn::Values => false,
+                                };
+                                SortValue::Number(if hit { 0.0 } else { 1.0 })
+                            }
+                        }
+                    })
                     .collect()
             })
             .collect();
-        let order = sort_order(&keyed, &spec.keys, spec.case_sensitive);
-        let c1 = range.c1.min(used_col);
-        // Read every moved row first: targets overlap sources.
+        let order = order_of(&prepared, &spec.keys, spec.case_sensitive);
+        let (a0, a1) = if cols {
+            (range.r0, range.r1.min(used_row))
+        } else {
+            (range.c0, range.c1.min(used_col))
+        };
+        // Read every moved line first: targets overlap sources.
         let mut moves: Vec<(CellCoord, CellContent, StyleId)> = Vec::new();
-        for (to, &from) in rows.iter().zip(order.iter().map(|&i| &rows[i])) {
-            if *to == from || range.c0 > c1 {
+        for (to, &from) in lines.iter().zip(order.iter().map(|&i| &lines[i])) {
+            if *to == from || a0 > a1 {
                 continue;
             }
             let d = i64::from(*to) - i64::from(from);
-            for col in range.c0..=c1 {
-                let src = CellCoord::new(sheet, from, col);
+            for across in a0..=a1 {
+                let src = at(from, across);
                 let content = match self.content(src) {
                     CellContent::Formula { ast, .. } => {
-                        let ast = offset_relative(ast, d, 0);
+                        let ast = if cols {
+                            offset_relative(ast, 0, d)
+                        } else {
+                            offset_relative(ast, d, 0)
+                        };
                         CellContent::Formula {
                             text: format!("={ast}"),
                             ast,
@@ -615,11 +902,7 @@ impl Workbook {
                     }
                     other => other.clone(),
                 };
-                moves.push((
-                    CellCoord::new(sheet, *to, col),
-                    content,
-                    self.cell_style_id(src),
-                ));
+                moves.push((at(*to, across), content, self.cell_style_id(src)));
             }
         }
         self.begin_batch();
@@ -631,15 +914,95 @@ impl Workbook {
         });
         let recalc = self.end_batch();
         result?;
-        let row_moves: Vec<(u32, u32)> = rows
+        let line_moves: Vec<(u32, u32)> = lines
             .iter()
-            .zip(order.iter().map(|&i| rows[i]))
+            .zip(order.iter().map(|&i| lines[i]))
             .filter(|(to, from)| **to != *from)
             .map(|(to, from)| (from, *to))
             .collect();
-        self.permute_annotation_rows(sheet, (range.c0, range.c1), &row_moves);
+        if cols {
+            self.permute_rule_lines(sheet, true, (range.r0, range.r1), &line_moves);
+        } else {
+            self.permute_annotation_rows(sheet, (range.c0, range.c1), &line_moves);
+            self.permute_rule_lines(sheet, false, (range.c0, range.c1), &line_moves);
+        }
         self.sheet_data_mut(sheet)?.sort_state = Some(state);
         Ok(recalc)
+    }
+
+    /// The date (year, month, day) of a date-formatted number cell.
+    fn cell_date(&self, c: CellCoord, value: &Value) -> Option<(i32, u32, u32)> {
+        let Value::Number(n) = value else { return None };
+        let code = self.style(c).number_format.clone()?;
+        if !crate::numfmt::is_date_format(&code) {
+            return None;
+        }
+        engine_formula::functions::datetime::serial::serial_to_ymd(n.floor())
+    }
+
+    /// The conditional formatting results of `range` by cell.
+    fn cf_map(&self, range: CellRange) -> std::collections::HashMap<(u32, u32), CfResult> {
+        self.effective_cf(range)
+            .into_iter()
+            .map(|(c, r)| ((c.row, c.col), r))
+            .collect()
+    }
+
+    /// The fill, font colour and icon of a cell as shown: its style with
+    /// its conditional formatting `cf` over it.
+    fn cell_look(&self, c: CellCoord, cf: Option<&CfResult>) -> CellLook {
+        let st = self.style(c);
+        let own_fill = match &st.fill {
+            Some(crate::style::Fill::Solid(c)) => Some(*c),
+            Some(crate::style::Fill::Pattern(p)) => p.bg.or(p.fg),
+            _ => None,
+        };
+        let dxf = cf.and_then(|r| r.dxf.as_ref());
+        CellLook {
+            fill: dxf
+                .and_then(|d| d.fill)
+                .or(cf.and_then(|r| r.color))
+                .or(own_fill),
+            font: dxf
+                .and_then(|d| d.font_color)
+                .or(st.font.color)
+                .filter(|c| *c != Color::Auto),
+            icon: cf.and_then(|r| Some((r.icon_set?, r.icon?))),
+        }
+    }
+
+    /// The distinct fills, font colours and icons of line `line` of
+    /// `range` (a column; a row with `columns`), first-seen order: the
+    /// choices of Sort by Color and Filter by Color.
+    pub fn line_colors(&self, range: CellRange, line: u32, columns: bool) -> LineColors {
+        let sheet = range.sheet;
+        let (mr, mc) = self.used_range(sheet).unwrap_or((0, 0));
+        let cells: Vec<CellCoord> = if columns {
+            (range.c0..=range.c1.min(mc))
+                .map(|c| CellCoord::new(sheet, line, c))
+                .collect()
+        } else {
+            (range.r0..=range.r1.min(mr))
+                .map(|r| CellCoord::new(sheet, r, line))
+                .collect()
+        };
+        let looks = self.cf_map(range);
+        let mut out = LineColors::default();
+        for c in cells {
+            let look = self.cell_look(c, looks.get(&(c.row, c.col)));
+            if !out.fills.iter().any(|f| same_color(*f, look.fill)) {
+                out.fills.push(look.fill);
+            }
+            if !out.fonts.iter().any(|f| same_color(*f, look.font)) {
+                out.fonts.push(look.font);
+            }
+            if let Some(i) = look.icon {
+                if !out.icons.contains(&i) {
+                    out.icons.push(i);
+                }
+            }
+        }
+        out
     }
 
     /// Excel's "current region" around a cell: the smallest rectangle
@@ -707,7 +1070,9 @@ impl Workbook {
                 f.columns.dedup_by_key(|c| c.col);
                 // Blanks (`""`) last: the form `.xlsx` gives back.
                 for fc in &mut f.columns {
-                    if let Filter::Values { values } = &mut fc.filter {
+                    if let Filter::Values { values } | Filter::DateGroups { values, .. } =
+                        &mut fc.filter
+                    {
                         values.sort_by_key(String::is_empty);
                     }
                 }
@@ -767,7 +1132,11 @@ impl Workbook {
                         _ => None,
                     })
                     .collect();
-                (fc.col, Matcher::new(&fc.filter, &numbers, today))
+                let mut m = Matcher::new(&fc.filter, &numbers, today);
+                if let Matcher::Color(_, _, cf) | Matcher::Icon(_, _, cf) = &mut m {
+                    *cf = self.cf_map(crate::CellRange::new(sheet, af.r0, fc.col, af.r1, fc.col));
+                }
+                (fc.col, m)
             })
             .collect()
     }
@@ -785,7 +1154,7 @@ impl Workbook {
             .filter(|(col, _)| Some(*col) != skip_col)
             .all(|(col, m)| {
                 let c = CellCoord::new(sheet, row, *col);
-                m.matches(&self.value(c), &self.display_text(c))
+                m.matches(self, c, &self.value(c), &self.display_text(c))
             })
     }
 
@@ -889,7 +1258,7 @@ impl Workbook {
             let display = self.slicer_text(c);
             let selected = own
                 .iter()
-                .all(|(_, m)| m.matches(&value, &self.display_text(c)));
+                .all(|(_, m)| m.matches(self, c, &value, &self.display_text(c)));
             let has_data = self.row_passes(sheet, &matchers, row, Some(col));
             let key = fold(&display);
             match index.get(&key) {
@@ -970,6 +1339,54 @@ impl Workbook {
         self.set_rows_batch(sheet, updates)
     }
 
+    /// After loading a file: of the hidden rows of the AutoFilter range
+    /// (all marked filtered), those that pass the filter were hidden by
+    /// hand and become plain hidden rows. (`.xlsx` stores both as
+    /// `hidden`; a hand-hidden row that also fails the filter stays
+    /// filtered.)
+    pub fn settle_filtered_rows(&mut self, sheet: SheetId) -> Result<(), Error> {
+        let Some(af) = self.auto_filter(sheet).cloned() else {
+            return Ok(());
+        };
+        if af.columns.is_empty() {
+            return Ok(());
+        }
+        let matchers = self.matchers(sheet, &af);
+        let mut updates = Vec::new();
+        for row in self.data_rows(sheet, &af) {
+            let info = self.row_info(sheet, row);
+            if info.hidden && info.filtered && self.row_passes(sheet, &matchers, row, None) {
+                updates.push((
+                    row,
+                    RowInfo {
+                        filtered: false,
+                        ..info
+                    },
+                ));
+            }
+        }
+        drop(matchers);
+        self.set_rows_batch(sheet, updates).map(drop)
+    }
+
+    /// Typing below an AutoFilter range (Excel): a value entered in the
+    /// row right under the range, inside its columns, extends the range by
+    /// that row. Returns whether the range grew.
+    pub fn grow_auto_filter(&mut self, sheet: SheetId, row: u32, col: u32) -> Result<bool, Error> {
+        let Some(mut af) = self.auto_filter(sheet).cloned() else {
+            return Ok(false);
+        };
+        if row != af.r1.saturating_add(1) || !af.contains_col(col) || row > MAX_ROW {
+            return Ok(false);
+        }
+        if matches!(self.value(CellCoord::new(sheet, row, col)), Value::Empty) {
+            return Ok(false);
+        }
+        af.r1 = row;
+        self.set_auto_filter(sheet, Some(af))?;
+        Ok(true)
+    }
+
     /// Shows every row of `r0..=r1` that a filter hid (removing or
     /// replacing an AutoFilter).
     pub fn show_filtered_rows(
@@ -1039,7 +1456,17 @@ impl Workbook {
                     } else {
                         SortValue::of(&value, SortKind::Auto)
                     };
-                    entries.push((key, FilterValue { display, count: 1 }));
+                    let date = self
+                        .cell_date(c, &value)
+                        .map(|(y, m, d)| [y.max(0) as u32, m, d]);
+                    entries.push((
+                        key,
+                        FilterValue {
+                            display,
+                            count: 1,
+                            date,
+                        },
+                    ));
                 }
             }
         }

@@ -55,12 +55,13 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+C, Mod+X | Copy, cut: the range gets a marching-ants outline; a cut moves the cells on the next paste |
 | Mod+V | Paste at the selection's top-left (relative references shift; the block repeats over a selection that is a multiple of it). Text from other programs is pasted as plain values (TSV) |
 | Mod+Shift+V | Paste values only (formulas paste their current values; destination formats kept) |
-| Esc | Leave copy / cut mode (the marching ants disappear) |
+| Esc | Leave copy / cut mode (the marching ants disappear); turn the Format Painter off (P9-C5) |
+| Home › Format Painter, double-click | Format Painter that stays on for several ranges until Esc or a click on the button (P9-C5; Excel has no default key for it) |
 | Mod+D, Mod+R | Fill down, fill right: copy the selection's first row down / first column right over the rest of it (a single row or column is filled from the one above / to the left); relative references shift |
 | Mod+F, Mod+H | Find, find and replace (sheet or workbook, match case, entire cell; inputs and displayed values are searched) |
 | Shift+F11 | Insert a sheet before the active one |
 | Mod+Shift+L | AutoFilter on / off (a single cell: its current region) |
-| Alt+ArrowDown | On an AutoFilter header cell: open its filter dropdown (Esc closes it) |
+| Alt+ArrowDown | On an AutoFilter header cell: open its filter dropdown (Esc closes it); on a list-validated cell: open its list |
 | Shift+F2 | New note / edit the note of the active cell (in place; Esc or clicking away saves) |
 | Mod+Shift+F2 | New comment (a cell with a thread: open it to reply; Mod+Enter posts) |
 | Mod+K | Insert or edit a hyperlink |

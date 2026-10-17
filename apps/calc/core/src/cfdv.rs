@@ -137,14 +137,50 @@ impl CalcDocument {
         out
     }
 
-    /// The rules and validations of every sheet that has any.
+    /// The rules and validations of every sheet.
     pub(crate) fn rules_state(&self) -> RulesState {
         let wb = self.workbook();
         wb.sheets()
             .into_iter()
             .map(|(s, _)| (s, wb.cf_rules(s).to_vec(), wb.validations(s).to_vec()))
-            .filter(|(_, r, v)| !r.is_empty() || !v.is_empty())
             .collect()
+    }
+
+    /// After a command that does not report its own rule changes (paste,
+    /// cut, sort, …): the restore of the rules and validations that
+    /// changed is appended to the inverse and their sheets are marked.
+    pub(crate) fn mark_rules(&self, before: Option<RulesState>, applied: &mut CalcApplied) {
+        let Some(before) = before else { return };
+        let (restore, sheets) = self.rules_changed(before);
+        if restore.is_empty() {
+            return;
+        }
+        crate::tables::append_inverse(applied, restore);
+        for s in sheets {
+            if !applied.patch.cf_sheets.contains(&s) {
+                applied.patch.cf_sheets.push(s);
+            }
+        }
+    }
+
+    /// Copies (or, for a cut, moves) the rules of a pasted block with its
+    /// cells (see [`model_sheet::Workbook::copy_rules`]).
+    pub(crate) fn paste_rules(
+        &mut self,
+        src: RangeRef,
+        dst: SheetId,
+        origin: (u32, u32),
+        repeats: (u32, u32),
+        cut: bool,
+        what: model_sheet::RulesPaste,
+    ) -> Result<()> {
+        if cut {
+            self.workbook_mut().move_rules(src, dst, origin)?;
+        } else if what.cf || what.validation {
+            self.workbook_mut()
+                .copy_rules(src, dst, origin, repeats, what)?;
+        }
+        Ok(())
     }
 
     /// After a structural edit: the commands restoring the rules and
@@ -154,6 +190,9 @@ impl CalcDocument {
         let mut restore = Vec::new();
         let mut sheets = Vec::new();
         for (s, rules, validations) in before {
+            if wb.engine().sheet_name(s).is_none() {
+                continue; // deleted: the sheet's restore brings them back
+            }
             let mut changed = false;
             if wb.cf_rules(s) != rules.as_slice() {
                 restore.push(CalcCommand::RestoreCfRules { sheet: s.0, rules });
@@ -219,6 +258,23 @@ impl CalcDocument {
     pub fn list_values(&self, sheet: u32, row: u32, col: u32) -> Result<Vec<String>> {
         let c = self.cell(sheet, row, col)?;
         Ok(self.workbook().list_values(c))
+    }
+
+    /// The `invalidCells` request (Circle Invalid Data): at most 255 cells,
+    /// as Excel.
+    pub fn invalid_cells(&self, sheet: u32) -> Result<Vec<crate::Rect>> {
+        let s = self.sheet(sheet)?;
+        Ok(self
+            .workbook()
+            .invalid_cells(s, 255)
+            .into_iter()
+            .map(|c| crate::Rect {
+                r0: c.row,
+                c0: c.col,
+                r1: c.row,
+                c1: c.col,
+            })
+            .collect())
     }
 
     /// The `sheetRules` request: the conditional formatting rules (priority

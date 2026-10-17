@@ -64,7 +64,14 @@ describe("quick rules (Highlight Cells / Top/Bottom)", () => {
 describe("galleries", () => {
   it("Data Bars: six colours, lowest to highest value", () => {
     expect(DATA_BARS).toHaveLength(6);
-    expect(dataBarRule("638EC6", A1A5).kind).toEqual({ type: "dataBar", color: { kind: "rgb", value: "638EC6" }, min: { type: "min" }, max: { type: "max" }, showValue: true });
+    const blue = { kind: "rgb", value: "638EC6" };
+    // Excel 2010's gradient bar: automatic bounds, 0–100 %, a border, red negative border.
+    expect(dataBarRule("638EC6", A1A5).kind).toEqual({
+      type: "dataBar", color: blue, min: { type: "autoMin" }, max: { type: "autoMax" }, showValue: true, minLength: 0, maxLength: 100,
+      border: blue, negativeBorder: { kind: "rgb", value: "FF0000" },
+    });
+    expect(dataBarRule("638EC6", A1A5, true).kind).toMatchObject({ gradient: false });
+    expect(dataBarRule("638EC6", A1A5, true).kind).not.toHaveProperty("border");
   });
 
   it("Color Scales: twelve scales; three colours use the 50th percentile as midpoint", () => {
@@ -198,5 +205,52 @@ describe("Rules Manager", () => {
     expect(describeRule(rule(5, { type: "top10", rank: 10, percent: true, bottom: false }))).toEqual({ key: "calc.cf.desc.topPercent", params: { n: 10 } });
     expect(describeRule(rule(6, { type: "expression", formula: "A1>0" }))).toEqual({ key: "calc.cf.desc.formula", params: { formula: "=A1>0" } });
     expect(describeRule(r3)).toEqual({ key: "calc.cf.desc.containsBlanks" });
+  });
+});
+
+describe("P9-C5 rule types in the dialog", () => {
+  const roundtrip = (kind: CfRule["kind"], dxf = true) => {
+    const r: CfRule = { id: 3, ranges: A1A5, priority: 2, stopIfTrue: true, kind, ...(dxf ? { dxf: lightRed } : {}) };
+    const out = ruleFromForm(formFromRule(r));
+    expect(out).toEqual({ rule: r });
+  };
+
+  it("A Date Occurring: the quick dialog and the New Rule form", () => {
+    expect(q("dateOccurring", ["last7Days"]).kind).toEqual({ type: "timePeriod", period: "last7Days" });
+    expect(q("dateOccurring").kind).toEqual({ type: "timePeriod", period: "yesterday" });
+    const f = { ...newRuleForm(A1A5), type: "contains" as const, containsWhat: "dates" as const, period: "nextMonth" as const, dxf: lightRed };
+    expect(ruleFromForm(f)).toMatchObject({ rule: { kind: { type: "timePeriod", period: "nextMonth" } } });
+    roundtrip({ type: "timePeriod", period: "thisWeek" });
+    expect(describeRule({ ...q("dateOccurring", ["today"]) })).toEqual({ key: "calc.cf.desc.period.today" });
+  });
+
+  it("standard deviations above/below the average", () => {
+    const f = { ...newRuleForm(A1A5), type: "average" as const, average: "std2Below" as const, dxf: lightRed };
+    expect(ruleFromForm(f)).toMatchObject({ rule: { kind: { type: "aboveAverage", above: false, equal: false, stdDev: 2 } } });
+    roundtrip({ type: "aboveAverage", above: true, equal: false, stdDev: 3 });
+    expect(describeRule({ ...q("aboveAverage"), kind: { type: "aboveAverage", above: true, equal: false, stdDev: 1 } })).toEqual({
+      key: "calc.cf.desc.stdAbove", params: { n: 1 },
+    });
+  });
+
+  it("data bar options: fill, border, negative colours, axis, direction, lengths", () => {
+    const blue = { kind: "rgb" as const, value: "638EC6" };
+    roundtrip(dataBarRule("638EC6", A1A5).kind, false);
+    roundtrip({
+      type: "dataBar", color: blue, min: { type: "num", value: "0" }, max: { type: "autoMax" }, showValue: false, gradient: false,
+      border: { kind: "rgb", value: "112233" }, negativeColor: { kind: "rgb", value: "0000FF" }, negativeBorder: { kind: "rgb", value: "00FF00" },
+      axisColor: { kind: "rgb", value: "808080" }, axis: "midpoint", direction: "rightToLeft", minLength: 5, maxLength: 95,
+    }, false);
+    // An Excel 2007 bar keeps its defaults (no options written).
+    roundtrip({ type: "dataBar", color: blue, min: { type: "min" }, max: { type: "max" }, showValue: true }, false);
+    // A new rule's defaults: automatic bounds.
+    const f = { ...newRuleForm(A1A5), style: "dataBar" as const };
+    expect(ruleFromForm(f)).toMatchObject({ rule: { kind: { min: { type: "autoMin" }, max: { type: "autoMax" }, minLength: 0, maxLength: 100 } } });
+  });
+
+  it("icon thresholds with > instead of >=", () => {
+    const pct = (v: string) => ({ type: "percent" as const, value: v });
+    roundtrip({ type: "iconSet", set: "3Arrows", thresholds: [pct("0"), pct("33"), pct("67")], reverse: true, showValue: false, greater: [false, true, false] }, false);
+    roundtrip(iconSetRule("3Flags", A1A5).kind, false);
   });
 });
