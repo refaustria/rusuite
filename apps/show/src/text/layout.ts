@@ -195,13 +195,24 @@ interface Token {
   text: string;
   style: RunStyle;
   space: boolean;
+  /** A line break (`a:br`: `\n` or U+000B in a run's text). */
+  br?: boolean;
 }
+
+/** Whether `c` is a line break inside a paragraph (`a:br`; the reader stores `\n`, the editor U+000B). */
+export const isLineBreak = (c: string): boolean => c === "\n" || c === "\u000b";
 
 function tokenize(runs: { text: string; style: RunStyle }[]): Token[] {
   const out: Token[] = [];
   for (const r of runs) {
-    for (const piece of r.text.split(/(\s+)/)) {
-      if (piece) out.push({ text: piece, style: r.style, space: /^\s+$/.test(piece) });
+    for (const part of r.text.split(/([\n\u000b])/)) {
+      if (isLineBreak(part)) {
+        out.push({ text: "", style: r.style, space: false, br: true });
+        continue;
+      }
+      for (const piece of part.split(/(\s+)/)) {
+        if (piece) out.push({ text: piece, style: r.style, space: /^\s+$/.test(piece) });
+      }
     }
   }
   return out;
@@ -262,13 +273,21 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
     // Greedy line breaking.
     type Piece = { text: string; style: RunStyle; width: number; space: boolean };
     const lines: Piece[][] = [[]];
+    // lines that start after a line break (they keep their leading spaces; empty ones take the break's size)
+    const hard = new Map<number, RunStyle>();
     let used = 0;
     const measure = (t: string, s: RunStyle) => o.measure(t, cssFont(s, effSize(s, scale), s.fontFamily));
     for (const tok of tokenize(runs)) {
+      if (tok.br) {
+        hard.set(lines.length, tok.style);
+        lines.push([]);
+        used = 0;
+        continue;
+      }
       const line = lines[lines.length - 1]!;
       const w = measure(tok.text, tok.style);
       if (!wrap || tok.space || used + w <= lineWidth) {
-        if (tok.space && line.length === 0 && lines.length > 1) continue; // no leading spaces on wrapped lines
+        if (tok.space && line.length === 0 && lines.length > 1 && !hard.has(lines.length - 1)) continue; // no leading spaces on wrapped lines
         line.push({ ...tok, width: w });
         used += w;
         continue;
@@ -312,7 +331,8 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
         if (last && last.style === pc.style) line[line.length - 1] = { ...last, text: last.text + pc.text, width: last.width + pc.width };
         else line.push({ ...pc });
       }
-      const maxPx = line.reduce((m, pc) => Math.max(m, pc.style.sizePx * scale), line.length ? 0 : baseSize);
+      const emptySize = (hard.get(li)?.sizePx ?? 0) * scale || baseSize;
+      const maxPx = line.reduce((m, pc) => Math.max(m, pc.style.sizePx * scale), line.length ? 0 : emptySize);
       const lh = (fixedLine ?? maxPx * 1.2 * lineFactor) * (1 - reduction);
       const baseline = y + (lh - maxPx) / 2 + maxPx * 0.85;
       const width = line.reduce((s, pc) => s + pc.width, 0);

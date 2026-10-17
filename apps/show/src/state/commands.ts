@@ -144,7 +144,7 @@ export function bodyFromText(text: string, old: TextBody): TextBody {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const paragraphs: TextParagraph[] = lines.map((line, i) => {
     const prev = old.paragraphs[i] ?? old.paragraphs[old.paragraphs.length - 1];
-    if (old.paragraphs[i] && paragraphText(old.paragraphs[i]!) === line) return old.paragraphs[i]!;
+    if (old.paragraphs[i] && paragraphText(old.paragraphs[i]!).replace(/\n/g, "\u000b") === line) return old.paragraphs[i]!;
     const runProps = prev?.runs[0]?.props;
     const p: TextParagraph = { runs: line ? [runProps ? { props: runProps, text: line } : { text: line }] : [] };
     if (prev?.props) p.props = prev.props;

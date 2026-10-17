@@ -27,7 +27,7 @@ import { slideNumberOf, stableDeck } from "../design/deck";
 import { textRect } from "../shapes/presets";
 import { keyMove } from "../shapes/tables";
 import { autofitProps, fitHeight } from "../text/autofit";
-import { charStep } from "../text/editing";
+import { charStep, editPos, LINE_BREAK, plainOf, typingRun } from "../text/editing";
 import { cssFont, layoutText, measureText, type LayoutOptions, type TextLayout } from "../text/layout";
 import { tableOf, useShow, type EditSession, type ShowStore } from "../state/store";
 import { cellRunBase, runStyleFor, tableLayout } from "./tableLayout";
@@ -109,6 +109,14 @@ function widestChar(f: EditorFrame): number {
     }
   }
   return Math.ceil(w) + 1;
+}
+
+/** The font size (hundredths of a point) of the text at offset `at` of the frame's body (the run before the caret, its level's defaults). */
+export function caretSize(f: Pick<EditorFrame, "body" | "options">, at: number): number {
+  const pos = editPos(f.body, at);
+  const run = typingRun(f.body, pos);
+  const level = f.body.paragraphs[pos.paragraph]?.props?.level ?? 0;
+  return Math.round((f.options.runStyle(run.props, level).sizePx / PX_PER_PT) * 100);
 }
 
 /** The key of what the editor's DOM shows (rebuilt when it changes). */
@@ -247,7 +255,8 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
       }
       let insert = "";
       if (type === "insertText" || type === "insertReplacementText") insert = ev.data ?? ev.dataTransfer?.getData("text/plain") ?? "";
-      else if (type === "insertParagraph" || type === "insertLineBreak") insert = "\n";
+      else if (type === "insertParagraph") insert = "\n";
+      else if (type === "insertLineBreak") insert = LINE_BREAK; // Shift+Enter: `a:br`
       else if (type === "insertFromPaste" || type === "insertFromDrop" || type === "insertFromYank") insert = ev.dataTransfer?.getData("text/plain") ?? ev.data ?? "";
       else if (type.startsWith("delete")) {
         if (from === to) {
@@ -363,13 +372,26 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
                 e.preventDefault();
                 store.updateEdit(cur.text, sel.start, sel.end);
                 void store.indent(e.shiftKey ? -1 : 1);
-              } else if (mod && e.shiftKey && (e.key === ">" || e.key === "<" || e.code === "Period" || e.code === "Comma")) {
+              } else if (mod && !e.altKey && (e.key === "a" || e.key === "A") && !e.shiftKey) {
+                // Ctrl+A: the shape's text (not every shape of the slide)
+                e.preventDefault();
+                e.stopPropagation();
+                const root = ref.current;
+                backward.current = false;
+                store.updateEdit(cur.text, 0, cur.text.length);
+                if (root) writeSelection(root, 0, cur.text.length);
+              } else if (
+                mod &&
+                !e.altKey &&
+                ((e.shiftKey && (e.key === ">" || e.key === "<" || e.code === "Period" || e.code === "Comma")) ||
+                  (!e.shiftKey && (e.key === "]" || e.key === "[" || e.code === "BracketRight" || e.code === "BracketLeft")))
+              ) {
+                // Grow / Shrink Font: Ctrl+Shift+> / <, Ctrl+] / [ (PowerPoint's size steps)
                 e.preventDefault();
                 e.stopPropagation();
                 store.updateEdit(cur.text, sel.start, sel.end);
-                const first = f.body.paragraphs[0]?.runs[0]?.props;
-                const size = Math.round((f.options.runStyle(first, f.body.paragraphs[0]?.props?.level ?? 0).sizePx / PX_PER_PT) * 100);
-                void store.stepFont(e.key === ">" || e.code === "Period" ? 1 : -1, size);
+                const up = e.key === ">" || e.code === "Period" || e.key === "]" || e.code === "BracketRight";
+                void store.stepFont(up ? 1 : -1, caretSize(f, sel.start));
               } else if (mod && !e.altKey && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -387,14 +409,14 @@ export function TextOverlay({ store, scale }: { store: ShowStore; scale: number 
               const sel = selection();
               if (!cur || sel.start === sel.end) return;
               e.preventDefault();
-              e.clipboardData.setData("text/plain", cur.text.slice(sel.start, sel.end));
+              e.clipboardData.setData("text/plain", plainOf(cur.text.slice(sel.start, sel.end)));
             }}
             onCut={(e) => {
               const cur = store.getState().editing;
               const sel = selection();
               if (!cur || sel.start === sel.end) return;
               e.preventDefault();
-              e.clipboardData.setData("text/plain", cur.text.slice(sel.start, sel.end));
+              e.clipboardData.setData("text/plain", plainOf(cur.text.slice(sel.start, sel.end)));
               edit(sel.start, sel.end, "", "cut");
             }}
             onDragStart={(e) => e.preventDefault()}

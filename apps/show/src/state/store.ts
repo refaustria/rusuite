@@ -41,7 +41,7 @@ import { moveSlidesCommand, sorterSelect, type SorterDrop } from "../views/sorte
 import { bodyWithLines, outlinePlan, outlineSlide } from "../views/outline";
 import { allCommand, hideCommand, moveToZ, renameCommand } from "../ui/selection";
 import { autofitProps, fitHeight, withScale } from "../text/autofit";
-import { cleanBody, spliceBody, textDiff } from "../text/editing";
+import { cleanBody, editorText, spliceBody, textDiff } from "../text/editing";
 import type { ChartData } from "../generated/ChartData";
 import type { ChartShape } from "../generated/ChartShape";
 import type { Hyperlink } from "../generated/Hyperlink";
@@ -50,7 +50,7 @@ import { applyPreset, presetById } from "../charts/presets";
 import { transposeData } from "../charts/data";
 import type { Chart } from "../charts/types";
 import { linkAt, linkCommands, reusePayload } from "./rich";
-import { bodyText, effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
+import { effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
 import {
   alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, formatCommands, indentCommands,
   lineSpacingCommand, newShape, nudgeCommand, pasteOffset, runPropsRange, runPropsWhole, selectedParagraphs, stepFontSize, textPos as textPosOf,
@@ -423,7 +423,7 @@ export class ShowStore {
       // the session's text went to the core with this change: the model's body (with the formatting just applied) is the session's again
       const sh = findShape(slide.shapes, editing.shape)?.shape ?? null;
       const now = editing.cell ? tableOf(sh)?.cells[editing.cell.row]?.[editing.cell.col]?.text : sh ? textOf(sh) : null;
-      if (now && bodyText(now) === editing.text) editing = { ...editing, body: undefined };
+      if (now && editorText(now) === editing.text) editing = { ...editing, body: undefined };
     }
     let cellSel = s.cellSel;
     if (cellSel) {
@@ -1010,7 +1010,7 @@ export class ShowStore {
     }
     if (!shape || shape.kind.kind !== "auto" || shape.kind.value.geometry === "line") return;
     const text = textOf(shape);
-    const t = text ? bodyText(text) : "";
+    const t = text ? editorText(text) : "";
     const top = findShape(this.currentSlide()?.shapes ?? [], id)?.top.id ?? id;
     this.set({ editing: { shape: id, text: t, start: t.length, end: t.length }, selection: [top] });
   }
@@ -1066,7 +1066,7 @@ export class ShowStore {
 
   /** `SetTextBody` for the session's text, when it changed. */
   private textCommand(e: EditSession): ShowCommand | null {
-    const same = (old: TextBody, body: TextBody) => (e.body ? JSON.stringify(old) === JSON.stringify(body) : bodyText(old) === e.text);
+    const same = (old: TextBody, body: TextBody) => (e.body ? JSON.stringify(old) === JSON.stringify(body) : editorText(old) === e.text);
     if (e.cell) {
       const old = this.oldBody(e.shape, e.cell);
       const body = cleanBody(this.sessionBody(e));
@@ -1371,7 +1371,7 @@ export class ShowStore {
     if (!table) return;
     const [r, c] = anchorOf(table, row, col);
     const body = table.cells[r]?.[c]?.text;
-    const text = body ? bodyText(body) : "";
+    const text = body ? editorText(body) : "";
     this.set({
       editing: { shape, cell: { row: r, col: c }, text, start: caret === "end" ? text.length : 0, end: caret === "start" ? 0 : text.length },
       selection: [shape],
@@ -1783,7 +1783,7 @@ export class ShowStore {
     // back into the editor, caret after the field
     const after = e.start + text.length;
     const sh = this.shape(shape);
-    const full = sh && textOf(sh) ? bodyText(textOf(sh)!) : "";
+    const full = sh && textOf(sh) ? editorText(textOf(sh)!) : "";
     this.set({ editing: { shape, text: full, start: Math.min(after, full.length), end: Math.min(after, full.length) } });
   }
 
