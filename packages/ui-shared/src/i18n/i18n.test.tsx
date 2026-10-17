@@ -46,11 +46,12 @@ describe("catalogs", () => {
 });
 
 describe("locale", () => {
-  it("maps browser languages: de* is German, everything else English", () => {
+  it("maps browser languages to the best UI language", () => {
     expect(localeFromLanguage("de-AT")).toBe("de");
     expect(localeFromLanguage("de")).toBe("de");
     expect(localeFromLanguage("en-US")).toBe("en");
-    expect(localeFromLanguage("fr")).toBe("en");
+    expect(localeFromLanguage("fr")).toBe("fr");
+    expect(localeFromLanguage("ja-JP")).toBe("en");
     expect(localeFromLanguage(undefined)).toBe("en");
   });
 
@@ -98,7 +99,7 @@ describe("locale", () => {
   });
 
   it("shows Strg for Ctrl in German and formats numbers", () => {
-    expect(formatCombo("Mod+Shift+S", false, "de")).toBe("Strg+Shift+S");
+    expect(formatCombo("Mod+Shift+S", false, "de")).toBe("Strg+Umschalt+S");
     expect(formatCombo("Ctrl+C", false, "de")).toBe("Strg+C");
     expect(formatCombo("Ctrl+C", false, "en")).toBe("Ctrl+C");
     expect(formatNumber(1234.5, undefined, "de")).toBe("1.234,5");
