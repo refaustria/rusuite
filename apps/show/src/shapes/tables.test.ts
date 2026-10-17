@@ -5,7 +5,7 @@ import {
   alignCommand, anchorOf, bordersCommand, cellsIn, deleteColsCommand, deleteRowsCommand, distributeCommand, effectiveBorders, effectiveFill,
   expandRange, insertColsCommand, insertRowsCommand, keyMove, lookCommand, mergeCommand, moveCell, NO_LINE, resizeColCommand,
   resizeRowCommand, splitCommand, styleCell, styleCommand, BUILTIN_TABLE_STYLES, DEFAULT_TABLE_STYLE, tableStyleGroups, tableStyleOf,
-  clearTableCommand, compoundStrokes,
+  clearTableCommand, compoundStrokes, BORDER_KINDS, DEFAULT_PEN, penLine, vertCommand,
 } from "./tables";
 
 /** A rows × cols table in the default style; `merged` = [row, col, rowSpan, colSpan] regions. */
@@ -54,6 +54,21 @@ describe("table styles", () => {
     const t2 = { ...table(3, 2), styleId: "{D113A9D2-9D6B-4929-AA2D-F23B5EE8CBE7}", look: { firstRow: true } }; // Themed Style 2 – Accent 1
     expect(styleCell(t2, 1, 0).fill).toEqual(accent("accent1", 0));
     expect(styleCell(t2, 0, 0).fill).toEqual(accent("accent1", 0));
+  });
+
+  it("Borders: the twelve PowerPoint options; diagonals per cell, No Border removes them too", () => {
+    expect(BORDER_KINDS).toHaveLength(12);
+    const r = { r0: 0, c0: 0, r1: 1, c1: 1 };
+    const pen = penLine({ ...DEFAULT_PEN, dash: "dot", width: 6350 });
+    expect(pen).toEqual({ fill: { kind: "solid", value: { kind: "rgb", value: "000000" } }, width: 6350, dash: "dot" });
+    expect(bordersCommand(4, r, "diagUp", pen)).toMatchObject({ type: "setTableCellProps", rowSpan: 2, colSpan: 2, patch: { diagUp: pen } });
+    expect(bordersCommand(4, r, "none", pen)).toMatchObject({ patch: { left: NO_LINE, diagDown: null, diagUp: null } });
+    expect(vertCommand(4, r, "rotate90")).toMatchObject({ patch: { vert: "rotate90" } });
+    // diagonals are drawn from the cell's own borders only
+    const t = table(2, 2);
+    t.cells[0]![0]!.borders = { diagDown: pen };
+    expect(effectiveBorders(t, 0, 0).diagDown).toEqual({ color: { kind: "rgb", value: "000000" }, width: 6350, dash: "dot" });
+    expect(effectiveBorders(t, 1, 1).diagDown).toBeNull();
   });
 
   it("compound strokes split the width", () => {

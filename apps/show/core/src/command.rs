@@ -240,6 +240,26 @@ pub struct TableCellPatch {
     )]
     #[ts(optional = nullable, as = "Option<Line>")]
     pub bottom: Option<Option<Line>>,
+    /// Diagonal border from the top-left corner (`a:lnTlToBr`).
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Line>")]
+    pub diag_down: Option<Option<Line>>,
+    /// Diagonal border from the bottom-left corner (`a:lnBlToTr`).
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional = nullable, as = "Option<Line>")]
+    pub diag_up: Option<Option<Line>>,
+    /// Text direction (`a:tcPr/@vert`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub vert: Option<model_show::TextDirection>,
     /// Vertical alignment of the text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -262,6 +282,8 @@ impl TableCellPatch {
             (self.right, &mut b.right),
             (self.top, &mut b.top),
             (self.bottom, &mut b.bottom),
+            (self.diag_down, &mut b.diag_down),
+            (self.diag_up, &mut b.diag_up),
         ] {
             if let Some(v) = patch {
                 *slot = v;
@@ -272,6 +294,9 @@ impl TableCellPatch {
         }
         if let Some(m) = self.margins {
             cell.text.props.insets = m;
+        }
+        if let Some(v) = self.vert {
+            cell.text.props.vert = v;
         }
     }
 }

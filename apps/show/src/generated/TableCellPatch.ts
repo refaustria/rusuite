@@ -3,6 +3,7 @@ import type { Anchor } from "./Anchor";
 import type { Fill } from "./Fill";
 import type { Insets } from "./Insets";
 import type { Line } from "./Line";
+import type { TextDirection } from "./TextDirection";
 
 /**
  * Cell properties to change for [`ShowCommand::SetTableCellProps`].
@@ -10,6 +11,18 @@ import type { Line } from "./Line";
  * style draws it.
  */
 export type TableCellPatch = { fill?: Fill | null, left?: Line | null, right?: Line | null, top?: Line | null, bottom?: Line | null, 
+/**
+ * Diagonal border from the top-left corner (`a:lnTlToBr`).
+ */
+diagDown?: Line | null, 
+/**
+ * Diagonal border from the bottom-left corner (`a:lnBlToTr`).
+ */
+diagUp?: Line | null, 
+/**
+ * Text direction (`a:tcPr/@vert`).
+ */
+vert?: TextDirection, 
 /**
  * Vertical alignment of the text.
  */

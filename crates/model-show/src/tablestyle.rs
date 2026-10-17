@@ -405,6 +405,7 @@ impl TableStyleDef {
             right: real(e[1].1),
             top: real(e[2].1),
             bottom: real(e[3].1),
+            ..CellBorders::default()
         };
         cell
     }

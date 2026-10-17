@@ -2,7 +2,16 @@
 import type { Line } from "./Line";
 
 /**
- * The four borders of a cell (`a:lnL`, `a:lnR`, `a:lnT`, `a:lnB`);
- * `None` = as the table style draws it.
+ * The borders of a cell (`a:lnL`, `a:lnR`, `a:lnT`, `a:lnB` and the
+ * diagonals `a:lnTlToBr`, `a:lnBlToTr`); `None` = as the table style
+ * draws it (the styles draw no diagonals).
  */
-export type CellBorders = { left?: Line, right?: Line, top?: Line, bottom?: Line, };
+export type CellBorders = { left?: Line, right?: Line, top?: Line, bottom?: Line, 
+/**
+ * Diagonal from the top-left to the bottom-right corner.
+ */
+diagDown?: Line, 
+/**
+ * Diagonal from the bottom-left to the top-right corner.
+ */
+diagUp?: Line, };

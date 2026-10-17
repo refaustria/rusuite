@@ -11,6 +11,9 @@ import type { Fill } from "../generated/Fill";
 import type { Insets } from "../generated/Insets";
 import type { Line } from "../generated/Line";
 import type { LineCompound } from "../generated/LineCompound";
+import type { LineDash } from "../generated/LineDash";
+import type { TextDirection } from "../generated/TextDirection";
+import type { TableCellPatch } from "../generated/TableCellPatch";
 import type { NodeId } from "../generated/NodeId";
 import type { ShowCommand } from "../generated/ShowCommand";
 import type { Table } from "../generated/Table";
@@ -64,6 +67,8 @@ export interface StyleLine {
   color: Color;
   width: number;
   compound?: LineCompound;
+  /** Dash style (absent = solid). */
+  dash?: LineDash;
 }
 
 /** What the table style gives a cell. */
@@ -133,7 +138,9 @@ function rawCell(s: TableStyleDef, look: TableLook, rows: number, cols: number, 
 }
 
 const asLine = (l: Line | undefined): StyleLine | null =>
-  l && l.fill.kind === "solid" ? { color: l.fill.value, width: l.width, ...(l.compound && l.compound !== "single" ? { compound: l.compound } : {}) } : null;
+  l && l.fill.kind === "solid"
+    ? { color: l.fill.value, width: l.width, ...(l.compound && l.compound !== "single" ? { compound: l.compound } : {}), ...(l.dash && l.dash !== "solid" ? { dash: l.dash } : {}) }
+    : null;
 
 /**
  * The formatting the table's style gives cell `row`, `col` (mirror of
@@ -174,15 +181,27 @@ export function effectiveFill(table: Table, row: number, col: number, custom: re
   return styleCell(table, row, col, custom).fill;
 }
 
-/** The borders a cell is drawn with (its own where set, else the style's; `null` = none). */
-export function effectiveBorders(table: Table, row: number, col: number, custom: readonly TableStyleDef[] = []): StyleCell["borders"] {
+/** The borders a cell is drawn with (its own where set, else the style's; `null` = none), with its own diagonals. */
+export function effectiveBorders(
+  table: Table,
+  row: number,
+  col: number,
+  custom: readonly TableStyleDef[] = [],
+): StyleCell["borders"] & { diagDown: StyleLine | null; diagUp: StyleLine | null } {
   const style = styleCell(table, row, col, custom).borders;
   const own = table.cells[row]?.[col]?.borders ?? {};
   const pick = (l: Line | undefined, s: StyleLine | null): StyleLine | null => {
     if (!l) return s;
     return asLine(l);
   };
-  return { left: pick(own.left, style.left), right: pick(own.right, style.right), top: pick(own.top, style.top), bottom: pick(own.bottom, style.bottom) };
+  return {
+    left: pick(own.left, style.left),
+    right: pick(own.right, style.right),
+    top: pick(own.top, style.top),
+    bottom: pick(own.bottom, style.bottom),
+    diagDown: asLine(own.diagDown),
+    diagUp: asLine(own.diagUp),
+  };
 }
 
 /**
@@ -426,16 +445,41 @@ const propsCommand = (shape: NodeId, r: CellRange, patch: Extract<ShowCommand, {
   patch,
 });
 
+/** Any cell properties of the range. */
+export const cellPropsCommand = (shape: NodeId, range: CellRange, patch: TableCellPatch): ShowCommand => propsCommand(shape, range, patch);
+
 /** Shading of the range (`null` = as the style). */
 export const shadingCommand = (shape: NodeId, range: CellRange, fill: Fill | null): ShowCommand => propsCommand(shape, range, { fill });
 
 /** Vertical text alignment of the range. */
 export const anchorCommand = (shape: NodeId, range: CellRange, anchor: Anchor): ShowCommand => propsCommand(shape, range, { anchor });
 
+/** Text direction of the range's cells (Layout › Text Direction). */
+export const vertCommand = (shape: NodeId, range: CellRange, vert: TextDirection): ShowCommand => propsCommand(shape, range, { vert });
+
+/** Pen of Table Design › Draw Borders: what the Borders menu draws with. */
+export interface Pen {
+  dash: LineDash;
+  /** Width in EMU. */
+  width: number;
+  color: Color;
+}
+
+/** PowerPoint's default pen: 1 pt solid black. */
+export const DEFAULT_PEN: Pen = { dash: "solid", width: 12700, color: { kind: "rgb", value: "000000" } };
+
+/** Pen Weight ▾: PowerPoint's weights in points. */
+export const PEN_WEIGHTS_PT = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6] as const;
+
+/** The line a pen draws. */
+export const penLine = (pen: Pen): Line => ({ fill: { kind: "solid", value: pen.color }, width: Math.round(pen.width), dash: pen.dash });
+
 /** Cell margins of the range. */
 export const marginsCommand = (shape: NodeId, range: CellRange, margins: Insets): ShowCommand => propsCommand(shape, range, { margins });
 
-export type BorderKind = "all" | "outside" | "inside" | "none" | "top" | "bottom" | "left" | "right" | "insideH" | "insideV";
+/** The options of Table Design › Borders, in PowerPoint's order. */
+export const BORDER_KINDS = ["none", "all", "outside", "inside", "top", "bottom", "left", "right", "insideH", "insideV", "diagDown", "diagUp"] as const;
+export type BorderKind = (typeof BORDER_KINDS)[number];
 
 /** "No border" is an explicit line without colour (PowerPoint writes `a:noFill`). */
 export const NO_LINE: Line = { fill: { kind: "none" }, width: 12700, dash: "solid" };
@@ -455,7 +499,12 @@ export function bordersCommand(shape: NodeId, range: CellRange, kind: BorderKind
     case "all":
       return propsCommand(shape, r, { left: line, right: line, top: line, bottom: line });
     case "none":
-      return propsCommand(shape, r, { left: NO_LINE, right: NO_LINE, top: NO_LINE, bottom: NO_LINE });
+      // No Border also removes the diagonals (PowerPoint)
+      return propsCommand(shape, r, { left: NO_LINE, right: NO_LINE, top: NO_LINE, bottom: NO_LINE, diagDown: null, diagUp: null });
+    case "diagDown":
+      return propsCommand(shape, r, { diagDown: line });
+    case "diagUp":
+      return propsCommand(shape, r, { diagUp: line });
     case "outside":
       return compoundOf([...top(), ...bottom(), ...left(), ...right()]);
     case "inside":

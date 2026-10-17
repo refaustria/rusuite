@@ -8,10 +8,20 @@
 //   (Do not Autofit / Shrink text on overflow / Resize shape to fit text),
 //   margins, wrap text in shape, columns (`SetBodyProps`; the shrink scale
 //   is computed and stored).
+// - for a selected table, Table Cells (Fill & Line of the cell range: fill,
+//   each border with style, weight and colour) and Text Box with the
+//   cells' vertical alignment, text direction and margins
+//   (`SetTableCellProps`).
 // Lengths in centimetres or inches by UI language.
 
 import { useEffect, useState } from "react";
-import { RibbonIcon, formatNumber, useLocale } from "@rusuite/ui-shared";
+import { ColorPicker, RibbonIcon, formatNumber, useLocale, type ThemePalette } from "@rusuite/ui-shared";
+import type { Line } from "../generated/Line";
+import type { LineDash } from "../generated/LineDash";
+import type { Table } from "../generated/Table";
+import type { TableCell } from "../generated/TableCell";
+import { themePalette } from "../model";
+import { BORDER_KINDS, bordersCommand, cellsIn, expandRange, type BorderKind, type CellRange } from "../shapes/tables";
 import type { Anchor } from "../generated/Anchor";
 import type { Autofit } from "../generated/Autofit";
 import type { BodyProps } from "../generated/BodyProps";
@@ -99,6 +109,7 @@ export function FormatShapePane({ store }: { store: ShowStore }) {
   const sel = store.selectedShapes();
   const ts = sel.map((s) => s.transform);
   const one = sel.length === 1 ? sel[0]! : null;
+  const table = store.selectedTable();
   const locked = sel.length > 0 && sel.every((s) => store.aspectLocked(s));
   const textShapes = sel.filter((s) => s.kind.kind === "auto" && s.kind.value.geometry !== "line");
   const bodies: BodyProps[] = textShapes.map((s) => textOf(s)?.props ?? { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" });
@@ -111,7 +122,7 @@ export function FormatShapePane({ store }: { store: ShowStore }) {
       const k = emu / Math.max(1, tr[axis]);
       return axis === "w" ? { ...tr, w: emu, h: Math.max(1, Math.round(tr.h * k)) } : { ...tr, h: emu, w: Math.max(1, Math.round(tr.w * k)) };
     });
-  const tab = (id: "size" | "text", label: string) => (
+  const tab = (id: "size" | "text" | "cell", label: string) => (
     <button type="button" role="tab" aria-selected={page === id} className={`${BTN} flex-1 ${page === id ? "font-semibold text-ui-fg underline" : "text-ui-muted"}`} onClick={() => store.openFormatPane(id)}>
       {label}
     </button>
@@ -138,8 +149,11 @@ export function FormatShapePane({ store }: { store: ShowStore }) {
       <div role="tablist" className="flex border-b border-ui-border px-1">
         {tab("size", t("show.fmtPane.size"))}
         {tab("text", t("show.fmtPane.text"))}
+        {table && tab("cell", t("show.fmtPane.cells"))}
       </div>
-      {sel.length === 0 ? (
+      {table && (page === "cell" || page === "text") ? (
+        <TableCellSections store={store} table={table.table} shape={table.shape.id} range={store.cellRange()} page={page} per={per} unit={unit} />
+      ) : sel.length === 0 ? (
         <p className="p-3 text-ui-muted">{t("show.fmtPane.none")}</p>
       ) : page === "size" ? (
         <div className="flex flex-col gap-1 overflow-y-auto p-3" data-testid="format-size">
@@ -209,5 +223,122 @@ export function FormatShapePane({ store }: { store: ShowStore }) {
         </div>
       )}
     </aside>
+  );
+}
+
+/** The common value of a cell property over the range's cells (`null` when they differ). */
+function cellCommon<T>(table: Table, range: CellRange, f: (c: TableCell) => T): T | null {
+  return common(cellsIn(table, expandRange(table, range)).map(([r, c]) => f(table.cells[r]![c]!)));
+}
+
+/** The line a border side of the range has (its first cell's own line on that side). */
+function sideLine(table: Table, range: CellRange, side: BorderKind): Line | null {
+  const r = expandRange(table, range);
+  const b = table.cells[r.r0]?.[r.c0]?.borders ?? {};
+  const k = side === "bottom" || side === "insideH" ? "bottom" : side === "right" || side === "insideV" ? "right" : side === "diagDown" ? "diagDown" : side === "diagUp" ? "diagUp" : side === "left" ? "left" : "top";
+  return b[k] ?? null;
+}
+
+const PANE_SIDES = BORDER_KINDS.filter((k) => k !== "none" && k !== "inside");
+
+/** Format Shape for a table: Fill & Line of the cell range, or its Text Box (alignment, direction, margins). */
+function TableCellSections({ store, table, shape, range, page, per, unit }: { store: ShowStore; table: Table; shape: number; range: CellRange | null; page: "cell" | "text"; per: number; unit: RulerUnit }) {
+  const t = useT();
+  const pres = useShow(store, (s) => s.pres);
+  const palette: ThemePalette = themePalette(pres?.theme);
+  const [side, setSide] = useState<BorderKind>("all");
+  if (!range) return <p className="p-3 text-ui-muted">{t("show.fmtPane.none")}</p>;
+  if (page === "text") {
+    const anchor = cellCommon(table, range, (c) => c.text.props.anchor);
+    const vert = cellCommon(table, range, (c) => c.text.props.vert ?? "horizontal");
+    const ins = (k: "left" | "right" | "top" | "bottom") => cellCommon(table, range, (c) => c.text.props.insets[k]);
+    const setIns = (k: "left" | "right" | "top" | "bottom", v: number) => {
+      const cur = table.cells[range.r0]![range.c0]!.text.props.insets;
+      void store.setCellProps({ margins: { ...cur, [k]: Math.max(0, Math.round(v * per)) } });
+    };
+    return (
+      <div className="flex flex-col gap-1 overflow-y-auto p-3" data-testid="format-cell-text">
+        <h3 className="font-semibold">{t("show.fmtPane.textBox")}</h3>
+        <label className="flex items-center justify-between gap-2">
+          {t("show.fmtPane.valign")}
+          <select className="h-8 rounded border border-ui-border bg-ui-bg text-xs" value={anchor ?? ""} onChange={(e) => void store.setCellProps({ anchor: e.currentTarget.value as Anchor })} data-testid="fmt-cell-anchor">
+            {anchor === null && <option value="">—</option>}
+            <option value="top">{t("fmt.alignTop")}</option>
+            <option value="middle">{t("fmt.alignMiddle")}</option>
+            <option value="bottom">{t("fmt.alignBottom")}</option>
+          </select>
+        </label>
+        <label className="flex items-center justify-between gap-2">
+          {t("show.fmtPane.direction")}
+          <select className="h-8 max-w-36 rounded border border-ui-border bg-ui-bg text-xs" value={vert ?? ""} onChange={(e) => void store.setCellVert(e.currentTarget.value as TextDirection)} data-testid="fmt-cell-direction">
+            {vert === null && <option value="">—</option>}
+            {(["horizontal", "rotate90", "rotate270", "stacked"] as const).map((d) => (
+              <option key={d} value={d}>
+                {t(`show.fmtPane.dir.${d}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {(["left", "right", "top", "bottom"] as const).map((k) => (
+          <NumField key={k} label={t(`show.fmtPane.${k}`)} value={ins(k) === null ? null : ins(k)! / per} suffix={unit} min={0} onCommit={(v) => setIns(k, v)} testId={`fmt-cell-${k}`} />
+        ))}
+      </div>
+    );
+  }
+  const fill = cellCommon(table, range, (c) => c.fill ?? null);
+  const line = sideLine(table, range, side);
+  const dash: LineDash | "none" = !line || line.fill.kind === "none" ? "none" : line.dash;
+  const weightPt = line ? line.width / 12700 : 1;
+  const color = line?.fill.kind === "solid" ? line.fill.value : { kind: "rgb" as const, value: "000000" };
+  const apply = (next: { dash?: LineDash | "none"; widthPt?: number; color?: typeof color }) => {
+    const d = next.dash ?? (dash === "none" ? "solid" : dash);
+    const l: Line = { fill: d === "none" ? { kind: "none" } : { kind: "solid", value: next.color ?? color }, width: Math.round((next.widthPt ?? weightPt) * 12700), dash: d === "none" ? "solid" : d };
+    void store.run(bordersCommand(shape, range, side, l));
+  };
+  return (
+    <div className="flex flex-col gap-1 overflow-y-auto p-3" data-testid="format-cell-fill">
+      <h3 className="font-semibold">{t("show.fmtPane.fill")}</h3>
+      <Radio<"style" | "none" | "solid">
+        name={t("show.fmtPane.fill")}
+        value={fill === null ? (cellCommon(table, range, (c) => c.fill === undefined) ? "style" : null) : fill.kind === "none" ? "none" : "solid"}
+        options={[
+          { value: "style", label: t("show.fmtPane.fillStyle") },
+          { value: "none", label: t("show.fmtPane.noFill") },
+          { value: "solid", label: t("show.fmtPane.solidFill") },
+        ]}
+        onChange={(v) => void store.setCellProps({ fill: v === "style" ? null : v === "none" ? { kind: "none" } : { kind: "solid", value: fill?.kind === "solid" ? fill.value : { kind: "theme", value: { slot: "accent1", tint: 0 } } } })}
+      />
+      <div className="flex items-center justify-between gap-2">
+        {t("show.fmtPane.fillColor")}
+        <ColorPicker label={t("show.fmtPane.fillColor")} kind="fill" value={fill?.kind === "solid" ? fill.value : undefined} theme={palette} onSelect={(c) => void store.setCellProps({ fill: c ? { kind: "solid", value: c } : { kind: "none" } })} />
+      </div>
+      <h3 className="mt-2 font-semibold">{t("show.fmtPane.border")}</h3>
+      <label className="flex items-center justify-between gap-2">
+        {t("show.fmtPane.borderSide")}
+        <select className="h-8 max-w-36 rounded border border-ui-border bg-ui-bg text-xs" value={side} onChange={(e) => setSide(e.currentTarget.value as BorderKind)} data-testid="fmt-border-side">
+          {PANE_SIDES.map((k) => (
+            <option key={k} value={k}>
+              {t(`show.border.${k}`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex items-center justify-between gap-2">
+        {t("show.pen.style")}
+        <select className="h-8 max-w-36 rounded border border-ui-border bg-ui-bg text-xs" value={dash} onChange={(e) => apply({ dash: e.currentTarget.value as LineDash | "none" })} data-testid="fmt-border-dash">
+          <option value="none">{t("show.border.none")}</option>
+          {(["solid", "dash", "dot"] as const).map((d) => (
+            <option key={d} value={d}>
+              {t(`show.pen.dash.${d}`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <NumField label={t("show.pen.weight")} value={weightPt} suffix="pt" min={0.25} max={100} onCommit={(v) => apply({ widthPt: v })} testId="fmt-border-weight" />
+      <div className="flex items-center justify-between gap-2">
+        {t("show.pen.color")}
+        <ColorPicker label={t("show.pen.color")} kind="text" value={color} theme={palette} onSelect={(c) => c && apply({ color: c })} />
+      </div>
+    </div>
   );
 }

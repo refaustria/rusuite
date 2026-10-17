@@ -44,8 +44,9 @@ pub struct ColSpec {
     pub width: Emu,
 }
 
-/// The four borders of a cell (`a:lnL`, `a:lnR`, `a:lnT`, `a:lnB`);
-/// `None` = as the table style draws it.
+/// The borders of a cell (`a:lnL`, `a:lnR`, `a:lnT`, `a:lnB` and the
+/// diagonals `a:lnTlToBr`, `a:lnBlToTr`); `None` = as the table style
+/// draws it (the styles draw no diagonals).
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 #[cfg_attr(
@@ -66,6 +67,14 @@ pub struct CellBorders {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub bottom: Option<Line>,
+    /// Diagonal from the top-left to the bottom-right corner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub diag_down: Option<Line>,
+    /// Diagonal from the bottom-left to the top-right corner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub diag_up: Option<Line>,
 }
 
 impl CellBorders {
@@ -775,6 +784,8 @@ impl Table {
             right: own.right.or(style.right),
             top: own.top.or(style.top),
             bottom: own.bottom.or(style.bottom),
+            diag_down: own.diag_down,
+            diag_up: own.diag_up,
         }
     }
 
@@ -834,6 +845,37 @@ mod tests {
         assert_eq!((m.cells[0][0].col_span, m.cells[1][0].col_span), (2, 2));
         assert!(m.split_grid(0, 0, 3, 1).is_err());
         assert!(m.split_grid(0, 1, 1, 1).is_err(), "covered");
+    }
+
+    #[test]
+    fn split_merged_cells_like_powerpoint() {
+        // a 2 × 2 merged cell split 2 × 2: four single cells, the text in
+        // the top-left one, the grid unchanged
+        let mut t = filled(3, 3);
+        t.merge(0, 0, 2, 2).unwrap();
+        t.split_grid(0, 0, 2, 2).unwrap();
+        assert_eq!((t.rows.len(), t.cols.len()), (3, 3));
+        assert!(t.cells[..2].iter().all(|r| r[..2]
+            .iter()
+            .all(|c| !c.covered && c.row_span == 1 && c.col_span == 1)));
+        assert_eq!(t.cells[0][0].text.plain_text(), "00\n01\n10\n11");
+        assert!(t.cells[1][1].is_empty());
+        // a 2 × 4 region split 1 × 2: two 2 × 2 blocks
+        let mut w = filled(2, 4);
+        w.merge(0, 0, 2, 4).unwrap();
+        w.split_grid(0, 0, 1, 2).unwrap();
+        assert_eq!((w.cells[0][0].row_span, w.cells[0][0].col_span), (2, 2));
+        assert_eq!((w.cells[0][2].row_span, w.cells[0][2].col_span), (2, 2));
+        assert!(w.cells[1][3].covered);
+        w.validate().unwrap();
+        // the new cells take the split cell's borders (diagonals too)
+        let mut d = filled(1, 1);
+        d.cells[0][0].borders.diag_down = Some(Line::solid(
+            Color::theme(core_model::ThemeColorSlot::Dark1),
+            Emu(12_700),
+        ));
+        d.split_grid(0, 0, 1, 2).unwrap();
+        assert!(d.cells[0][1].borders.diag_down.is_some());
     }
 
     fn filled(rows: usize, cols: usize) -> Table {

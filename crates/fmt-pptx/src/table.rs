@@ -4,6 +4,7 @@
 use model_show::table::{MEDIUM_STYLE_2_ACCENT_1, NO_STYLE_NO_GRID};
 use model_show::{
     Anchor, BodyProps, CellBorders, ColSpec, Emu, Insets, RowSpec, Table, TableCell, TableLook,
+    TextDirection,
 };
 
 use crate::drawing::{
@@ -211,8 +212,11 @@ fn read_cell(tc: &El, w: &mut Warnings) -> TableCell {
             }
             _ => Anchor::Top,
         };
-        if pr.attr("vert").is_some_and(|v| v != "horz") {
-            w.add("vertical text in table cells dropped");
+        if let Some(v) = pr.attr("vert") {
+            props.vert = TextDirection::from_ooxml(v).unwrap_or_else(|| {
+                w.add(format!("cell text direction {v} read as horizontal"));
+                TextDirection::Horizontal
+            });
         }
         let ln = |name: &str, w: &mut Warnings| pr.child(name).map(|l| read_line(Some(l), None, w));
         cell.borders = CellBorders {
@@ -220,10 +224,9 @@ fn read_cell(tc: &El, w: &mut Warnings) -> TableCell {
             right: ln("lnR", w),
             top: ln("lnT", w),
             bottom: ln("lnB", w),
+            diag_down: ln("lnTlToBr", w),
+            diag_up: ln("lnBlToTr", w),
         };
-        if pr.child("lnTlToBr").is_some() || pr.child("lnBlToTr").is_some() {
-            w.add("diagonal cell borders dropped");
-        }
         if pr.child("cell3D").is_some() {
             w.add("3-D cell effects dropped");
         }
@@ -331,6 +334,9 @@ fn write_cell(
             pr.push((name, sv.as_str()));
         }
     }
+    if props.vert != TextDirection::Horizontal {
+        pr.push(("vert", props.vert.as_ooxml()));
+    }
     match props.anchor {
         Anchor::Top => {}
         Anchor::Middle => pr.push(("anchor", "ctr")),
@@ -347,6 +353,8 @@ fn write_cell(
         ("a:lnR", borders.right),
         ("a:lnT", borders.top),
         ("a:lnB", borders.bottom),
+        ("a:lnTlToBr", borders.diag_down),
+        ("a:lnBlToTr", borders.diag_up),
     ] {
         if let Some(line) = line {
             write_line_with_ends(x, name, &line, &none, &none);
@@ -396,6 +404,30 @@ mod tests {
         // no style: written as "No Style, No Grid", read back as none
         t.style_id = None;
         let (back, _) = roundtrip(&t);
+        assert_eq!(back, t);
+    }
+
+    #[test]
+    fn diagonals_text_direction_and_style_flags_roundtrip() {
+        let mut t = Table::new(2, 2, Emu(2_000_000), Emu(800_000));
+        let red = Line::solid(Color::Rgb(core_model::Rgb::new(255, 0, 0)), Emu(19_050))
+            .with_compound(model_show::LineCompound::Double);
+        t.cells[0][1].borders.diag_down = Some(red);
+        t.cells[1][0].borders.diag_up = Some(Line::default());
+        t.cells[1][1].text.props.vert = TextDirection::Rotate270;
+        t.cells[0][0].text.props.vert = TextDirection::Stacked;
+        t.style_id = Some("{E8034E78-7F5D-4C2E-B375-FC64B27BC917}".into());
+        t.look.band_cols = true;
+        let mut x = XmlOut::fragment();
+        write_table(&mut x, &t, &mut crate::link::NoLinks);
+        let xml = String::from_utf8(x.finish()).unwrap();
+        assert!(xml.contains(r#"<a:tblPr firstRow="1" bandRow="1" bandCol="1"><a:tableStyleId>{E8034E78-7F5D-4C2E-B375-FC64B27BC917}</a:tableStyleId>"#));
+        assert!(xml.contains(r#"<a:tcPr vert="vert270">"#));
+        assert!(xml.contains(r#"<a:lnTlToBr w="19050" cmpd="dbl">"#));
+        // style-only cells write no fills: the only one is the red line's
+        assert_eq!(xml.matches("<a:solidFill>").count(), 1);
+        let (back, warnings) = roundtrip(&t);
+        assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(back, t);
     }
 

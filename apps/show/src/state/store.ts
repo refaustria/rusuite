@@ -65,6 +65,8 @@ import type { ArrowSize } from "../generated/ArrowSize";
 import type { ConnectorKind } from "../generated/ConnectorKind";
 import type { Insets } from "../generated/Insets";
 import type { Line } from "../generated/Line";
+import type { TableCellPatch } from "../generated/TableCellPatch";
+import type { TextDirection } from "../generated/TextDirection";
 import type { Preset } from "../generated/Preset";
 import type { Table } from "../generated/Table";
 import type { TableLook } from "../generated/TableLook";
@@ -94,7 +96,7 @@ import {
 import {
   alignCommand as cellAlignCommand, anchorCommand, anchorOf, bordersCommand, deleteColsCommand, deleteRowsCommand, distributeCommand,
   expandRange, insertColsCommand, insertRowsCommand, insertTableCommand, lookCommand, marginsCommand, mergeCommand, moveCell, splitGridCommand,
-  resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, clearTableCommand, styleCommand, type BorderKind, type CellMove, type CellRange,
+  resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, clearTableCommand, vertCommand, penLine, cellPropsCommand, DEFAULT_PEN, type Pen, styleCommand, type BorderKind, type CellMove, type CellRange,
 } from "../shapes/tables";
 
 export interface Toast {
@@ -188,11 +190,13 @@ export interface ShowState {
   /** Home › Select › Selection Pane (right of the stage). */
   selectionPane: boolean;
   /** The Format Shape pane (right of the stage) on Size & Properties or Text Options. */
-  formatPane: "size" | "text" | null;
+  formatPane: "size" | "text" | "cell" | null;
   /** Arrange › Align: align to the slide or to the selected objects (two or more). */
   alignTo: "slide" | "selection";
   /** Table Design › Table Styles: the style the pointer rests on, shown on the selected table (live preview). */
   tablePreview: string | null;
+  /** Table Design › Draw Borders: the pen the Borders menu draws with. */
+  pen: Pen;
 }
 
 /** The presentation views of View › Presentation Views. */
@@ -208,6 +212,7 @@ export type ShowDialog =
   | { kind: "replacePicture"; shape: NodeId }
   | { kind: "insertTable" }
   | { kind: "splitCells" }
+  | { kind: "cellLayout" }
   | { kind: "slideScale"; size: SlideSize }
   | { kind: "renameLayout"; layout: LayoutKind }
   | { kind: "headerFooter"; tab?: "slide" | "notes" }
@@ -296,6 +301,7 @@ export class ShowStore {
     formatPane: null,
     alignTo: "selection",
     tablePreview: null,
+    pen: DEFAULT_PEN,
   };
   /** The children of the last Ungroup (Regroup). */
   private lastUngrouped: NodeId[] | null = null;
@@ -1459,9 +1465,24 @@ export class ShowStore {
     return this.tableRun((s, _t, r) => shadingCommand(s, r, color ? { kind: "solid", value: color } : null));
   }
 
-  setCellBorders(kind: BorderKind, color: Color = { kind: "rgb", value: "000000" }, widthPt = 1): Promise<void> {
-    const line: Line = { fill: { kind: "solid", value: color }, width: Math.round(widthPt * 12700), dash: "solid" };
-    return this.tableRun((s, _t, r) => bordersCommand(s, r, kind, line));
+  /** Table Design › Borders: `kind` with the pen (Draw Borders) on the cell range. */
+  setCellBorders(kind: BorderKind, pen: Pen = this.state.pen): Promise<void> {
+    return this.tableRun((s, _t, r) => bordersCommand(s, r, kind, penLine(pen)));
+  }
+
+  /** Draw Borders › Pen Style / Weight / Color. */
+  setPen(pen: Partial<Pen>): void {
+    this.set({ pen: { ...this.state.pen, ...pen } });
+  }
+
+  /** Layout › Text Direction of the cell range. */
+  setCellVert(vert: TextDirection): Promise<void> {
+    return this.tableRun((s, _t, r) => vertCommand(s, r, vert));
+  }
+
+  /** Any cell properties of the range (Format Shape pane, Cell Text Layout). */
+  setCellProps(patch: TableCellPatch): Promise<void> {
+    return this.tableRun((s, _t, r) => cellPropsCommand(s, r, patch));
   }
 
   setCellAnchor(anchor: Anchor): Promise<void> {
@@ -2255,7 +2276,7 @@ export class ShowStore {
 
   // ----- Format Shape pane: size & properties, text box
 
-  openFormatPane(page: "size" | "text" | null): void {
+  openFormatPane(page: "size" | "text" | "cell" | null): void {
     this.set({ formatPane: page });
   }
 
