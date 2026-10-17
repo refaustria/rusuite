@@ -4,6 +4,7 @@ import type { AutoFilter } from "./AutoFilter";
 import type { OutlineProps } from "./OutlineProps";
 import type { SheetProtection } from "./SheetProtection";
 import type { SheetView } from "./SheetView";
+import type { SlicerView } from "./SlicerView";
 import type { SortState } from "./SortState";
 import type { Table } from "./Table";
 
@@ -56,4 +57,8 @@ maxOutline?: [number, number],
  * Review › Protect Sheet (in force: `sheet` true); absent =
  * unprotected.
  */
-protection?: SheetProtection, };
+protection?: SheetProtection, 
+/**
+ * The slicers of the sheet with their buttons; absent = none.
+ */
+slicers?: Array<SlicerView>, };

@@ -67,6 +67,7 @@ import { CommentsController, type UserNext } from "../comments/controller";
 import { PivotController } from "../pivot/controller";
 import { TableController } from "../tables/controller";
 import { PictureController } from "../pictures/controller";
+import { SlicerController } from "../slicers/controller";
 import { parseStruct, structCompletion, structInsert, structItems, structRange } from "../tables/structured";
 import type { OutlineProps } from "../generated/OutlineProps";
 import type { PasteSpecial } from "../generated/PasteSpecial";
@@ -248,6 +249,11 @@ export type CalcDialog =
   | { kind: "createTable"; range: Range; hasHeaders: boolean }
   /** Table Design › Resize Table. */
   | { kind: "resizeTable"; id: number }
+  /** Insert Slicers for a table or a pivot table (P9-C2). */
+  | { kind: "insertSlicers"; table?: number; pivot?: number }
+  /** Slicer Settings / Report Connections of slicer `id`. */
+  | { kind: "slicerSettings"; id: number }
+  | { kind: "slicerConnections"; id: number }
   /** New / Modify / Duplicate Table Style (P9-C2); `tableId`: the table a new style is applied to. */
   | { kind: "tableStyle"; mode: "new" | "modify" | "duplicate"; name?: string; tableId?: number }
   /** The totals row dropdown of a table column, at viewport point `at`. */
@@ -473,6 +479,7 @@ export class CalcStore {
   readonly tables: TableController = new TableController(this);
   /** Pictures in sheets (P8-35). */
   readonly pictures: PictureController = new PictureController(this);
+  readonly slicers: SlicerController = new SlicerController(this);
 
   constructor(readonly api: CalcApi) {}
 
@@ -648,6 +655,7 @@ export class CalcStore {
     this.comments.reset();
     this.pivots.reset(info.stalePivots ?? []);
     this.pictures.reset();
+    this.slicers.reset();
     const shown = visibleSheets(info.sheets);
     // A replaced document opens on its saved active sheet (`activeTab`).
     const active = shown.some((s) => s.id === info.activeSheet)

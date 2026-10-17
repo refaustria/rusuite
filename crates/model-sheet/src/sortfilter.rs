@@ -859,6 +859,70 @@ impl Workbook {
         self.apply_filter(sheet, &af)
     }
 
+    /// The buttons of a table slicer on column `col` of table `id`: every
+    /// distinct displayed value of the data rows (texts differing in case
+    /// are one item; ascending, blanks last); selected = passes the
+    /// column's filter; `has_data` = some row with it passes the other
+    /// columns' filters.
+    pub fn table_slicer_items(
+        &self,
+        sheet: SheetId,
+        id: u32,
+        col: u32,
+    ) -> Vec<crate::slicer::SlicerItem> {
+        let Some(t) = self.tables(sheet).iter().find(|t| t.id == id) else {
+            return Vec::new();
+        };
+        let (d0, d1) = t.data_rows();
+        let af = t.auto_filter.clone();
+        let matchers = af
+            .as_ref()
+            .map(|af| self.matchers(sheet, af))
+            .unwrap_or_default();
+        let used = self.used_range(sheet).map_or(0, |(r, _)| r);
+        let own: Vec<&(u32, Matcher)> = matchers.iter().filter(|(c, _)| *c == col).collect();
+        let mut entries: Vec<(SortValue, crate::slicer::SlicerItem)> = Vec::new();
+        let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for row in d0..=d1.min(used.max(d0)) {
+            let c = CellCoord::new(sheet, row, col);
+            let value = self.value(c);
+            let display = self.slicer_text(c);
+            let selected = own
+                .iter()
+                .all(|(_, m)| m.matches(&value, &self.display_text(c)));
+            let has_data = self.row_passes(sheet, &matchers, row, Some(col));
+            let key = fold(&display);
+            match index.get(&key) {
+                Some(&i) => {
+                    let e = &mut entries[i].1;
+                    e.selected |= selected;
+                    e.has_data |= has_data;
+                }
+                None => {
+                    index.insert(key, entries.len());
+                    let sort = if display.is_empty() {
+                        SortValue::Blank
+                    } else {
+                        SortValue::of(&value, SortKind::Auto)
+                    };
+                    entries.push((
+                        sort,
+                        crate::slicer::SlicerItem {
+                            name: display,
+                            selected,
+                            has_data,
+                        },
+                    ));
+                }
+            }
+        }
+        entries.sort_by(|a, b| {
+            compare_for_sort(&a.0, &b.0, true, false)
+                .then_with(|| compare_text(&a.1.name, &b.1.name, false))
+        });
+        entries.into_iter().map(|(_, v)| v).collect()
+    }
+
     /// The filter dropdown values of column `col` of table `id`.
     pub fn table_filter_values(
         &self,

@@ -100,6 +100,7 @@ pub(crate) fn load(
     sheet: SheetId,
     drawing: &PartName,
     consumed: &mut BTreeSet<PartName>,
+    slicers: &mut Vec<(String, ChartAnchor)>,
 ) -> Result<Vec<String>> {
     let mut warnings = Vec::new();
     let Some(part) = pkg.part(drawing) else {
@@ -235,6 +236,12 @@ pub(crate) fn load(
                         },
                     });
                 }
+                "AlternateContent" => match crate::slicer::drawing_slicer_name(obj) {
+                    Some(name) => slicers.push((name, anchor)),
+                    None => {
+                        dropped.insert("drawing objects");
+                    }
+                },
                 "sp" | "cxnSp" => {
                     dropped.insert("shapes");
                 }
@@ -464,6 +471,16 @@ impl DrawingParts {
             x.end("a:prstGeom");
             x.end("xdr:spPr");
             x.end("xdr:pic");
+            x.empty("xdr:clientData", &[]);
+            x.end(tag);
+        }
+        let base = base + wb.pictures(sheet).len();
+        for (k, s) in wb.slicers(sheet).iter().enumerate() {
+            let table = wb
+                .slicer_cache(&s.cache)
+                .is_some_and(|c| matches!(c.source, model_sheet::SlicerSource::Table { .. }));
+            let tag = anchor_start(&mut x, &s.anchor, Some("oneCell"));
+            crate::slicer::drawing_frame_xml(&mut x, s, table, base + k);
             x.empty("xdr:clientData", &[]);
             x.end(tag);
         }

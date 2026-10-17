@@ -12,6 +12,7 @@ import type { Table } from "../generated/Table";
 import type { TableStyles } from "../generated/TableStyles";
 import { useT } from "../i18n";
 import { deleteStyle, withDefault } from "./TableStyleDialog";
+import { insertSlicerButton } from "../slicers/SlicerRibbon";
 import type { CalcStore } from "../state/store";
 import { tableDesignIcon, convertIcon, duplicatesIcon, resizeIcon, tableIcon } from "./icons";
 import { customStyle, DEFAULT_TABLE_STYLE, previewColors, TABLE_STYLES, tableStyleNumber } from "./styles";
@@ -235,6 +236,7 @@ export function tableDesignTab(store: CalcStore, t: T): RibbonTab | null {
             <RibbonStack>
               <RibbonButton label={t("calc.table.convert")} icon={convertIcon()} showLabel onClick={() => done(tables.convertToRange(id))} />
             </RibbonStack>
+            {insertSlicerButton(store, t)}
           </>
         ),
       },

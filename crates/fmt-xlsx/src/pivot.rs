@@ -148,12 +148,34 @@ pub(crate) struct PivotParts {
 
 /// The items a field lists in `sharedItems` (axis and page fields, and
 /// every field that is not purely numeric).
-fn itemized(cache: &PivotCache, tables: &[&PivotTable], f: u32) -> bool {
+fn itemized(cache: &PivotCache, tables: &[&PivotTable], f: u32, slicers: &BTreeSet<u32>) -> bool {
     let field = &cache.fields[f as usize];
     tables.iter().any(|t| {
-        t.rows.iter().chain(&t.cols).any(|a| a.field == f) || t.filters.iter().any(|p| p.field == f)
-    }) || !matches!(field.kind, FieldKind::Number | FieldKind::Date)
+        t.rows.iter().chain(&t.cols).any(|a| a.field == f)
+            || t.filters
+                .iter()
+                .chain(&t.field_filters)
+                .any(|p| p.field == f)
+    }) || slicers.contains(&f)
+        || !matches!(field.kind, FieldKind::Number | FieldKind::Date)
 }
+
+/// The fields of pivot cache `cache` a slicer shows (they need shared
+/// items: the slicer cache lists them by index).
+pub(crate) fn slicer_fields(wb: &Workbook, cache: u32) -> BTreeSet<u32> {
+    wb.slicer_caches()
+        .iter()
+        .filter_map(|c| match &c.source {
+            model_sheet::SlicerSource::Pivot {
+                cache: id, field, ..
+            } if *id == cache => Some(*field),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Excel 2010's cache extension: the `pivotCacheId` slicer caches refer to.
+const X14_CACHE_DEF_EXT: &str = "{725AE2AE-9491-48be-B2B4-4EB974FC3084}";
 
 fn item_el(x: &mut XmlOut, item: &Item, date: bool) {
     match item {
@@ -229,6 +251,7 @@ fn shared_items_el(x: &mut XmlOut, field: &CacheField, items: Option<&[Item]>, a
 }
 
 fn cache_definition_xml(wb: &Workbook, cache: &PivotCache, tables: &[&PivotTable]) -> Vec<u8> {
+    let slicers = slicer_fields(wb, cache.id);
     let mut x = XmlOut::new();
     let count = cache.records.len().to_string();
     let mut a: Vec<(&str, &str)> = vec![("xmlns", MAIN_NS), ("xmlns:r", rel::NS), ("r:id", "rId1")];
@@ -275,7 +298,7 @@ fn cache_definition_xml(wb: &Workbook, cache: &PivotCache, tables: &[&PivotTable
             ],
         );
         let all: Vec<&Item> = cache.records.iter().filter_map(|r| r.get(i)).collect();
-        if itemized(cache, tables, i as u32) {
+        if itemized(cache, tables, i as u32, &slicers) {
             let items: Vec<&Item> = f.shared_items.iter().collect();
             shared_items_el(&mut x, f, Some(&f.shared_items), &items);
         } else {
@@ -284,11 +307,25 @@ fn cache_definition_xml(wb: &Workbook, cache: &PivotCache, tables: &[&PivotTable
         x.end("cacheField");
     }
     x.end("cacheFields");
+    if !slicers.is_empty() {
+        x.start("extLst", &[]);
+        x.start("ext", &[("uri", X14_CACHE_DEF_EXT), ("xmlns:x14", X14_NS)]);
+        x.empty(
+            "x14:pivotCacheDefinition",
+            &[("pivotCacheId", &cache.id.to_string())],
+        );
+        x.end("ext");
+        x.end("extLst");
+    }
     x.end("pivotCacheDefinition");
     x.finish()
 }
 
-fn cache_records_xml(cache: &PivotCache, tables: &[&PivotTable]) -> Vec<u8> {
+fn cache_records_xml(
+    cache: &PivotCache,
+    tables: &[&PivotTable],
+    slicers: &BTreeSet<u32>,
+) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start(
         "pivotCacheRecords",
@@ -300,7 +337,7 @@ fn cache_records_xml(cache: &PivotCache, tables: &[&PivotTable]) -> Vec<u8> {
     );
     let maps: Vec<Option<HashMap<String, usize>>> = (0..cache.fields.len())
         .map(|f| {
-            itemized(cache, tables, f as u32).then(|| {
+            itemized(cache, tables, f as u32, slicers).then(|| {
                 cache.fields[f]
                     .shared_items
                     .iter()
@@ -575,8 +612,27 @@ fn table_xml(wb: &Workbook, t: &PivotTable, cache: &PivotCache, out: &PivotOutpu
         }
         let attrs: Vec<(&str, &str)> = fa.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let repeat = on_rows.is_some() && o.repeat_labels;
+        let slicer = t.field_filters.iter().find(|p| p.field == f);
         if axis.is_none() && page.is_none() {
-            x.empty("pivotField", &attrs);
+            // A slicer's filter on a field on no axis: its hidden items.
+            match slicer.map(|p| &p.selected) {
+                Some(PageSelection::Items { items }) => {
+                    x.start("pivotField", &attrs);
+                    let order = t.item_order(cache, f);
+                    x.start("items", &[("count", &order.len().to_string())]);
+                    for i in &order {
+                        let xi = i.to_string();
+                        if items.contains(i) {
+                            x.empty("item", &[("x", &xi)]);
+                        } else {
+                            x.empty("item", &[("h", "1"), ("x", &xi)]);
+                        }
+                    }
+                    x.end("items");
+                    x.end("pivotField");
+                }
+                _ => x.empty("pivotField", &attrs),
+            }
             continue;
         }
         x.start("pivotField", &attrs);
@@ -837,7 +893,7 @@ impl PivotParts {
                 ),
                 None => (
                     cache_definition_xml(wb, cache, &tables),
-                    Some(cache_records_xml(cache, &tables)),
+                    Some(cache_records_xml(cache, &tables, &slicer_fields(wb, id))),
                 ),
             };
             pkg.insert_part(def.clone(), CACHE_DEF_CT, def_xml);
@@ -1259,6 +1315,25 @@ fn read_table(
                 _ => PageSelection::All,
             };
             t.filters.push(PageField { field: f, selected });
+        }
+    }
+    // Hidden items of a field on no axis: a slicer's filter.
+    for (i, info) in fields.iter().enumerate() {
+        let f = i as u32;
+        let used = t.rows.iter().chain(&t.cols).any(|a| a.field == f)
+            || t.filters.iter().any(|p| p.field == f);
+        if !used && !info.hidden.is_empty() {
+            t.field_filters.push(PageField {
+                field: f,
+                selected: PageSelection::Items {
+                    items: info
+                        .order
+                        .iter()
+                        .copied()
+                        .filter(|x| !info.hidden.contains(x))
+                        .collect(),
+                },
+            });
         }
     }
     if let Some(df) = root.child("dataFields") {

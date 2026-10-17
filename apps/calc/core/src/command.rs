@@ -781,6 +781,43 @@ pub enum CalcCommand {
         #[ts(as = "Option<crate::wire::Filter>")]
         filter: Option<model_sheet::Filter>,
     },
+    /// Insert › Slicer (Insert Slicers dialog): one slicer per source
+    /// (table columns, or pivot cache fields connected to the pivot
+    /// tables listed in the source), cascading from `anchor` on `sheet`.
+    InsertSlicers {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_data::SlicerSource>")]
+        sources: Vec<model_sheet::SlicerSource>,
+        #[ts(as = "crate::wire_chart::ChartAnchor")]
+        anchor: ChartAnchor,
+    },
+    /// Clicks on a slicer: only the `selected` items (displayed values)
+    /// pass the filter; `null` = Clear Filter. Table slicers set the
+    /// table's value filter on the column; pivot slicers filter every
+    /// connected pivot table.
+    SetSlicerSelection {
+        cache: String,
+        #[serde(default)]
+        #[ts(optional)]
+        selected: Option<Vec<String>>,
+    },
+    /// The Slicer tab / Slicer Settings / move and resize of slicer `id`;
+    /// absent fields stay (`sort` is the cache's item order).
+    UpdateSlicer {
+        id: u32,
+        patch: SlicerPatch,
+    },
+    /// Deletes slicer `id`; its cache goes with the last slicer showing
+    /// it, and so does its filter.
+    DeleteSlicer {
+        id: u32,
+    },
+    /// Report Connections: the pivot tables (of the same cache) the
+    /// slicer cache `cache` filters.
+    SetSlicerConnections {
+        cache: String,
+        pivots: Vec<u32>,
+    },
     /// Custom table styles (New / Modify / Duplicate / Delete Table
     /// Style, Set As Default): replaces the list and the default style.
     /// `renamed` (old → new name) re-points the tables of a renamed
@@ -989,6 +1026,13 @@ pub enum CalcCommand {
         id: u32,
         index: u32,
         name: String,
+    },
+    /// *Internal.* Replaces every slicer cache and slicer (no filters
+    /// are applied).
+    RestoreSlicers {
+        #[ts(as = "Vec<crate::wire_data::SlicerCache>")]
+        caches: Vec<model_sheet::SlicerCache>,
+        sheets: Vec<crate::slicers::SheetSlicers>,
     },
     /// *Internal.* Replaces every pivot cache and table (no cells are
     /// written).
@@ -1229,6 +1273,38 @@ impl SheetViewPatch {
             show_headings: self.show_headings.unwrap_or(view.show_headings),
         }
     }
+}
+
+/// The changed properties of a slicer ([`CalcCommand::UpdateSlicer`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SlicerPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub caption: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_caption: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub columns: Option<u32>,
+    /// Button height in EMU.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<f64>")]
+    pub row_height: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub style: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire_chart::ChartAnchor>")]
+    pub anchor: Option<ChartAnchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire_data::SlicerSort>")]
+    pub sort: Option<model_sheet::SlicerSort>,
 }
 
 /// A renamed table style (Modify Table Style with a new name).

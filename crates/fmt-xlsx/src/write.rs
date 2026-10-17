@@ -42,6 +42,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     let mut comments = crate::comments::CommentParts::default();
     let mut pivots = crate::pivot::PivotParts::default();
     let mut tables = crate::tables::TableParts::default();
+    let mut slicer_parts = crate::slicer::SlicerParts::default();
     let persons = crate::comments::persons_of(wb);
     let default_font = ctx
         .default_font
@@ -54,7 +55,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
     pkg.insert_part(
         main.clone(),
         ct::WORKBOOK,
-        workbook_xml(wb, &sheets, active, &[]),
+        workbook_xml(wb, &sheets, active, &[], &Default::default()),
     );
     let mut rels = Relationships::new();
     for (i, (id, _)) in sheets.iter().enumerate() {
@@ -64,7 +65,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         // Relationships first: the sheet XML names their ids.
         let mut sheet_rels = Relationships::new();
         let mut ids = SheetRelIds::default();
-        if !wb.charts(id).is_empty() || !wb.pictures(id).is_empty() {
+        if !wb.charts(id).is_empty() || !wb.pictures(id).is_empty() || !wb.slicers(id).is_empty() {
             let drawing = drawings.write(&mut pkg, wb, id)?;
             ids.drawing = Some(sheet_rels.add(rel::DRAWING, drawing).id.clone());
         }
@@ -81,6 +82,7 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         }
         pivots.write_tables(&mut pkg, &mut sheet_rels, wb, id)?;
         ids.tables = tables.write(&mut pkg, &mut sheet_rels, wb, id)?;
+        ids.slicers = slicer_parts.write_sheet(&mut pkg, &mut sheet_rels, wb, id)?;
         let xml = sheet_xml(wb, id, i == active, &mut sst, &dxfs, &mut dynamic, &ids);
         pkg.insert_part(part.clone(), ct::WORKSHEET, xml);
         rels.add(rel::WORKSHEET, target);
@@ -118,12 +120,13 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         crate::comments::write_persons(&mut pkg, &mut rels, &persons)?;
     }
     let caches = pivots.write_caches(&mut pkg, &mut rels, wb)?;
-    if !caches.is_empty() {
+    let slicer_caches = slicer_parts.write_caches(&mut pkg, &mut rels, wb, &sheets)?;
+    if !caches.is_empty() || !slicer_caches.names.is_empty() {
         // In place: the part order stays.
         pkg.insert_part(
             main.clone(),
             ct::WORKBOOK,
-            workbook_xml(wb, &sheets, active, &caches),
+            workbook_xml(wb, &sheets, active, &caches, &slicer_caches),
         );
     }
     pkg.set_relationships(main, rels);
@@ -186,6 +189,7 @@ fn workbook_xml(
     sheets: &[(SheetId, String)],
     active: usize,
     pivot_caches: &[(u32, String)],
+    slicer_caches: &crate::slicer::BookSlicers,
 ) -> Vec<u8> {
     let mut x = XmlOut::new();
     x.start("workbook", &[("xmlns", MAIN_NS), ("xmlns:r", rel::NS)]);
@@ -246,6 +250,10 @@ fn workbook_xml(
             format!("'{quoted}'!{}", abs_range(af.r0, af.c0, af.r1, af.c1)),
         ));
     }
+    // Each slicer cache is also a defined name (`#N/A`).
+    for name in &slicer_caches.names {
+        entries.push((name.clone(), None, None, false, "#N/A".into()));
+    }
     if !entries.is_empty() {
         x.start("definedNames", &[]);
         for (name, comment, local, hidden, text) in &entries {
@@ -266,6 +274,7 @@ fn workbook_xml(
     }
     x.empty("calcPr", &[("fullCalcOnLoad", "1")]);
     crate::pivot::pivot_caches_xml(&mut x, pivot_caches);
+    crate::slicer::workbook_ext_xml(&mut x, slicer_caches);
     x.end("workbook");
     x.finish()
 }
@@ -326,6 +335,8 @@ struct SheetRelIds {
     links: Vec<Option<String>>,
     /// The table parts (`<tableParts>`).
     tables: Vec<String>,
+    /// The slicer parts (`<extLst>` slicer lists).
+    slicers: crate::slicer::SheetSlicers,
 }
 
 fn sheet_xml(
@@ -549,6 +560,7 @@ fn sheet_xml(
         x.empty("legacyDrawing", &[("r:id", rid)]);
     }
     crate::tables::table_parts_xml(&mut x, &rel_ids.tables);
+    crate::slicer::sheet_ext_xml(&mut x, &rel_ids.slicers);
     x.end("worksheet");
     x.finish()
 }

@@ -36,6 +36,7 @@ mod names;
 mod patch;
 mod pivots;
 mod protection;
+mod slicers;
 mod tables;
 pub mod wire;
 pub mod wire_annot;
@@ -49,7 +50,7 @@ pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThrea
 pub use command::{
     BorderEdits, CalcCommand, ClipCell, DeleteShift, EdgeEdit, FillMode, InsertShift, PasteMode,
     PasteOperation, PasteParts, PasteSpecial, RangeFormat, Rect, SheetRect, SheetViewPatch,
-    StyleRename, SubtotalFunction,
+    SlicerPatch, StyleRename, SubtotalFunction,
 };
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
 pub use display::{display_value, UNDISPLAYABLE};
@@ -65,3 +66,4 @@ pub use pivots::{
     PivotArea, PivotAt, PivotCellView, PivotFieldInfo, PivotInfo, PivotItemInfo, PivotPatch,
     PivotSourceSpec, PivotSummary, PivotTarget, SheetPivots,
 };
+pub use slicers::{SheetSlicers, SlicerPivot, SlicerView};

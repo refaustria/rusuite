@@ -1,6 +1,6 @@
 // Pivot tables in Calc's ribbon (P8-33): Insert › Tables › PivotTable and
 // the contextual PivotTable Analyze and Design tabs shown while a cell of a
-// pivot table is selected (Excel 365). Group, Insert Slicer / Timeline,
+// pivot table is selected (Excel 365); Insert Slicer (P9-C2). Group, Timeline,
 // Fields, Items & Sets, PivotChart, Recommended PivotTables and Blank Rows
 // are not offered (no model support yet).
 
@@ -17,6 +17,7 @@ import {
 } from "./icons";
 import { CLEAR_ALL_PATCH, clearFiltersPatch, pivotDataKey, withOptions } from "./model";
 import { DEFAULT_PIVOT_STYLE, PIVOT_STYLES, pivotStyle, styleNumber } from "./styles";
+import { insertSlicerButton } from "../slicers/SlicerRibbon";
 
 /** Insert › Tables: PivotTable (Recommended PivotTables is not offered). */
 export function pivotInsertGroup(store: CalcStore, t: T, off: boolean): RibbonGroup {
@@ -141,6 +142,10 @@ export function pivotAnalyzeTab(store: CalcStore, t: T): RibbonTab | null {
             </RibbonStack>
           </>
         ),
+      },
+      {
+        label: t("calc.slicer.filter"),
+        items: insertSlicerButton(store, t),
       },
       {
         label: t("calc.pivot.data"),

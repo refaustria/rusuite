@@ -76,6 +76,8 @@ pub struct Workbook {
     pub(crate) protection: Option<crate::protection::WorkbookProtection>,
     /// Custom table styles and the default table style.
     pub(crate) table_styles: crate::table_styles::TableStyles,
+    /// Slicer caches (the slicers live on the sheets).
+    pub(crate) slicer_caches: Vec<crate::slicer::SlicerCache>,
     /// The sheet the file opens on (`<workbookView activeTab>`).
     active: Option<SheetId>,
 }
@@ -124,6 +126,7 @@ impl Workbook {
             pivot_journal: None,
             protection: None,
             table_styles: Default::default(),
+            slicer_caches: Vec::new(),
             active: None,
         }
     }
@@ -213,6 +216,8 @@ impl Workbook {
         let mut data = self.sheet_data(id).clone();
         data.hidden = false;
         data.very_hidden = false;
+        // Slicers stay with the original (their caches name its tables).
+        data.slicers.clear();
         *self.sheet_data_mut(new)? = data;
         if let Some(source) = source {
             self.rename_chart_refs(Some(new), &source, name);
@@ -966,6 +971,7 @@ impl Workbook {
         self.shift_pivots(sheet, op);
         self.shift_page_breaks(sheet, op);
         self.shift_pictures(sheet, op);
+        self.shift_slicers(sheet, op);
         let tables = self.shift_tables(sheet, op);
         recalc.changed.extend(tables.changed);
         recalc.changed.sort_unstable();

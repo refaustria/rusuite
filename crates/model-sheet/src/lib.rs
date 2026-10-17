@@ -25,6 +25,7 @@ pub mod pivot;
 pub mod protection;
 mod rules;
 pub mod sheet;
+pub mod slicer;
 pub mod snapshot;
 pub mod sortfilter;
 pub mod style;
@@ -50,6 +51,9 @@ pub use picture::Picture;
 pub use pivot::{PivotCache, PivotTable};
 pub use protection::{HashedPassword, Password, SheetProtection, WorkbookProtection};
 pub use sheet::{ColInfo, MergeRect, RowInfo, SheetFormat, SheetView, MAX_ZOOM, MIN_ZOOM};
+pub use slicer::{
+    Slicer, SlicerCache, SlicerItem, SlicerSort, SlicerSource, SlicerState, DEFAULT_SLICER_STYLE,
+};
 pub use snapshot::{
     content_to_input, CellSnapshot, ColSnapshot, NameSnapshot, RowSnapshot, SheetSnapshot,
     WorkbookSnapshot,
@@ -142,6 +146,9 @@ pub enum Error {
     /// No table with this id.
     #[error("unknown table {0}")]
     UnknownTable(u32),
+    /// A malformed slicer or slicer cache, or one whose source is gone.
+    #[error("invalid slicer: {0}")]
+    InvalidSlicer(String),
     /// Insert / Delete Cells would cut through merged cells.
     #[error("We can't do that to a merged cell.")]
     ShiftMerged,

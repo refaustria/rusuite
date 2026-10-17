@@ -418,6 +418,29 @@ impl CalcDocument {
                     .filter_map(|id| self.pivot_sheet(id))
                     .try_for_each(|s| self.deny_if(s, |p| p.pivot_tables))
             }
+            // Slicers: objects; a table slicer's click is a filter.
+            C::InsertSlicers { sheet, .. } => self.deny_if(*sheet, |p| p.objects),
+            C::UpdateSlicer { id, .. } | C::DeleteSlicer { id } => {
+                match wb.slicer(*id).map(|(s, _)| s.0) {
+                    Some(s) => self.deny_if(s, |p| p.objects),
+                    None => Ok(()),
+                }
+            }
+            C::SetSlicerSelection { cache, .. } => {
+                match wb.slicer_cache(cache).map(|c| &c.source) {
+                    Some(model_sheet::SlicerSource::Table { table, .. }) => {
+                        match self.table_sheet(*table) {
+                            Some(s) => self.deny_if(s, |p| p.auto_filter),
+                            None => Ok(()),
+                        }
+                    }
+                    Some(model_sheet::SlicerSource::Pivot { pivots, .. }) => pivots
+                        .iter()
+                        .filter_map(|id| self.pivot_sheet(*id))
+                        .try_for_each(|s| self.deny_if(s, |p| p.pivot_tables)),
+                    None => Ok(()),
+                }
+            }
             // Protection itself, views, names, users and internal commands.
             _ => Ok(()),
         }

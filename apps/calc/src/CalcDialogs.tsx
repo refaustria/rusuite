@@ -25,6 +25,7 @@ import { CustomFilterDialog, CustomSortDialog, FilterPanel, SortExpandDialog, To
 import { PivotDialog } from "./pivot/PivotDialogs";
 import { CreateTableDialog, ResizeTableDialog, TotalsMenu } from "./tables/TableDialogs";
 import { TableStyleDialog } from "./tables/TableStyleDialog";
+import { InsertSlicersDialog, ReportConnectionsDialog, SlicerSettingsDialog } from "./slicers/SlicerDialogs";
 import {
   DuplicatesResultDialog, GoalSeekDialog, GoalSeekStatusDialog, PasteSpecialDialog, PrintTitlesDialog, RemoveDuplicatesDialog, SaveCsvDialog, SubtotalDialog,
   TextImportDialog, TextToColumnsDialog,
@@ -412,6 +413,12 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <CreateTableDialog store={store} range={dialog.range} hasHeaders={dialog.hasHeaders} />;
     case "resizeTable":
       return <ResizeTableDialog store={store} id={dialog.id} />;
+    case "insertSlicers":
+      return <InsertSlicersDialog store={store} table={dialog.table} pivot={dialog.pivot} />;
+    case "slicerSettings":
+      return <SlicerSettingsDialog store={store} id={dialog.id} />;
+    case "slicerConnections":
+      return <ReportConnectionsDialog store={store} id={dialog.id} />;
     case "tableStyle":
       return <TableStyleDialog store={store} mode={dialog.mode} name={dialog.name} tableId={dialog.tableId} />;
     case "totalsMenu":
