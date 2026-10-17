@@ -28,3 +28,13 @@ The README prescribes a Cargo workspace with ten crates and a pnpm workspace for
 ## Amendment 2026-10-15 – `fmt-ooxml` → `core-model`
 
 `fmt-ooxml` now depends on `core-model`: the shared theme part parser/writer (`fmt_ooxml::theme`) produces and consumes `core_model::Theme`, which removed three private copies from `fmt-xlsx`, `fmt-docx` and `fmt-pptx` (P7-3). `core-model` is a leaf crate with no project-internal dependencies, so no cycle is possible and the rest of the direction rules stand. The dependency table in `docs/architecture.md` is authoritative for the current graph.
+
+## Amendment 2026-10-17 (P9-X1) – `core-model` hosts DrawingML preset geometry
+
+Write draws the same DrawingML presets as Show (`wps:wsp` shapes and text boxes), and `write-core` depended on
+`model-show` only to compute their outlines. The preset library (`prstGeom` path data, `avLst` defaults, adjust
+handles, text rectangles, connection sites), its ECMA-376 evaluator, custom geometry and the connector geometries
+therefore move to `core_model::geometry`; `model-show` re-exports the module unchanged (its Show-only action-button
+click actions became the `PresetActions` trait) and `write-core` drops its `model-show` dependency. `core-model` stays a
+leaf crate: its only new dependency is an optional `ts-rs` behind a `ts` feature (enabled by `model-show/ts`) so the
+geometry types keep generating Show's TypeScript definitions unchanged. The dependency direction above is unaffected.

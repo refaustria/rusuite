@@ -4,13 +4,16 @@
 //! Phase 0 covers character-run formatting ([`RunProperties`]), colors
 //! ([`Color`], [`Rgb`]), font specification ([`FontFace`], [`FontSize`]) and
 //! the document theme ([`Theme`]); binary media ([`MediaStore`]) is shared by
-//! Write and Show (ADR 0008). All types are format-agnostic: mapping to
+//! Write and Show (ADR 0008), and so is the DrawingML shape geometry
+//! ([`geometry`]: preset outlines, adjust handles, text rectangles,
+//! connection sites; ADR 0003 amendment). All types are format-agnostic: mapping to
 //! and from OOXML specifics happens in the `fmt-*` crates. Every type derives
 //! `serde` traits and doubles as an IPC payload (see ADR 0002).
 
 pub mod chart;
 pub mod color;
 pub mod font;
+pub mod geometry;
 pub mod media;
 pub mod run;
 pub mod theme;

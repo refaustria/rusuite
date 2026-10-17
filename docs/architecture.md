@@ -25,11 +25,11 @@ fmt-xlsx | fmt-docx | fmt-pptx ──► model-sheet | model-text | model-show �
 
 | Crate | Depends on (project-internal) | Role |
 |---|---|---|
-| `core-model` | – | Shared vocabulary: `RunProperties`, `Color`, `Theme`/`ColorScheme`/`FontScheme`, units (`Twips`, `Emu`, `Pt`), `MediaStore`. |
+| `core-model` | – (optional `ts-rs` with feature `ts`) | Shared vocabulary: `RunProperties`, `Color`, `Theme`/`ColorScheme`/`FontScheme`, units (`Twips`, `Emu`, `Pt`), `MediaStore`; DrawingML shape geometry (`geometry`: the 177 presets, ECMA-376 evaluator for outlines, adjust handles, text rectangles and connection sites, custom geometry, connectors) used by Show and Write. |
 | `engine-formula` | – | Lexer, parser, dependency graph, evaluator, functions; usable standalone. |
 | `model-sheet` | `core-model`, `engine-formula` | `Workbook` owns the `Engine`; adds styles, dimensions, metadata ([ADR 0004](adr/0004-model-sheet-wraps-the-engine.md)). |
 | `model-text` | `core-model` (+ `app-common` with feature `ts`) | Block/inline document with stable `NodeId`s ([ADR 0006](adr/0006-model-text-block-inline-model.md)). |
-| `model-show` | `core-model` (+ `app-common` with feature `ts`) | Slides, shapes, DrawingML-shaped text ([ADR 0008](adr/0008-model-show-shapes-and-text.md)). |
+| `model-show` | `core-model` (+ `app-common` with feature `ts`) | Slides, shapes, DrawingML-shaped text ([ADR 0008](adr/0008-model-show-shapes-and-text.md)); re-exports `core_model::geometry` as `model_show::geometry` (plus the action-button click actions, `PresetActions`). |
 | `fmt-ooxml` | `core-model` | OPC package (ZIP, `[Content_Types].xml`, relationships, part names); relationship/content-type constants (`rel`, `ct`); XML helpers (`xml`: small DOM `El`, writer `XmlOut`, scalar parsers); the DrawingML theme part (`theme`). |
 | `fmt-xlsx`, `fmt-docx`, `fmt-pptx` | `fmt-ooxml`, `core-model`, their model (`fmt-xlsx` also `engine-formula`) | Bytes ↔ model. `read_with_context`/`write_with_context` carry file-level parts (theme, settings) to the next save. Format crates never depend on each other. |
 | `app-common` | – | `Document` trait, undo/redo `Host`, `Envelope`, `DispatchError`, recent files and crash recovery (`Session`). |
@@ -38,7 +38,14 @@ fmt-xlsx | fmt-docx | fmt-pptx ──► model-sheet | model-text | model-show �
 
 Two edges go beyond ADR 0003 as written: `fmt-xlsx → engine-formula` (formula text and cell values,
 ADR 0004) and, since P7-3, `fmt-ooxml → core-model` (the theme part all three formats share parses into
-`core_model::Theme`).
+`core_model::Theme`). Since P9-X1 the preset geometry lives in `core-model` (ADR 0003 amendment), so
+`write-core` no longer depends on `model-show`: Write's `shapePaths` (outlines and adjust handles of drawings)
+and Show's are computed by the same `core_model::geometry`. Equivalence tests
+(`crates/core-model/tests/geometry_equivalence.rs`, `crates/model-show/tests/…`, `apps/show/core/tests/…`,
+`apps/write/core/tests/…`) pin digests of every preset × 3 sizes × default and extreme adjust values, recorded
+before the move. On the frontend, `packages/ui-shared/src/geometry/handles.ts` holds the handle math both editors
+use (adjust-handle positions and drag inversion, rotation and flips, keyboard nudging, resize/rotation handles,
+cursors, hit testing); each app keeps its own rendering (Konva in Show, DOM in Write).
 
 Everything below the Tauri shells compiles for `wasm32-unknown-unknown`: no `std::fs`, threads or system
 clock in core crates (the engine clock is injectable). CI runs the wasm check.
@@ -115,7 +122,7 @@ the wasm check and `cargo doc`; then frontend tests and builds; then the e2e sui
 ## Where to add a feature
 
 1. **Scope.** Is it in the README's MVP scope? If not, open a `scope-discussion` issue first.
-2. **Model.** Shared by all apps (formatting, colors, media)? → `core-model`. Otherwise the app's model
+2. **Model.** Shared by all apps (formatting, colors, media, shape geometry)? → `core-model`. Otherwise the app's model
    crate. Serde derives; extend the model's snapshot tests.
 3. **File format.** Map it in the one `fmt-*` crate, read and write. Use `fmt_ooxml` for package, XML,
    theme and the `rel`/`ct` constants; shared OOXML plumbing goes there, never copied between format
