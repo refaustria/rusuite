@@ -154,6 +154,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   // Freeform: Shape / Scribble in progress (P9-S2)
   const [free, setFree] = useState<FreeformState | null>(null);
   const freeRef = useRef<FreeformState | null>(null);
+  /** The last click of a freeform drawing (a second one at the same place soon after is a double-click). */
+  const lastFreeClick = useRef<{ p: Pt; t: number } | null>(null);
   freeRef.current = free;
   const editPoints = useShow(store, (s) => s.editPoints);
   const handleFocus = useShow(store, (s) => s.handleFocus);
@@ -376,8 +378,22 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       const p = emuPointer();
       if (!free || !p) return;
       const next = freeformUp(free, p, freeTol);
-      if (next.done) finishFree(next);
-      else setFree(next);
+      if (next.done) {
+        lastFreeClick.current = null;
+        finishFree(next);
+        return;
+      }
+      // a double-click (two clicks at one place) ends the freeform open
+      const clicked = !free.dragged && choice.mode === "freeform";
+      const prev = lastFreeClick.current;
+      const now = performance.now();
+      if (clicked && prev && now - prev.t < 500 && dist(prev.p, p) <= freeTol.snap) {
+        lastFreeClick.current = null;
+        finishFree(freeformFinish(next, freeTol));
+        return;
+      }
+      lastFreeClick.current = clicked ? { p, t: now } : null;
+      setFree(next);
       return;
     }
     const d = drawing;
@@ -439,10 +455,6 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   };
 
   const onDblClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (choice?.kind === "freehand" && free) {
-      finishFree(freeformFinish(free, freeTol));
-      return;
-    }
     if (choice || e.target.hasName?.("edit-handle")) return;
     const { leaf } = shapeTargets(e.target);
     if (leaf === null) return;
@@ -485,6 +497,11 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       data-draw-mode={drawMode ?? undefined}
       data-master-view={masterView ? (masterView.kind === "master" ? "master" : masterView.value) : undefined}
       data-adjust-handles={one?.kind.kind === "auto" ? handlesOf(one).length : undefined}
+      onPointerDownCapture={(e) => {
+        // a press on the slide takes the keyboard from the ribbon / backstage (arrows nudge, Tab cycles handles)
+        const a = document.activeElement;
+        if (a instanceof HTMLElement && a !== document.body && !e.currentTarget.contains(a)) a.blur();
+      }}
     >
       <Stage
         ref={stageRef}

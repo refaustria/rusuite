@@ -12,21 +12,12 @@ import type { ContextMenuItem } from "@rusuite/ui-shared";
 import type { PathCmd } from "../generated/PathCmd";
 import type { Shape } from "../generated/Shape";
 import { EMU_PER_PX } from "../geometry";
-import { addVertex, deleteVertex, editable, moveVertex, nearestSegment, setSegment, smoothVertex, toggleClosed, vertices } from "../shapes/editPoints";
+import { addVertex, deleteVertex, editOutline, moveVertex, nearestSegment, setSegment, smoothVertex, toggleClosed, vertices } from "../shapes/editPoints";
 import { mapLocal, toLocal, type Pt } from "../shapes/geom";
-import { pathCache, pathQueryOf, svgPath, usePathVersion } from "../shapes/paths";
+import { svgPath, usePathVersion } from "../shapes/paths";
 import { useT } from "../i18n";
 
 const px = (v: number) => v / EMU_PER_PX;
-
-/** The editable outline of a shape: its first path's commands in the box (EMU) and whether it is filled; `null` while not cached or not editable. */
-export function editOutline(shape: Shape): { cmds: PathCmd[]; fill: boolean } | null {
-  const q = shape.kind.kind === "auto" ? pathQueryOf(shape) : null;
-  const p = q ? pathCache.get(q) : null;
-  const first = p?.paths[0];
-  if (!p || !first || p.paths.length !== 1 || !editable(first.commands)) return null;
-  return { cmds: first.commands, fill: first.fill };
-}
 
 export function EditPointsLayer({ shape, scale, onCommit, onMenu, onExit }: {
   shape: Shape;

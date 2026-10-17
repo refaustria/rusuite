@@ -4,6 +4,8 @@ import { ShowApi } from "../api";
 import { FakeBackend } from "../test/fakeBackend";
 import { ShowStore } from "./store";
 import type { PathCmd } from "../generated/PathCmd";
+import { fakePaths } from "../test/fakeBackend";
+import { pathCache, pathKey, pathQueryOf } from "../shapes/paths";
 
 async function ready(backend = new FakeBackend()) {
   const store = new ShowStore(new ShowApi(backend));
@@ -33,6 +35,12 @@ describe("freeform and Edit Points (store)", () => {
     const slide = store.currentSlide()!;
     const shape = slide.shapes.find((s) => s.kind.kind === "auto")!;
     store.select([shape.id]);
+    // without its outline (not yet from the core) a shape cannot be edited point by point
+    pathCache.clear();
+    store.setEditPoints(true);
+    expect(store.getState().editPoints).toBeNull();
+    const q = pathQueryOf(shape)!;
+    pathCache.load([[pathKey(q), fakePaths(q)]]);
     store.setEditPoints(true);
     expect(store.getState().editPoints).toBe(shape.id);
     const cmds: PathCmd[] = [{ kind: "moveTo", x: 0, y: 0 }, { kind: "lineTo", x: 2 * shape.transform.w, y: 0 }, { kind: "lineTo", x: 0, y: shape.transform.h }, { kind: "close" }];

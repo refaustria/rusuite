@@ -89,7 +89,7 @@ import { NO_CROP, stylePatch, type PictureStyle } from "../design/picture";
 import { t } from "../i18n";
 import { centredTransform } from "../geometry";
 import { choiceOf, choiceShape, clickBox, freeformShape, pushRecent } from "../shapes/presets";
-import { refit } from "../shapes/editPoints";
+import { editOutline, refit } from "../shapes/editPoints";
 import { dragHandle, effectiveAdjust, handlePos, handlesOf, type HandleDef } from "../shapes/handles";
 import { mapLocal, toLocal } from "../shapes/geom";
 import type { GeomPath } from "../generated/GeomPath";
@@ -1337,7 +1337,8 @@ export class ShowStore {
   /** Edit Shape › Edit Points for the selected auto shape (`false` ends it). */
   setEditPoints(on: boolean): void {
     const one = this.selectedShapes();
-    const s = on && one.length === 1 && one[0]!.kind.kind === "auto" ? one[0]! : null;
+    // one shape whose outline is a single path of lines and curves (as cached from the core)
+    const s = on && one.length === 1 && one[0]!.kind.kind === "auto" && editOutline(one[0]!) ? one[0]! : null;
     if (on && this.state.editing) void this.commitEdit();
     this.set({ editPoints: s ? s.id : null });
   }

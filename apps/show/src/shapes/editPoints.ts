@@ -10,6 +10,8 @@ import type { PathCmd } from "../generated/PathCmd";
 import type { Transform } from "../generated/Transform";
 import { commandsBox, shiftCommands } from "./freeform";
 import { mapLocal, type Pt } from "./geom";
+import type { Shape } from "../generated/Shape";
+import { pathCache, pathQueryOf } from "./paths";
 
 /** A vertex: the end point of command `index`. */
 export interface Vertex extends Pt {
@@ -193,4 +195,13 @@ export function refit(t: Transform, cmds: PathCmd[], fill: boolean): { transform
   // flipped shapes draw their path mirrored: keep the path, mirror the offset only
   const transform: Transform = { ...t, x: Math.round(c.x - b.w / 2), y: Math.round(c.y - b.h / 2), w: b.w, h: b.h };
   return { transform, path: { w: b.w, h: b.h, fill, stroke: true, commands: shiftCommands(cmds, b.x, b.y) } };
+}
+
+/** The editable outline of a shape: its first path's commands in the box (EMU) and whether it is filled; `null` while not cached or not editable. */
+export function editOutline(shape: Shape): { cmds: PathCmd[]; fill: boolean } | null {
+  const q = shape.kind.kind === "auto" ? pathQueryOf(shape) : null;
+  const p = q ? pathCache.get(q) : null;
+  const first = p?.paths[0];
+  if (!p || !first || p.paths.length !== 1 || !editable(first.commands)) return null;
+  return { cmds: first.commands, fill: first.fill };
 }

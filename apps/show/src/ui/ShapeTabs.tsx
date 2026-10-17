@@ -28,6 +28,7 @@ import type { TextDirection } from "../generated/TextDirection";
 import { sitesOf } from "../canvas/EditHandles";
 import type { ShowState, ShowStore } from "../state/store";
 import { ShapeLibrary } from "./ShapeGallery";
+import { editOutline } from "../shapes/editPoints";
 
 type T = (key: string, args?: Record<string, string | number>) => string;
 
@@ -170,7 +171,7 @@ export function shapeFormatGroups(store: ShowStore, state: ShowState, palette: T
               label={t("show.editPoints")}
               icon={<svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 15L7 4l6 4 4 9z" /><rect x="5.5" y="2.5" width="3" height="3" fill="currentColor" /><rect x="11.5" y="6.5" width="3" height="3" fill="currentColor" /></svg>}
               showLabel
-              disabled={autos.length !== 1}
+              disabled={autos.length !== 1 || !editOutline(autos[0]!)}
               pressed={autos.length === 1 && state.editPoints === autos[0]!.id}
               onClick={() => store.setEditPoints(!(autos.length === 1 && state.editPoints === autos[0]!.id))}
             />
@@ -441,31 +442,35 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
         // the pen the Borders menu draws with (PowerPoint's Draw Borders group)
         label: t("show.table.drawBorders"),
         items: (
-          <RibbonStack>
-            <RibbonMenuButton
-              label={t("show.pen.style")}
-              icon={<svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 6h14" /><path d="M3 10h14" strokeDasharray="3 2" /><path d="M3 14h14" strokeDasharray="1 2" /></svg>}
-              showLabel
-              menu={PEN_DASHES.map((d) => ({ id: `pen-dash-${d}`, label: t(`show.pen.dash.${d}`), checked: pen.dash === d, onSelect: () => store.setPen({ dash: d }) }))}
-            />
-            <RibbonMenuButton
-              label={t("show.pen.weight")}
-              icon={<svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="M3 5h14" strokeWidth="1" /><path d="M3 10h14" strokeWidth="2" /><path d="M3 15h14" strokeWidth="3.5" /></svg>}
-              showLabel
-              menu={PEN_WEIGHTS_PT.map((w) => ({
-                id: `pen-weight-${w}`,
-                label: t("show.pen.pt", { n: formatNumber(w, { maximumFractionDigits: 2 }) }),
-                checked: Math.round(w * 12700) === pen.width,
-                onSelect: () => store.setPen({ width: Math.round(w * 12700) }),
-              }))}
-            />
-            <RibbonRow>
-              <ColorPicker label={t("show.pen.color")} kind="text" value={pen.color} theme={palette} onSelect={(c) => c && store.setPen({ color: c })} />
-              <span aria-hidden="true" className="whitespace-nowrap pr-1 text-xs">
-                {t("show.pen.color")}
-              </span>
-            </RibbonRow>
-          </RibbonStack>
+          <>
+            <RibbonStack>
+              <RibbonMenuButton
+                label={t("show.pen.style")}
+                icon={<svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 6h14" /><path d="M3 10h14" strokeDasharray="3 2" /><path d="M3 14h14" strokeDasharray="1 2" /></svg>}
+                showLabel
+                menu={PEN_DASHES.map((d) => ({ id: `pen-dash-${d}`, label: t(`show.pen.dash.${d}`), checked: pen.dash === d, onSelect: () => store.setPen({ dash: d }) }))}
+              />
+              <RibbonMenuButton
+                label={t("show.pen.weight")}
+                icon={<svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="M3 5h14" strokeWidth="1" /><path d="M3 10h14" strokeWidth="2" /><path d="M3 15h14" strokeWidth="3.5" /></svg>}
+                showLabel
+                menu={PEN_WEIGHTS_PT.map((w) => ({
+                  id: `pen-weight-${w}`,
+                  label: t("show.pen.pt", { n: formatNumber(w, { maximumFractionDigits: 2 }) }),
+                  checked: Math.round(w * 12700) === pen.width,
+                  onSelect: () => store.setPen({ width: Math.round(w * 12700) }),
+                }))}
+              />
+            </RibbonStack>
+            <RibbonStack>
+              <RibbonRow>
+                <ColorPicker label={t("show.pen.color")} kind="text" value={pen.color} theme={palette} onSelect={(c) => c && store.setPen({ color: c })} />
+                <span aria-hidden="true" className="whitespace-nowrap pr-1 text-xs">
+                  {t("show.pen.color")}
+                </span>
+              </RibbonRow>
+            </RibbonStack>
+          </>
         ),
       },
     ],
