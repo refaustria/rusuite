@@ -2,6 +2,7 @@
 import type { Columns } from "./Columns";
 import type { HeaderFooterSet } from "./HeaderFooterSet";
 import type { LevelKind } from "./LevelKind";
+import type { NoteNumbering } from "./NoteNumbering";
 import type { PageSetup } from "./PageSetup";
 import type { SectionId } from "./SectionId";
 import type { SectionKind } from "./SectionKind";
@@ -46,4 +47,15 @@ pageNumberStart?: number,
 /**
  * Format of page numbers (docx `pgNumType/@fmt`; `None` = decimal).
  */
-pageNumberFormat?: LevelKind, };
+pageNumberFormat?: LevelKind, 
+/**
+ * Footnote numbering of the section (docx `w:sectPr/w:footnotePr`:
+ * `w:numFmt`, `w:numStart`, `w:numRestart`; References › Footnote and
+ * Endnote). `None` = continuous Arabic numbers from 1.
+ */
+footnoteNumbering?: NoteNumbering, 
+/**
+ * Endnote numbering of the section (docx `w:sectPr/w:endnotePr`).
+ * `None` = continuous lower-case Roman numbers from i.
+ */
+endnoteNumbering?: NoteNumbering, };

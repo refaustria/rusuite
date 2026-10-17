@@ -24,6 +24,8 @@ const CONNECTOR_ICONS: Record<string, ReactNode> = {
   elbowArrow: <><path d="M2 4h7v10h6" /><path d="M12.5 11.5L15.5 14l-3 2.5" /></>,
   curved: <path d="M2 4c9 0 5 10 14 10" />,
   curvedArrow: <><path d="M2 4c9 0 5 10 13 10" /><path d="M12.5 11.5L15.5 14l-3 2.5" /></>,
+  freeform: <path d="M2 15L5 4l5 6 3-7 3 12z" />,
+  scribble: <path d="M2 12c2-6 4-8 5-4s1 7 3 3 2-9 4-6 2 5 2 5" />,
 };
 
 /** The icon of a gallery id: the preset's outline from the core (a box until it arrives). */
@@ -32,7 +34,7 @@ export function ShapeIcon({ id }: { id: string }) {
   const choice = choiceOf(id);
   let body: ReactNode;
   if (!choice) body = null;
-  else if (choice.kind === "connector") body = CONNECTOR_ICONS[id];
+  else if (choice.kind === "connector" || choice.kind === "freehand") body = CONNECTOR_ICONS[id];
   else if (choice.kind === "textBox") return <RibbonIcon name="textBox" size={ICON_PX} />;
   else {
     const q: PathQuery = { kind: { kind: "preset", value: choice.preset }, w: ICON_EMU, h: ICON_EMU };

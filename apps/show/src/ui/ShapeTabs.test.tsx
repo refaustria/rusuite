@@ -146,16 +146,21 @@ describe("tables", () => {
   });
 
   it("table styles and style options", async () => {
-    const { backend } = await mount();
+    const { backend, store } = await mount();
     await insertTable(backend);
     fireEvent.click(tab("Table Design"));
-    fireEvent.click(screen.getByRole("button", { name: "Medium Style 2 – Accent 5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dark Style 1 – Accent 1" }));
     await flush();
-    expect(last(backend)).toMatchObject({ type: "setTableStyle", shape: 100, styleId: "{7DF18680-E054-41AD-8BC1-D1AEF772440D}" });
-    // More: every style grouped Light / Medium / Dark
+    expect(last(backend)).toMatchObject({ type: "setTableStyle", shape: 100, styleId: "{125E5076-3810-47DD-B79F-674D7AD40C01}" });
+    // More: every style grouped Best Match / Light / Medium / Dark
     fireEvent.click(screen.getByRole("button", { name: "More table styles" }));
     const menu = await screen.findByTestId("table-styles-menu");
-    expect(within(menu).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Light", "Medium", "Dark"]);
+    expect(within(menu).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Best Match for Document", "Light", "Medium", "Dark"]);
+    // the pointer on a style previews it on the table; leaving ends the preview
+    fireEvent.mouseOver(within(within(menu).getByRole("group", { name: "Dark" })).getByRole("button", { name: "Dark Style 2 – Accent 3/Accent 4" }));
+    expect(store.getState().tablePreview).toBe("{91EBBBCC-DAD2-459C-BE2E-F6DE35CF9A28}");
+    fireEvent.mouseLeave(menu);
+    expect(store.getState().tablePreview).toBeNull();
     fireEvent.click(within(within(menu).getByRole("group", { name: "Medium" })).getByRole("button", { name: "Medium Style 2 – Accent 3" }));
     await flush();
     expect(last(backend)).toMatchObject({ type: "setTableStyle", styleId: "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}" });

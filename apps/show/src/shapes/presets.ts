@@ -13,6 +13,8 @@ import type { Hyperlink } from "../generated/Hyperlink";
 import { EMU_PER_PT } from "../geometry";
 import presetInfo from "../generated/presetInfo.json";
 import { pathCache, pathQueryOf } from "./paths";
+import type { FreehandMode } from "./freeform";
+import type { GeomPath } from "../generated/GeomPath";
 
 /** Every preset's default name and adjust values (written by `cargo test -p show-core`). */
 const PRESET_INFO = presetInfo as Record<string, { name: string; adjust: Record<string, number> }>;
@@ -24,7 +26,11 @@ export type NamedPreset = Exclude<Preset, { custom: unknown }>;
 export type ShapeChoice =
   | { kind: "preset"; preset: NamedPreset }
   | { kind: "textBox" }
-  | { kind: "connector"; connector: ConnectorKind; head: boolean; tail: boolean };
+  | { kind: "connector"; connector: ConnectorKind; head: boolean; tail: boolean }
+  | { kind: "freehand"; mode: FreehandMode };
+
+/** The freehand tools of the Lines group (Freeform: Shape, Scribble). */
+export const FREEHAND = ["freeform", "scribble"] as const;
 
 export type ShapeGroupId =
   | "recent"
@@ -51,19 +57,25 @@ const CONNECTORS: Record<string, ShapeChoice> = {
 
 /** The gallery groups in PowerPoint's order (without Recently Used) and their item ids. */
 export const SHAPE_GROUPS: { id: Exclude<ShapeGroupId, "recent">; items: string[] }[] = [
-  { id: "lines", items: ["line", "lineArrow", "lineDoubleArrow", "elbow", "elbowArrow", "curved", "curvedArrow"] },
-  { id: "rectangles", items: ["rect", "roundRect", "snip1Rect", "snip2SameRect", "round1Rect", "round2SameRect"] },
+  { id: "lines", items: ["line", "lineArrow", "lineDoubleArrow", "elbow", "elbowArrow", "curved", "curvedArrow", "freeform", "scribble"] },
+  { id: "rectangles", items: ["rect", "roundRect", "snip1Rect", "snip2SameRect", "snip2DiagRect", "snipRoundRect", "round1Rect", "round2SameRect", "round2DiagRect"] },
   {
     id: "basic",
     items: [
-      "textBox", "ellipse", "triangle", "rtTriangle", "parallelogram", "trapezoid", "diamond", "pentagon", "hexagon", "octagon",
-      "pie", "chord", "teardrop", "frame", "halfFrame", "corner", "diagStripe", "plus", "can", "cube", "bevel", "donut", "noSmoking",
-      "blockArc", "foldedCorner", "smileyFace", "heart", "lightningBolt", "sun", "moon", "cloud",
+      "textBox", "ellipse", "triangle", "rtTriangle", "parallelogram", "trapezoid", "diamond", "pentagon", "hexagon", "heptagon", "octagon",
+      "decagon", "dodecagon", "pie", "chord", "teardrop", "frame", "halfFrame", "corner", "diagStripe", "plus", "plaque", "can", "cube", "bevel",
+      "donut", "noSmoking", "blockArc", "foldedCorner", "smileyFace", "heart", "lightningBolt", "sun", "moon", "cloud", "arc", "bracketPair",
+      "bracePair", "leftBracket", "rightBracket", "leftBrace", "rightBrace",
     ],
   },
   {
     id: "arrows",
-    items: ["rightArrow", "leftArrow", "upArrow", "downArrow", "leftRightArrow", "upDownArrow", "quadArrow", "leftRightUpArrow", "bentArrow", "uturnArrow", "homePlate", "chevron"],
+    items: [
+      "rightArrow", "leftArrow", "upArrow", "downArrow", "leftRightArrow", "upDownArrow", "quadArrow", "leftRightUpArrow", "bentArrow", "uturnArrow",
+      "leftUpArrow", "bentUpArrow", "curvedRightArrow", "curvedLeftArrow", "curvedUpArrow", "curvedDownArrow", "stripedRightArrow", "notchedRightArrow",
+      "homePlate", "chevron", "rightArrowCallout", "downArrowCallout", "leftArrowCallout", "upArrowCallout", "leftRightArrowCallout", "upDownArrowCallout",
+      "quadArrowCallout", "circularArrow",
+    ],
   },
   { id: "equation", items: ["mathPlus", "mathMinus", "mathMultiply", "mathDivide", "mathEqual", "mathNotEqual"] },
   {
@@ -77,8 +89,21 @@ export const SHAPE_GROUPS: { id: Exclude<ShapeGroupId, "recent">; items: string[
       "flowChartMagneticDrum", "flowChartDisplay", "flowChartOfflineStorage",
     ],
   },
-  { id: "stars", items: ["star4", "star5", "star6", "star8", "ribbon2", "ribbon", "wave", "doubleWave"] },
-  { id: "callouts", items: ["wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout", "cloudCallout", "borderCallout1", "borderCallout2"] },
+  {
+    id: "stars",
+    items: [
+      "irregularSeal1", "irregularSeal2", "star4", "star5", "star6", "star7", "star8", "star10", "star12", "star16", "star24", "star32",
+      "ribbon2", "ribbon", "ellipseRibbon2", "ellipseRibbon", "verticalScroll", "horizontalScroll", "wave", "doubleWave",
+    ],
+  },
+  {
+    id: "callouts",
+    items: [
+      "wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout", "cloudCallout", "borderCallout1", "borderCallout2", "borderCallout3",
+      "accentCallout1", "accentCallout2", "accentCallout3", "callout1", "callout2", "callout3", "accentBorderCallout1", "accentBorderCallout2",
+      "accentBorderCallout3",
+    ],
+  },
   {
     id: "actionButtons",
     items: [
@@ -111,16 +136,24 @@ export function defaultAction(p: Preset): Hyperlink | undefined {
 /** Whether a preset is one of the twelve action buttons. */
 export const isActionButton = (p: Preset): boolean => typeof p === "string" && p.startsWith("actionButton");
 
-/** Every named preset (the gallery's plus `line`). */
+/** Presets PowerPoint reads and draws but does not offer in its gallery. */
+export const EXTRA_PRESETS = [
+  "leftCircularArrow", "leftRightCircularArrow", "leftRightRibbon", "nonIsoscelesTrapezoid", "pieWedge", "funnel", "gear6", "gear9", "swooshArrow",
+  "cornerTabs", "plaqueTabs", "squareTabs", "chartPlus", "chartStar", "chartX",
+] as const;
+
+/** Every named preset (the gallery's, `line` and the extras). */
 export const NAMED_PRESETS: NamedPreset[] = [
-  ...SHAPE_GROUPS.flatMap((g) => g.items.filter((i) => !(i in CONNECTORS) && i !== "textBox")),
+  ...SHAPE_GROUPS.flatMap((g) => g.items.filter((i) => !(i in CONNECTORS) && i !== "textBox" && !(FREEHAND as readonly string[]).includes(i))),
   "line",
+  ...EXTRA_PRESETS,
 ] as NamedPreset[];
 
 /** The choice of a gallery id (`null` for unknown ids). */
 export function choiceOf(id: string): ShapeChoice | null {
   if (id in CONNECTORS) return CONNECTORS[id]!;
   if (id === "textBox") return { kind: "textBox" };
+  if ((FREEHAND as readonly string[]).includes(id)) return { kind: "freehand", mode: id as FreehandMode };
   return (NAMED_PRESETS as string[]).includes(id) && id !== "line" ? { kind: "preset", preset: id as NamedPreset } : null;
 }
 
@@ -189,6 +222,8 @@ export function choiceShape(choice: ShapeChoice, transform: Transform, id: numbe
         line: { fill: { kind: "solid", value: ACCENT }, width: EMU_PER_PT, dash: "solid" },
       };
     }
+    case "freehand":
+      return freeformShape(transform, { w: transform.w, h: transform.h, fill: false, stroke: true, commands: [] }, id);
     case "preset": {
       const action = defaultAction(choice.preset);
       return {
@@ -206,7 +241,7 @@ export function choiceShape(choice: ShapeChoice, transform: Transform, id: numbe
 
 /** The box a click (no drag) at `x`, `y` inserts for a choice (top-left at the click like PowerPoint). */
 export function clickBox(choice: ShapeChoice, x: number, y: number): Transform {
-  if (choice.kind === "connector") return { x: Math.round(x), y: Math.round(y), w: DEFAULT_SHAPE_EMU, h: 0, rotationDeg: 0 };
+  if (choice.kind === "connector" || choice.kind === "freehand") return { x: Math.round(x), y: Math.round(y), w: DEFAULT_SHAPE_EMU, h: 0, rotationDeg: 0 };
   if (choice.kind === "textBox") return { x: Math.round(x), y: Math.round(y), w: TEXT_BOX_CLICK_W, h: TEXT_BOX_LINE_H, rotationDeg: 0 };
   return { x: Math.round(x), y: Math.round(y), w: DEFAULT_SHAPE_EMU, h: DEFAULT_SHAPE_EMU, rotationDeg: 0 };
 }
@@ -234,4 +269,20 @@ export function textRect(shape: Shape, w: number, h: number): Box {
   const sx = w / tw;
   const sy = h / th;
   return { x: r.l * sx, y: r.t * sy, w: Math.max(0, (r.r - r.l) * sx), h: Math.max(0, (r.b - r.t) * sy) };
+}
+
+/**
+ * The shape a freeform or scribble drawing makes (`Preset::Custom`): a
+ * closed one is filled like a new shape, an open one is a line in the
+ * accent colour (PowerPoint's styles).
+ */
+export function freeformShape(transform: Transform, path: GeomPath, id: number): Shape {
+  return {
+    id,
+    name: "",
+    transform,
+    kind: { kind: "auto", value: { geometry: { custom: { paths: [path] } } } },
+    fill: path.fill ? { kind: "solid", value: ACCENT } : { kind: "none" },
+    line: { fill: { kind: "solid", value: path.fill ? ACCENT_DARK : ACCENT }, width: EMU_PER_PT, dash: "solid" },
+  };
 }

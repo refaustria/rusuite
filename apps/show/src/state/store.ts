@@ -65,6 +65,8 @@ import type { ArrowSize } from "../generated/ArrowSize";
 import type { ConnectorKind } from "../generated/ConnectorKind";
 import type { Insets } from "../generated/Insets";
 import type { Line } from "../generated/Line";
+import type { TableCellPatch } from "../generated/TableCellPatch";
+import type { TextDirection } from "../generated/TextDirection";
 import type { Preset } from "../generated/Preset";
 import type { Table } from "../generated/Table";
 import type { TableLook } from "../generated/TableLook";
@@ -86,7 +88,12 @@ import { fieldText } from "../design/fields";
 import { NO_CROP, stylePatch, type PictureStyle } from "../design/picture";
 import { t } from "../i18n";
 import { centredTransform } from "../geometry";
-import { choiceOf, choiceShape, clickBox, pushRecent } from "../shapes/presets";
+import { choiceOf, choiceShape, clickBox, freeformShape, pushRecent } from "../shapes/presets";
+import { editOutline, refit } from "../shapes/editPoints";
+import { dragHandle, effectiveAdjust, handlePos, handlesOf, type HandleDef } from "../shapes/handles";
+import { mapLocal, toLocal } from "../shapes/geom";
+import type { GeomPath } from "../generated/GeomPath";
+import type { PathCmd } from "../generated/PathCmd";
 import type { ThemeColorSlot } from "../../../../packages/ui-shared/src/generated/ThemeColorSlot";
 import {
   arrowCommand, arrowSizeCommand, connectorKindCommand, drawConnectorCommand, moveEndCommands, rerouteCommand, type ConnEnd, type SlideSite,
@@ -94,7 +101,7 @@ import {
 import {
   alignCommand as cellAlignCommand, anchorCommand, anchorOf, bordersCommand, deleteColsCommand, deleteRowsCommand, distributeCommand,
   expandRange, insertColsCommand, insertRowsCommand, insertTableCommand, lookCommand, marginsCommand, mergeCommand, moveCell, splitGridCommand,
-  resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, styleCommand, type BorderKind, type CellMove, type CellRange,
+  resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, clearTableCommand, vertCommand, penLine, cellPropsCommand, DEFAULT_PEN, type Pen, styleCommand, type BorderKind, type CellMove, type CellRange,
 } from "../shapes/tables";
 
 export interface Toast {
@@ -188,9 +195,17 @@ export interface ShowState {
   /** Home › Select › Selection Pane (right of the stage). */
   selectionPane: boolean;
   /** The Format Shape pane (right of the stage) on Size & Properties or Text Options. */
-  formatPane: "size" | "text" | null;
+  formatPane: "size" | "text" | "cell" | null;
   /** Arrange › Align: align to the slide or to the selected objects (two or more). */
   alignTo: "slide" | "selection";
+  /** Table Design › Table Styles: the style the pointer rests on, shown on the selected table (live preview). */
+  tablePreview: string | null;
+  /** Table Design › Draw Borders: the pen the Borders menu draws with. */
+  pen: Pen;
+  /** Shape Format › Edit Points: the shape whose vertices are shown (`null` = off). */
+  editPoints: NodeId | null;
+  /** The adjust handle of the selected shape the keyboard moves (Tab cycles; `null` = the shape itself). */
+  handleFocus: number | null;
 }
 
 /** The presentation views of View › Presentation Views. */
@@ -206,6 +221,7 @@ export type ShowDialog =
   | { kind: "replacePicture"; shape: NodeId }
   | { kind: "insertTable" }
   | { kind: "splitCells" }
+  | { kind: "cellLayout" }
   | { kind: "slideScale"; size: SlideSize }
   | { kind: "renameLayout"; layout: LayoutKind }
   | { kind: "headerFooter"; tab?: "slide" | "notes" }
@@ -293,6 +309,10 @@ export class ShowStore {
     selectionPane: false,
     formatPane: null,
     alignTo: "selection",
+    tablePreview: null,
+    pen: DEFAULT_PEN,
+    editPoints: null,
+    handleFocus: null,
   };
   /** The children of the last Ungroup (Regroup). */
   private lastUngrouped: NodeId[] | null = null;
@@ -716,7 +736,14 @@ export class ShowStore {
     const a = this.animation(this.state.animSelection);
     const keep = a && next.includes(this.topOf(a.shape));
     const cs = this.state.cellSel;
-    this.set({ selection: next, animSelection: keep ? this.state.animSelection : null, cellSel: cs && next.length === 1 && next[0] === cs.shape ? cs : null });
+    const ep = this.state.editPoints;
+    this.set({
+      selection: next,
+      animSelection: keep ? this.state.animSelection : null,
+      cellSel: cs && next.length === 1 && next[0] === cs.shape ? cs : null,
+      editPoints: ep !== null && next.length === 1 && next[0] === ep ? ep : null,
+      handleFocus: next.length === 1 && cur.length === 1 && next[0] === cur[0] ? this.state.handleFocus : null,
+    });
   }
 
   // --- transitions and animations (P8-8) ------------------------------------------
@@ -889,12 +916,56 @@ export class ShowStore {
    * grid step onto the grid, unless `fine` (Ctrl) or Shift.
    */
   async nudge(dx: number, dy: number, o: { fine?: boolean; shift?: boolean } = {}): Promise<void> {
+    if (this.state.handleFocus !== null && (await this.nudgeHandle(dx, dy))) return;
     const shapes = this.selectedShapes();
     const v = this.viewProps();
     const grid = v.snapToGrid && !o.shift ? v.gridSpacing / EMU_PER_PX : 0;
     const box = shapes.length ? boundsOf(shapes) : null;
     const d = grid > 0 && !o.fine ? nudgeDelta({ dx: Math.sign(dx), dy: Math.sign(dy) }, box, { ctrl: false, shift: false, grid }) : { dx, dy };
     await this.run(nudgeCommand(shapes, d.dx, d.dy));
+  }
+
+  /** The selected auto shape whose adjust handles the keyboard can move, with its handles. */
+  private keyboardHandles(): { shape: Shape; handles: HandleDef[] } | null {
+    const sel = this.selectedShapes();
+    const one = sel.length === 1 && !this.state.editing && this.state.editPoints === null ? sel[0]! : null;
+    if (!one || one.kind.kind !== "auto") return null;
+    const handles = handlesOf(one);
+    return handles.length ? { shape: one, handles } : null;
+  }
+
+  /**
+   * Tab / Shift+Tab with one shape selected: focuses its next / previous
+   * adjust handle (after the last one the shape itself again). `false`
+   * when the shape has no handles.
+   */
+  stepHandle(delta: 1 | -1): boolean {
+    const k = this.keyboardHandles();
+    if (!k) return false;
+    const n = k.handles.length;
+    const cur = this.state.handleFocus;
+    const next = cur === null ? (delta > 0 ? 0 : n - 1) : cur + delta;
+    this.set({ handleFocus: next < 0 || next >= n ? null : next });
+    return true;
+  }
+
+  /**
+   * Arrow keys on a focused adjust handle: the handle moves `dx`, `dy`
+   * screen-independent px on the slide (Shift: 10), as if dragged there.
+   */
+  async nudgeHandle(dx: number, dy: number): Promise<boolean> {
+    const k = this.keyboardHandles();
+    const i = this.state.handleFocus;
+    if (!k || i === null || !k.handles[i] || k.shape.kind.kind !== "auto") return false;
+    const h = k.handles[i]!;
+    const t = k.shape.transform;
+    const auto = k.shape.kind.value;
+    const pos = handlePos(h, effectiveAdjust(auto.geometry, auto.adjust));
+    const at = mapLocal(t, pos.x, pos.y);
+    const to = toLocal(t, at.x + dx * EMU_PER_PX, at.y + dy * EMU_PER_PX);
+    const adjust = { ...(auto.adjust ?? {}), ...dragHandle(h, to) };
+    if (JSON.stringify(adjust) !== JSON.stringify(auto.adjust ?? {})) await this.setAdjust(k.shape.id, adjust);
+    return true;
   }
 
   async duplicateSelection(): Promise<void> {
@@ -1253,6 +1324,42 @@ export class ShowStore {
     await this.run(drawConnectorCommand(slide, choice, start, end, temp));
   }
 
+  /** A finished Freeform: Shape / Scribble drawing: inserted as a custom geometry and selected. */
+  async insertFreeform(id: string, transform: Transform, path: GeomPath): Promise<void> {
+    const slide = this.state.current;
+    if (slide === null) return;
+    this.useShape(id);
+    const shape = freeformShape(transform, path, this.temp());
+    this.set({ selection: [shape.id] });
+    await this.run({ type: "addShape", slide, shape });
+  }
+
+  /** Edit Shape › Edit Points for the selected auto shape (`false` ends it). */
+  setEditPoints(on: boolean): void {
+    const one = this.selectedShapes();
+    // one shape whose outline is a single path of lines and curves (as cached from the core)
+    const s = on && one.length === 1 && one[0]!.kind.kind === "auto" && editOutline(one[0]!) ? one[0]! : null;
+    if (on && this.state.editing) void this.commitEdit();
+    this.set({ editPoints: s ? s.id : null });
+  }
+
+  /**
+   * An Edit Points change: the shape gets the edited outline (box
+   * commands) as its custom geometry, its box refitted to the points.
+   */
+  async applyEditPoints(shape: NodeId, cmds: PathCmd[], fill: boolean): Promise<void> {
+    const s = this.shape(shape);
+    if (!s || s.kind.kind !== "auto") return;
+    const r = refit(s.transform, cmds, fill);
+    await this.run({
+      type: "compound",
+      commands: [
+        { type: "setGeometry", shapes: [shape], geometry: { custom: { paths: [r.path] } } },
+        { type: "setTransform", shapes: [[shape, r.transform]] },
+      ],
+    });
+  }
+
   /** Edit Shape › Change Shape: the selected auto shapes get `geometry`. */
   async changeShape(geometry: Preset): Promise<void> {
     const shapes = this.selectedShapes().filter((s) => s.kind.kind === "auto").map((s) => s.id);
@@ -1456,9 +1563,24 @@ export class ShowStore {
     return this.tableRun((s, _t, r) => shadingCommand(s, r, color ? { kind: "solid", value: color } : null));
   }
 
-  setCellBorders(kind: BorderKind, color: Color = { kind: "rgb", value: "000000" }, widthPt = 1): Promise<void> {
-    const line: Line = { fill: { kind: "solid", value: color }, width: Math.round(widthPt * 12700), dash: "solid" };
-    return this.tableRun((s, _t, r) => bordersCommand(s, r, kind, line));
+  /** Table Design › Borders: `kind` with the pen (Draw Borders) on the cell range. */
+  setCellBorders(kind: BorderKind, pen: Pen = this.state.pen): Promise<void> {
+    return this.tableRun((s, _t, r) => bordersCommand(s, r, kind, penLine(pen)));
+  }
+
+  /** Draw Borders › Pen Style / Weight / Color. */
+  setPen(pen: Partial<Pen>): void {
+    this.set({ pen: { ...this.state.pen, ...pen } });
+  }
+
+  /** Layout › Text Direction of the cell range. */
+  setCellVert(vert: TextDirection): Promise<void> {
+    return this.tableRun((s, _t, r) => vertCommand(s, r, vert));
+  }
+
+  /** Any cell properties of the range (Format Shape pane, Cell Text Layout). */
+  setCellProps(patch: TableCellPatch): Promise<void> {
+    return this.tableRun((s, _t, r) => cellPropsCommand(s, r, patch));
   }
 
   setCellAnchor(anchor: Anchor): Promise<void> {
@@ -1478,8 +1600,20 @@ export class ShowStore {
   }
 
   async setTableStyle(styleId: string | null): Promise<void> {
+    this.previewTableStyle(null);
     const t = this.selectedTable();
     if (t) await this.run(styleCommand(t.shape.id, t.table, styleId));
+  }
+
+  /** Live preview of a table style on the selected table (`null` ends it). */
+  previewTableStyle(styleId: string | null): void {
+    if (styleId !== this.state.tablePreview) this.set({ tablePreview: styleId });
+  }
+
+  /** Table Design › Clear Table: no style, no cell fills or borders. */
+  async clearTable(): Promise<void> {
+    const t = this.selectedTable();
+    if (t) await this.run(clearTableCommand(t.shape.id, t.table));
   }
 
   async setTableLook(key: keyof TableLook, on: boolean): Promise<void> {
@@ -2240,7 +2374,7 @@ export class ShowStore {
 
   // ----- Format Shape pane: size & properties, text box
 
-  openFormatPane(page: "size" | "text" | null): void {
+  openFormatPane(page: "size" | "text" | "cell" | null): void {
     this.set({ formatPane: page });
   }
 
@@ -2301,6 +2435,8 @@ export class ShowStore {
       case "selectAll": this.select(this.currentSlide()?.shapes.map((s) => s.id) ?? []); break;
       case "deselect":
         if (this.state.drawMode) this.setDrawMode(null);
+        else if (this.state.handleFocus !== null) this.set({ handleFocus: null });
+        else if (this.state.editPoints !== null) this.setEditPoints(false);
         else this.select([]);
         break;
       case "editText": {

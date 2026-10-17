@@ -75,8 +75,8 @@ pub use picture::{Crop, PictureProps, Recolor, Shadow};
 pub use presentation::{FooterDate, Presentation, ResolvedFooter, ResolvedPlaceholder, SlideSize};
 pub use section::Section;
 pub use shape::{
-    align_shapes, distribute, AlignMode, Axis, Fill, Line, LineDash, Preset, Shape, ShapeKind,
-    Transform,
+    align_shapes, distribute, AlignMode, Axis, Fill, Line, LineCompound, LineDash, Preset, Shape,
+    ShapeKind, Transform,
 };
 pub use slide::Slide;
 pub use snapshot::PresentationSnapshot;

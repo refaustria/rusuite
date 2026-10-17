@@ -70,7 +70,8 @@ pub use props::{
     TableProperties, TableWidth, VAlign, VMerge,
 };
 pub use section::{
-    ColumnWidth, Columns, HeaderFooterSet, HeaderSlot, Note, Section, SectionId, SectionKind,
+    ColumnWidth, Columns, HeaderFooterSet, HeaderSlot, Note, NoteNumbering, NoteRestart, Section,
+    SectionId, SectionKind,
 };
 pub use snapshot::DocumentSnapshot;
 pub use style::{

@@ -139,6 +139,59 @@ pub enum LineDash {
     Dot,
 }
 
+/// Compound type of an outline (`a:ln/@cmpd`): one stroke or several
+/// parallel ones sharing the line's width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/show/src/generated/")
+)]
+pub enum LineCompound {
+    /// One stroke (`sng`).
+    #[default]
+    Single,
+    /// Two equal strokes (`dbl`): each a third of the width, a third apart.
+    Double,
+    /// A thick stroke, then a thin one (`thickThin`).
+    ThickThin,
+    /// A thin stroke, then a thick one (`thinThick`).
+    ThinThick,
+    /// Three strokes (`tri`).
+    Triple,
+}
+
+impl LineCompound {
+    /// The `cmpd` attribute value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LineCompound::Single => "sng",
+            LineCompound::Double => "dbl",
+            LineCompound::ThickThin => "thickThin",
+            LineCompound::ThinThick => "thinThick",
+            LineCompound::Triple => "tri",
+        }
+    }
+
+    /// The compound type of a `cmpd` value.
+    pub fn parse(v: &str) -> Option<Self> {
+        Some(match v {
+            "sng" => LineCompound::Single,
+            "dbl" => LineCompound::Double,
+            "thickThin" => LineCompound::ThickThin,
+            "thinThick" => LineCompound::ThinThick,
+            "tri" => LineCompound::Triple,
+            _ => return None,
+        })
+    }
+
+    /// Whether this is a single stroke (the default).
+    pub fn is_single(&self) -> bool {
+        *self == LineCompound::Single
+    }
+}
+
 /// The outline of a shape (`a:ln`). No outline is `fill: Fill::None`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -155,6 +208,10 @@ pub struct Line {
     pub width: Emu,
     /// Dash style.
     pub dash: LineDash,
+    /// Compound type (single strokes are not serialized).
+    #[serde(skip_serializing_if = "LineCompound::is_single")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<LineCompound>"))]
+    pub compound: LineCompound,
 }
 
 impl Default for Line {
@@ -164,6 +221,7 @@ impl Default for Line {
             fill: Fill::None,
             width: Emu(12_700),
             dash: LineDash::Solid,
+            compound: LineCompound::Single,
         }
     }
 }
@@ -175,7 +233,14 @@ impl Line {
             fill: Fill::Solid(color),
             width,
             dash: LineDash::Solid,
+            compound: LineCompound::Single,
         }
+    }
+
+    /// The same line with compound type `compound`.
+    pub fn with_compound(mut self, compound: LineCompound) -> Self {
+        self.compound = compound;
+        self
     }
 
     /// Whether the outline is invisible.

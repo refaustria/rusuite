@@ -55,3 +55,10 @@ MPL-2.0 is file-level copyleft: using them unmodified in an MIT app is fine; if 
 modified files must be offered under MPL-2.0. Two crates are offered under LGPL-2.1-or-later *or* MIT/Apache-2.0
 (we take the permissive option). No GPL component. Ship `NOTICE` and `LICENSE` with the release (the release notes
 link them).
+
+## Data fixtures from third-party projects (added 2026-10-17, P9-S2)
+- `crates/fmt-pptx/src/tablestyle_powerpoint.xml` holds six `a:tblStyle` definitions exactly as PowerPoint writes them
+  into `ppt/tableStyles.xml`. They were taken from the extraction published with *Dewiride PPTX Studio* (Apache-2.0),
+  cross-checked with LibreOffice's `predefined-table-styles.cxx` (MPL-2.0). The content is PowerPoint's own output
+  (format data, not authored code); to be safe the release task (P9-R1) adds a "Data sources" paragraph to
+  `scripts/gen-notice.sh` naming both projects with their licences.

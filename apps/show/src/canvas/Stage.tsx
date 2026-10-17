@@ -16,6 +16,8 @@ import type { Shape } from "../generated/Shape";
 import { boundsPx, boxAttrs, EMU_PER_PX, fitScale, rectFromPoints, shapesInRect, slidePx, type Rect as R } from "../geometry";
 import { dist, dragBox, snap45, type Pt } from "../shapes/geom";
 import { choiceOf, clickBox } from "../shapes/presets";
+import { freeformDown, freeformFinish, freeformGeometry, freeformMove, freeformPreview, freeformUp, startFreeform, type FreeformState } from "../shapes/freeform";
+import { EditPointsLayer, FreeformPreview } from "./EditPointsLayer";
 import { handlesOf } from "../shapes/handles";
 import { usePathVersion } from "../shapes/paths";
 import type { ConnEnd, SlideSite } from "../shapes/connectors";
@@ -126,6 +128,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const selection = useShow(store, (s) => s.selection);
   const editing = useShow(store, (s) => s.editing);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
+  const tablePreview = useShow(store, (s) => s.tablePreview);
   // outlines (and with them the adjust handles) arrive asynchronously
   usePathVersion();
   const stageRef = useRef<Konva.Stage>(null);
@@ -148,6 +151,14 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const drawMode = useShow(store, (s) => s.drawMode);
   /** A shape or connector being drawn (EMU). */
   const [drawing, setDrawing] = useState<{ start: ConnEnd; end: ConnEnd; shift: boolean } | null>(null);
+  // Freeform: Shape / Scribble in progress (P9-S2)
+  const [free, setFree] = useState<FreeformState | null>(null);
+  const freeRef = useRef<FreeformState | null>(null);
+  /** The last click of a freeform drawing (a second one at the same place soon after is a double-click). */
+  const lastFreeClick = useRef<{ p: Pt; t: number } | null>(null);
+  freeRef.current = free;
+  const editPoints = useShow(store, (s) => s.editPoints);
+  const handleFocus = useShow(store, (s) => s.handleFocus);
   /** Connection sites shown (connector being drawn or an end dragged). */
   const [sites, setSites] = useState<{ sites: SlideSite[]; active: SlideSite | null; line?: [Pt, Pt] } | null>(null);
   /** A shape drawn instead of the model's while a handle is dragged. */
@@ -166,12 +177,12 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     if (!stage || !tr) return;
     const sl = store.currentSlide();
     const only = selection.length === 1 ? sl?.shapes.find((x) => x.id === selection[0]) : undefined;
-    const nodes = drawMode || cropping || only?.kind.kind === "connector"
+    const nodes = drawMode || cropping || only?.kind.kind === "connector" || (only && store.getState().editPoints === only.id)
       ? []
       : selection.map((id) => stage.findOne(`#shape-${id}`)).filter((n): n is Konva.Node => !!n);
     tr.nodes(nodes);
     tr.getLayer()?.batchDraw();
-  }, [selection, slide, drawMode, cropping, store]);
+  }, [selection, slide, drawMode, cropping, store, editPoints]);
 
   const setGuides = useCallback((g: Guides) => {
     if (sameGuides(g, guidesRef.current)) return;
@@ -294,6 +305,35 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     });
   }, [store, endSnap]);
 
+  // freeform drawing: the tolerances in EMU at this zoom, ending on Enter / Esc
+  const freeTol = { snap: (8 / Math.max(scale, 1e-6)) * EMU_PER_PX, step: (3 / Math.max(scale, 1e-6)) * EMU_PER_PX };
+  const finishFree = (s: FreeformState) => {
+    setFree(null);
+    const g = s.done ? freeformGeometry(s, freeTol.step / 2) : null;
+    const mode = store.getState().drawMode;
+    if (g && mode) void store.insertFreeform(mode, g.transform, g.path);
+    else store.setDrawMode(null);
+  };
+  const finishRef = useRef(finishFree);
+  finishRef.current = finishFree;
+  const tolRef = useRef(freeTol);
+  tolRef.current = freeTol;
+  useEffect(() => setFree(null), [drawMode]);
+  const drawingFree = free !== null;
+  useEffect(() => {
+    if (!drawingFree) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== "Escape") return;
+      const s = freeRef.current;
+      if (!s) return;
+      e.preventDefault();
+      e.stopPropagation();
+      finishRef.current(freeformFinish(s, tolRef.current));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [drawingFree]);
+
   if (!pres || !slide || scale === 0) return null;
 
   const pointer = (): { x: number; y: number } | null => {
@@ -312,6 +352,10 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     if (!choice || e.evt.button !== 0) return;
     const p = emuPointer();
     if (!p) return;
+    if (choice.kind === "freehand") {
+      setFree(freeformDown(free ?? startFreeform(choice.mode), p));
+      return;
+    }
     const start = endAt(p);
     setDrawing({ start, end: start, shift: e.evt.shiftKey });
   };
@@ -319,6 +363,10 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     if (!choice) return;
     const p = emuPointer();
     if (!p) return;
+    if (choice.kind === "freehand") {
+      if (free) setFree(freeformMove(free, p, freeTol));
+      return;
+    }
     if (choice.kind === "connector") {
       const r = connectorTarget(slide.shapes, p, scale);
       setSites(r.hover ? { sites: r.sites, active: r.end.site } : null);
@@ -326,6 +374,28 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     if (drawing) setDrawing({ ...drawing, end: endAt(p), shift: e.evt.shiftKey });
   };
   const onPointerUp = () => {
+    if (choice?.kind === "freehand") {
+      const p = emuPointer();
+      if (!free || !p) return;
+      const next = freeformUp(free, p, freeTol);
+      if (next.done) {
+        lastFreeClick.current = null;
+        finishFree(next);
+        return;
+      }
+      // a double-click (two clicks at one place) ends the freeform open
+      const clicked = !free.dragged && choice.mode === "freeform";
+      const prev = lastFreeClick.current;
+      const now = performance.now();
+      if (clicked && prev && now - prev.t < 500 && dist(prev.p, p) <= freeTol.snap) {
+        lastFreeClick.current = null;
+        finishFree(freeformFinish(next, freeTol));
+        return;
+      }
+      lastFreeClick.current = clicked ? { p, t: now } : null;
+      setFree(next);
+      return;
+    }
     const d = drawing;
     if (!choice || !drawMode || !d) return;
     setDrawing(null);
@@ -411,7 +481,9 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const pictures = sel.length > 0 && sel.every((s) => !!s.lockAspect);
   const m = marquee ? rectFromPoints(marquee.x0, marquee.y0, marquee.x1, marquee.y1) : null;
   const one = !drawMode && !editing && sel.length === 1 ? sel[0]! : null;
-  const overrides = preview ? new Map([[preview.id, preview]]) : undefined;
+  const overrides = new Map<NodeId, Shape>(preview ? [[preview.id, preview]] : []);
+  // Table Design › Table Styles: the style under the pointer, shown on the selected table
+  if (tablePreview && one?.kind.kind === "table") overrides.set(one.id, { ...one, kind: { kind: "table", value: { ...one.kind.value, styleId: tablePreview } } });
 
   return (
     <div
@@ -425,6 +497,11 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
       data-draw-mode={drawMode ?? undefined}
       data-master-view={masterView ? (masterView.kind === "master" ? "master" : masterView.value) : undefined}
       data-adjust-handles={one?.kind.kind === "auto" ? handlesOf(one).length : undefined}
+      onPointerDownCapture={(e) => {
+        // a press on the slide takes the keyboard from the ribbon / backstage (arrows nudge, Tab cycles handles)
+        const a = document.activeElement;
+        if (a instanceof HTMLElement && a !== document.body && !e.currentTarget.contains(a)) a.blur();
+      }}
     >
       <Stage
         ref={stageRef}
@@ -452,7 +529,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
             design={masterView ? (masterView.kind === "master" ? "master" : "layout") : undefined}
             hiddenText={editing?.shape ?? null}
             hiddenCell={editing?.cell ?? null}
-            overrides={overrides}
+            overrides={overrides.size ? overrides : undefined}
             onShapeDragEnd={commitGesture}
             onShapeDragStart={onShapeDragStart}
             shapeDragBound={shapeDragBound}
@@ -531,8 +608,18 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
               );
             }),
           )}
-          {one?.kind.kind === "auto" && (
-            <AdjustHandles shape={preview?.id === one.id ? preview : one} scale={scale} onPreview={setPreview} onCommit={(id, adjust) => void store.setAdjust(id, adjust)} />
+          {free && <FreeformPreview points={freeformPreview(free)} scale={scale} />}
+          {one?.kind.kind === "auto" && editPoints === one.id && (
+            <EditPointsLayer
+              shape={one}
+              scale={scale}
+              onCommit={(cmds, fill) => void store.applyEditPoints(one.id, cmds, fill)}
+              onMenu={(at, items) => setMenu({ at, items })}
+              onExit={() => store.setEditPoints(false)}
+            />
+          )}
+          {one?.kind.kind === "auto" && editPoints !== one.id && (
+            <AdjustHandles shape={preview?.id === one.id ? preview : one} scale={scale} focus={handleFocus} onPreview={setPreview} onCommit={(id, adjust) => void store.setAdjust(id, adjust)} />
           )}
           {one?.kind.kind === "connector" && (
             <ConnectorHandles

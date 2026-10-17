@@ -3,7 +3,9 @@
 // file picker of Change Picture.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Dialog, bytesToBase64, cssColor } from "@rusuite/ui-shared";
+import { Dialog, bytesToBase64, cssColor, useLocale } from "@rusuite/ui-shared";
+import type { TextDirection } from "../generated/TextDirection";
+import { emuPerUnit, rulerUnit } from "../canvas/guides";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { Anchor } from "../generated/Anchor";
 import type { LineDash } from "../generated/LineDash";
@@ -248,6 +250,68 @@ function SplitCellsDialog({ store }: { store: ShowStore }) {
   );
 }
 
+/**
+ * Layout › Cell Margins › Custom Margins…: PowerPoint's Cell Text Layout
+ * dialog for the cell range (vertical alignment, text direction, internal
+ * margins in centimetres or inches by UI language).
+ */
+function CellLayoutDialog({ store }: { store: ShowStore }) {
+  const t = useT();
+  const locale = useLocale();
+  const unit = rulerUnit(locale);
+  const per = emuPerUnit(unit);
+  const sel = store.selectedTable();
+  const range = store.cellRange();
+  const props = sel && range ? sel.table.cells[range.r0]?.[range.c0]?.text.props : undefined;
+  const [anchor, setAnchor] = useState<Anchor>(props?.anchor ?? "top");
+  const [vert, setVert] = useState<TextDirection>(props?.vert ?? "horizontal");
+  const ins = props?.insets ?? { left: 91440, top: 45720, right: 91440, bottom: 45720 };
+  const [m, setM] = useState({ left: ins.left / per, right: ins.right / per, top: ins.top / per, bottom: ins.bottom / per });
+  const close = () => store.closeDialog();
+  const emu = (v: number) => Math.max(0, Math.round(v * per));
+  return (
+    <Dialog open title={t("show.cellLayout.title")} onClose={close}>
+      <form
+        className="flex w-72 flex-col gap-2 text-sm"
+        onSubmit={(e) => {
+          e.preventDefault();
+          close();
+          void store.setCellProps({ anchor, vert, margins: { left: emu(m.left), right: emu(m.right), top: emu(m.top), bottom: emu(m.bottom) } });
+        }}
+      >
+        <Field label={t("show.fmtPane.valign")}>
+          <select aria-label={t("show.fmtPane.valign")} className={INPUT} value={anchor} onChange={(e) => setAnchor(e.currentTarget.value as Anchor)}>
+            <option value="top">{t("fmt.alignTop")}</option>
+            <option value="middle">{t("fmt.alignMiddle")}</option>
+            <option value="bottom">{t("fmt.alignBottom")}</option>
+          </select>
+        </Field>
+        <Field label={t("show.fmtPane.direction")}>
+          <select aria-label={t("show.fmtPane.direction")} className={INPUT} value={vert} onChange={(e) => setVert(e.currentTarget.value as TextDirection)}>
+            {(["horizontal", "rotate90", "rotate270", "stacked"] as const).map((d) => (
+              <option key={d} value={d}>
+                {t(`show.fmtPane.dir.${d}`)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <p className="font-semibold">{t("show.cellLayout.margins")}</p>
+        {(["left", "right", "top", "bottom"] as const).map((k) => (
+          <Num key={k} label={`${t(`show.fmtPane.${k}`)} (${unit})`} value={m[k]} min={0} onChange={(v) => setM((o) => ({ ...o, [k]: v }))} />
+        ))}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BUTTON} onClick={close}>
+            {t("common.cancel")}
+          </button>
+          <button type="submit" className={BUTTON} disabled={!sel || !range}>
+            {t("common.ok")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 /** Mounts the open dialog; Change Picture opens the file picker. */
 export function ShowDialogs({ store, printOptions, onPrintOptions }: { store: ShowStore; printOptions?: ShowPrintOptions; onPrintOptions?: (o: ShowPrintOptions) => void }) {
   const dialog = useShow(store, (s) => s.dialog);
@@ -267,6 +331,7 @@ export function ShowDialogs({ store, printOptions, onPrintOptions }: { store: Sh
       {dialog?.kind === "alt" && <AltTextDialog store={store} shape={dialog.shape} />}
       {dialog?.kind === "insertTable" && <InsertTableDialog store={store} />}
       {dialog?.kind === "splitCells" && <SplitCellsDialog store={store} />}
+      {dialog?.kind === "cellLayout" && <CellLayoutDialog store={store} />}
       {dialog?.kind === "headerFooter" && <HeaderFooterDialog store={store} tab={dialog.tab} print={printOptions} onPrint={onPrintOptions} />}
       {dialog?.kind === "slideSize" && <SlideSizeDialog store={store} />}
       {dialog?.kind === "slideScale" && <SlideScaleDialog store={store} size={dialog.size} />}

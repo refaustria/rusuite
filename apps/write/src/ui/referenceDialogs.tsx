@@ -31,6 +31,8 @@ import { currentSection } from "../features/structureCommands";
 import { formatDateTime } from "../features/structure";
 import { BUTTON, cm, fromCm, INPUT } from "./dialogs";
 import { useT } from "../i18n";
+import { NoteDialog, noteDialogCommands, type NoteDialogValues } from "./noteDialog";
+import { insertNote } from "../features/structureCommands";
 
 const WEB_PLACEHOLDER = "https://"; // i18n-ignore
 const MAIL_PLACEHOLDER = "mailto:"; // i18n-ignore
@@ -998,6 +1000,7 @@ export function DateTimeDialog({ open, onSubmit, onClose }: { open: boolean; onS
 export function ReferenceDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncController; editor: Editor | null }) {
   const { dialog, pages, symbolTab } = useSyncExternalStore(ui.subscribe, ui.getState);
   const sections = useSyncExternalStore(ctl.subscribe, () => ctl.sections);
+  const settings = useSyncExternalStore(ctl.subscribe, () => ctl.settings);
   const close = () => {
     ui.openDialog(null);
     editor?.commands.focus();
@@ -1014,7 +1017,11 @@ export function ReferenceDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncCo
         : { headings: [], bookmarks: [] },
     [editor, dialog],
   );
-  const section = useMemo(() => (editor && dialog === "columns" ? currentSection(editor.state, sections) : null), [editor, dialog, sections]);
+  const section = useMemo(() => (editor && (dialog === "columns" || dialog === "notes") ? currentSection(editor.state, sections) : null), [editor, dialog, sections]);
+  const applyNotes = async (v: NoteDialogValues) => {
+    const cmds = noteDialogCommands(v, sections, section, settings);
+    if (cmds.length) await ctl.run(cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds });
+  };
   const caret = () => {
     const sel = editor?.state.selection;
     const p = sel?.$from.parent;
@@ -1098,6 +1105,20 @@ export function ReferenceDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncCo
           const cmd = editor && columnsCommand(editor.state, sections, cols, applyTo);
           if (cmd) run([cmd]);
           close();
+        }}
+      />
+      <NoteDialog
+        open={dialog === "notes"}
+        section={section}
+        settings={settings}
+        onClose={close}
+        onApply={(v) => {
+          void applyNotes(v);
+          close();
+        }}
+        onInsert={(v) => {
+          ui.openDialog(null);
+          void applyNotes(v).then(() => editor && insertNote(editor, ctl, v.kind));
         }}
       />
       <SymbolDialog

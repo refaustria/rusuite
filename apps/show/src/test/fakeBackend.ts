@@ -718,6 +718,18 @@ export class FakeBackend implements ShowBackend {
             for (let k = c.col; k < c.col + (c.colSpan ?? 1); k++) {
               const cell = t.cells[r]![k]!;
               if (c.patch.fill !== undefined) cell.fill = c.patch.fill ?? undefined;
+              if (c.patch.vert) cell.text = { ...cell.text, props: { ...cell.text.props, vert: c.patch.vert } };
+              if (c.patch.anchor) cell.text = { ...cell.text, props: { ...cell.text.props, anchor: c.patch.anchor } };
+              if (c.patch.margins) cell.text = { ...cell.text, props: { ...cell.text.props, insets: c.patch.margins } };
+              const b = { ...(cell.borders ?? {}) };
+              for (const k of ["left", "right", "top", "bottom", "diagDown", "diagUp"] as const) {
+                const v = c.patch[k];
+                if (v !== undefined) {
+                  if (v === null) delete b[k];
+                  else b[k] = v;
+                }
+              }
+              cell.borders = b;
             }
         } else if (c.type === "insertTableRow") {
           t.rows.splice(c.index, 0, { ...t.rows[0]! });

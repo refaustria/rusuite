@@ -21,6 +21,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
   - [Write print layout: true pagination (P8-31)](#write-print-layout-true-pagination-p8-31)
   - [Write shapes, text boxes, picture formatting, character formatting (P8-34)](#write-shapes-text-boxes-picture-formatting-character-formatting-p8-34)
   - [Write quality pass (P8-38)](#write-quality-pass-p8-38)
+  - [Write pagination round 3 (P9-W2)](#write-pagination-round-3-p9-w2)
 - [Building blocks (@rusuite/ui-shared)](#building-blocks-rusuiteui-shared)
 - [Keyboard](#keyboard)
 - [Tabs per app](#tabs-per-app)
@@ -36,6 +37,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Show: charts, links, action buttons, audio/video, Reuse Slides (P8-24)](#show-charts-links-action-buttons-audiovideo-reuse-slides-p8-24)
 - [Show: views, rulers, guides, Selection pane, text options, slide-show tools (P8-28)](#show-views-rulers-guides-selection-pane-text-options-slide-show-tools-p8-28)
 - [Show: rich in-place text, autofit text boxes, master text levels (P9-S1)](#show-rich-in-place-text-autofit-text-boxes-master-text-levels-p9-s1)
+- [Show: tables and shapes round 2 (P9-S2)](#show-tables-and-shapes-round-2-p9-s2)
 - [Printing (P7-9)](#printing-p7-9)
 - [Logos and the portal (P7-10)](#logos-and-the-portal-p7-10)
 - [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
@@ -241,7 +243,7 @@ The algorithm is in `docs/write-layout.md`.
   balanced; column breaks start the next column; the line between columns is drawn per page.
 - **Footnotes** are at the bottom of the page of their reference (separator line), editable there (the notes area keeps
   only the endnotes in print layout; draft view keeps the notes area); a footnote too long for its page continues on the
-  next one (full-width continuation separator, a read-only copy).
+  next one (full-width continuation separator; since P9-W2 the continuation is the editable note itself).
 - **Page gaps**: a grey band between sheets; hovering it shows "Page N"; double-click hides / shows the white space
   between pages (Word's Hide White Space: the margins, headers and footers disappear, a thin line separates the pages).
   A click in the margins of a gap puts the caret on the nearest line (the last line above, the first line below). The
@@ -341,7 +343,7 @@ The deferred items of docs/qa/write-2026-10.md:
 - **Mixed page sizes (W-18)**: in print layout every sheet has its own section's width and height and is centred in a
   frame as wide as the widest page (the view scrolls sideways to it); the blocks of a section with another text width
   are moved and widened into its text column (node decorations), so a landscape section's lines are as long as on paper.
-  File › Print and Export PDF still use the first section's paper size for every page.
+  File › Print and Export PDF still used the first section's paper size for every page (each page has its own since P9-W2).
 
 ### Write lists, numbering and Word shortcuts (P9-W1)
 - **List placement like Word**: a list paragraph sits at its numbering level's real indent (`w:ind` left / hanging of
@@ -381,6 +383,37 @@ The deferred items of docs/qa/write-2026-10.md:
   Heading style toggle as the shortcut map (one `SetStyle`, the paragraph keeps its id). The others (Ctrl+Shift+> / <,
   Ctrl+] / [, Ctrl+Shift+K / A / D, Ctrl+T / Ctrl+Shift+T, Ctrl+M / Ctrl+Shift+M, Ctrl+Q, Ctrl+Space, Ctrl+Shift+N,
   Ctrl+E / L / R / J, Ctrl+1 / 2 / 5, Ctrl+0) were bound in P8-46 / earlier and are covered by tests now.
+
+### Write pagination round 3 (P9-W2)
+The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
+- **Sections with their own paper**: every section lays out at its own text width (size, margins, orientation,
+  columns) in print layout and in File › Print / Export PDF: each printed page has its own section's sheet size
+  (portrait and landscape pages in one PDF) and text column. A continuous section break starts the next section below
+  the break on the same page (its columns too); to other paper (size or orientation) it starts a new page, like Word.
+  Changing a section (Layout › Orientation, Margins, Columns …) re-measures only the blocks whose width changed and lays
+  the pages out again from that section on.
+- **Footnotes** are at the bottom of the page of their reference in the editor and in print / PDF (never at the end,
+  never twice); a note too long for its page continues on the next page below the full-width continuation separator.
+  The continuation is the note itself (one editable note shown in two page footers): click into it and type, the text
+  goes to the single note.
+- **Endnotes at the end of each section**: References › Footnotes › Endnotes ▾ (end of document / of each section) or
+  the new **Footnote and Endnote…** dialog (Location: Footnotes – Bottom of page, Endnotes – End of document / End of
+  section; Format: Number format 1, 2, 3 / a, b, c / A, B, C / i, ii, iii / I, II, III, Start at, Numbering Continuous /
+  Restart each section / Restart each page (footnotes); Apply changes to: Whole document / This section; Insert applies
+  and inserts a note of the chosen kind, Apply only applies). With End of section the endnotes of a section stand after
+  its last paragraph (separator line above them), before the next section; they are editable there.
+- **Note numbers per section**: the format, start and restart of the dialog (`Section.footnoteNumbering` /
+  `endnoteNumbering`, `SetSection { footnoteNumbering | endnoteNumbering }`) number the references and notes in the
+  editor and in print; "Restart each page" follows the pages of print layout (draft view numbers on).
+- **Tables across pages**: a row that does not fit the rest of a page breaks there ("Allow row to break across pages"
+  on, Word's default): each cell continues at its own line on the next page and the cell borders stay open at the cut
+  (no horizontal border at the bottom of the part or the top of the continuation); rows of nested tables split the same
+  way inside their parent row; a nested row with "Allow row to break" off moves whole, a nested header row stays with
+  the next row (Word does not repeat header rows of nested tables). A row that can not break and is taller than a page
+  is clipped at the page bottom (its start on the page, as Word); the following content starts on the next page.
+- **Speed**: after a keystroke only the edited block is measured and built again; the pages before it are kept and the
+  pages after it are taken over as soon as the breaks meet the previous ones again (a keystroke on page 100 of 200 lays
+  out in a few milliseconds).
 
 ## Building blocks (`@rusuite/ui-shared`)
 
@@ -1214,6 +1247,49 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   (`marginLeft`, `indent`); there is no Paragraph dialog for them yet.
 - **Insert Placeholder** adds Chart and Table (`p:ph type="chart"` / `"tbl"`, prompts "Click icon to add chart / table")
   next to Content, Picture, Title and the footers; Rename and delete work as before.
+
+## Show: tables and shapes round 2 (P9-S2)
+
+- **Table styles** follow PowerPoint's own `a:tblStyle` definitions (border weights, double total-row lines, tints,
+  shades and alpha fills, the Themed styles' table background, the corner cells; see `ooxml-subset.md`, "Table
+  styles"). **Table Design › Table Styles**: the inline gallery is PowerPoint's *Best Match for Document* row (every
+  family drawn in the theme's Accent 1: Themed Style 1 / 2, Light 1–3, Medium 1–4, Dark 1 and Dark 2 – Accent 1/Accent 2);
+  ▾ More shows Best Match, Light (No Style, Themed and Light styles), Medium and Dark. Resting the pointer on a style (or
+  focusing it) previews it on the selected table; leaving the gallery ends the preview. **Clear Table** removes the style
+  and the cells' own fills and borders. The Table Style Options check boxes set `TableLook`; saved files reference the
+  style id (`a:tableStyleId`) and write only the cells' own fills and borders.
+- **Draw Borders** group (Table Design): Pen Style (solid, dashed, dotted), Pen Weight (¼–6 pt) and Pen Color set the pen;
+  **Borders ▾** has PowerPoint's twelve options (No Border, All, Outside, Inside, Top, Bottom, Left, Right, Inside
+  Horizontal / Vertical, Diagonal Down / Up) and draws them with the pen on the selected cells (No Border also removes
+  the diagonals).
+- **Layout** (table): Text Direction ▾ (Horizontal, Rotate all text 90° / 270°, Stacked; `a:tcPr/@vert`, drawn rotated or
+  one character per line), Cell Margins ▾ Normal / None / Narrow / Wide / **Custom Margins…** (the *Cell Text Layout*
+  dialog: vertical alignment, text direction, the four internal margins in cm or inches), Merge, Split Cells…,
+  Distribute Rows / Columns, Align Top / Middle / Bottom as before.
+- **Format Shape pane** for a selected table: a *Table Cells* page (fill: automatic from the style, no fill or a colour;
+  a border side — all, outside, top … diagonals — with its style, weight and colour) and *Text Options* for the cells
+  (vertical alignment, text direction, margins). They act on the cell selection (else the whole table).
+- **Resize grips** of columns and rows are 32 px wide hit targets (the line stays thin); a tap on a grip without dragging
+  edits the cell under it.
+- **Freeform: Shape / Scribble** (Insert › Shapes › Lines): Freeform — each click adds a corner joined by a straight
+  segment, dragging draws freehand (smoothed into curves), a click on the start point closes and fills the shape,
+  double-click, Enter or Esc ends it open; Scribble — one drag, released ends it. Saved as `a:custGeom` in the shape's
+  box; open drawings are lines in the accent colour, closed ones get the accent fill.
+- **Edit Points** (Shape Format › Insert Shapes, the shape's context menu): the outline's vertices as black squares;
+  drag one to move it (its curve handles move along), Ctrl+click a vertex to delete it, Ctrl+click the outline to add
+  one; right-click a vertex: Delete Point, Smooth Point, Straight / Curved Segment, Open / Close Path, Exit Edit Points
+  (on the outline: Add Point). A preset becomes a custom geometry at the first edit (as in PowerPoint); the box follows
+  the points. Esc or another selection ends it.
+- **Shape library**: all 177 non-connector presets of ECMA-376; the gallery shows PowerPoint's (new: snipped / rounded
+  diagonal rectangles, heptagon, decagon, dodecagon, plaque, arc, brackets and braces, left-up / bent-up / curved /
+  striped / notched arrows, the seven arrow callouts, circular arrow, explosions, stars with 7–32 points, curved ribbons,
+  scrolls, line callouts 3 and the accent-bar / no-border variants) with their adjust handles.
+- **Adjust handles by keyboard**: with one shape selected, Tab / Shift+Tab focus its handles in turn (a blue ring; after
+  the last one the shape again), the arrow keys move the focused handle like a drag (Shift: 10 px), Esc leaves it. The
+  handles, text rectangle and outline come from the core (`shapePaths`).
+- **Connectors** reroute after every move of a glued shape (drag, keyboard, Align / Distribute, Format pane), with
+  PowerPoint's 1–4-turn elbow routes: through the middle of the gap between facing sites, detours around the end shape
+  when it lies behind the start, and around overlapping boxes.
 
 ## Printing (P7-9)
 

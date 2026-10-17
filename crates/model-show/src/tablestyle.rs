@@ -128,16 +128,38 @@ pub struct TableStyleDef {
     #[serde(default, skip_serializing_if = "TableStylePart::is_empty")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<TableStylePart>"))]
     pub first_row: TableStylePart,
+    /// `a:seCell`: the bottom-right cell when the total row and the last
+    /// column are both on.
+    #[serde(default, skip_serializing_if = "TableStylePart::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<TableStylePart>"))]
+    pub se_cell: TableStylePart,
+    /// `a:swCell`: bottom-left (total row and first column).
+    #[serde(default, skip_serializing_if = "TableStylePart::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<TableStylePart>"))]
+    pub sw_cell: TableStylePart,
+    /// `a:neCell`: top-right (header row and last column).
+    #[serde(default, skip_serializing_if = "TableStylePart::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<TableStylePart>"))]
+    pub ne_cell: TableStylePart,
+    /// `a:nwCell`: top-left (header row and first column).
+    #[serde(default, skip_serializing_if = "TableStylePart::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<TableStylePart>"))]
+    pub nw_cell: TableStylePart,
+    /// `a:tblBg`: the table background, showing through cells the parts
+    /// leave without fill.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub background: Option<Fill>,
 }
 
 /// The cells a part covers: `(top row, left col, bottom row, right col)`.
 type Region = (usize, usize, usize, usize);
 
 /// The parts of a style by their DrawingML element names, in writing
-/// order (`tblBg` is not a part of the model).
-pub const PART_NAMES: [&str; 9] = [
-    "wholeTbl", "band1H", "band2H", "band1V", "band2V", "lastCol", "firstCol", "lastRow",
-    "firstRow",
+/// order (`tblBg` is [`TableStyleDef::background`]).
+pub const PART_NAMES: [&str; 13] = [
+    "wholeTbl", "band1H", "band2H", "band1V", "band2V", "lastCol", "firstCol", "lastRow", "seCell",
+    "swCell", "firstRow", "neCell", "nwCell",
 ];
 
 impl TableStyleDef {
@@ -155,6 +177,11 @@ impl TableStyleDef {
             first_col: TableStylePart::default(),
             last_row: TableStylePart::default(),
             first_row: TableStylePart::default(),
+            se_cell: TableStylePart::default(),
+            sw_cell: TableStylePart::default(),
+            ne_cell: TableStylePart::default(),
+            nw_cell: TableStylePart::default(),
+            background: None,
         }
     }
 
@@ -170,6 +197,10 @@ impl TableStyleDef {
             "firstCol" => &self.first_col,
             "lastRow" => &self.last_row,
             "firstRow" => &self.first_row,
+            "seCell" => &self.se_cell,
+            "swCell" => &self.sw_cell,
+            "neCell" => &self.ne_cell,
+            "nwCell" => &self.nw_cell,
             _ => return None,
         })
     }
@@ -186,6 +217,10 @@ impl TableStyleDef {
             "firstCol" => &mut self.first_col,
             "lastRow" => &mut self.last_row,
             "firstRow" => &mut self.first_row,
+            "seCell" => &mut self.se_cell,
+            "swCell" => &mut self.sw_cell,
+            "neCell" => &mut self.ne_cell,
+            "nwCell" => &mut self.nw_cell,
             _ => return None,
         })
     }
@@ -252,6 +287,18 @@ impl TableStyleDef {
         }
         if in_first_row {
             out.push((&self.first_row, (0, 0, 0, lc), 7));
+        }
+        // the corner cells where two emphasized edges meet
+        let corners = [
+            (in_last_row && in_last_col, &self.se_cell),
+            (in_last_row && in_first_col, &self.sw_cell),
+            (in_first_row && in_last_col, &self.ne_cell),
+            (in_first_row && in_first_col, &self.nw_cell),
+        ];
+        for (rank, (on, part)) in corners.into_iter().enumerate() {
+            if on {
+                out.push((part, (row, col, row, col), 8 + rank));
+            }
         }
         out
     }
@@ -347,12 +394,18 @@ impl TableStyleDef {
                 self.raw_cell(look, rows, cols, row + 1, col).1[2],
             );
         }
+        if cell.fill == Fill::None {
+            if let Some(bg) = self.background {
+                cell.fill = bg;
+            }
+        }
         let real = |l: Option<Line>| l.filter(|l| l.fill != Fill::None);
         cell.borders = CellBorders {
             left: real(e[0].1),
             right: real(e[1].1),
             top: real(e[2].1),
             bottom: real(e[3].1),
+            ..CellBorders::default()
         };
         cell
     }
@@ -493,200 +546,269 @@ fn builtin_name(family: Family, accent: u8) -> String {
     }
 }
 
+/// The width of `a:lnRef idx` (1–3) in the Office theme's line styles.
+pub const LINE_REF_WIDTHS: [i64; 3] = [6_350, 12_700, 19_050];
+
 /// One built-in style from its family's rules (`accent` 0 = the plain
-/// variant in Dark 1).
+/// variant, drawn in Dark 1 / Text 1).
+///
+/// The rules follow the `a:tblStyle` definitions PowerPoint writes into
+/// `tableStyles.xml` (see `docs/ooxml-subset.md`, "Table styles"). Colour
+/// transforms map onto [`Color::Theme`]'s tint: DrawingML `tint N %`
+/// (N % colour, the rest white) is a tint of `1 − N/100`, `shade N %` a
+/// tint of `−(1 − N/100)`; `alpha N %` is drawn as the colour mixed into
+/// what lies below (white, or the table background). `a:lnRef idx` lines
+/// take the Office theme's widths ([`LINE_REF_WIDTHS`]); `a:tblBg`'s
+/// `a:fillRef` gradients are approximated by a solid colour (idx 2: the
+/// accent 27 % lighter, the middle stop of the Office theme's subtle
+/// gradient; idx 3: the accent).
 fn builtin(id: &str, family: Family, accent: u8) -> TableStyleDef {
+    use crate::shape::LineCompound;
     let a = accent_slot(accent);
     let col = |tint: f64| Color::Theme { slot: a, tint };
+    let acc = col(0.0);
     let dk1 = Color::theme(ThemeColorSlot::Dark1);
     let lt1 = Color::theme(ThemeColorSlot::Light1);
-    let line = |c: Color, pt: f64| Some(Line::solid(c, Emu((pt * 12_700.0).round() as i64)));
+    let dk1t = |tint: f64| Color::Theme {
+        slot: ThemeColorSlot::Dark1,
+        tint,
+    };
+    let ln = |c: Color, w: i64| Some(Line::solid(c, Emu(w)));
+    let lnref = |c: Color, idx: usize| Some(Line::solid(c, Emu(LINE_REF_WIDTHS[idx - 1])));
+    let dbl = |c: Color| Some(Line::solid(c, Emu(50_800)).with_compound(LineCompound::Double));
+    let no = Some(Line::default());
     let fill = |c: Color| Some(Fill::Solid(c));
+    let nofill = Some(Fill::None);
     let mut s = TableStyleDef::new(id, &builtin_name(family, accent));
-    let all = |p: &mut TableStylePart, l: Option<Line>| {
+    let outer = |p: &mut TableStylePart, l: Option<Line>| {
         p.left = l;
         p.right = l;
         p.top = l;
         p.bottom = l;
     };
+    let grid = |p: &mut TableStylePart, l: Option<Line>| {
+        outer(p, l);
+        p.inside_h = l;
+        p.inside_v = l;
+    };
+    let bold = |p: &mut TableStylePart| p.bold = Some(true);
     let bold_edges = |s: &mut TableStyleDef| {
-        s.first_row.bold = Some(true);
-        s.last_row.bold = Some(true);
-        s.first_col.bold = Some(true);
-        s.last_col.bold = Some(true);
+        for p in [
+            &mut s.first_row,
+            &mut s.last_row,
+            &mut s.first_col,
+            &mut s.last_col,
+        ] {
+            bold(p);
+        }
+    };
+    let bands = |s: &mut TableStyleDef, c: Color| {
+        s.band1_h.fill = fill(c);
+        s.band1_v.fill = fill(c);
     };
     match family {
-        Family::Themed1 => {
+        Family::Themed1 if accent == 0 => {
+            // No Style, No Grid
             s.whole.text_color = Some(dk1);
-            if accent > 0 {
-                let l = line(col(0.0), 1.0);
-                all(&mut s.whole, l);
-                s.whole.inside_h = l;
-                s.whole.inside_v = l;
-                s.first_row.fill = fill(col(0.0));
-                s.first_row.text_color = Some(lt1);
-                s.first_row.bottom = line(lt1, 1.0);
-                s.last_row.top = line(col(0.0), 3.0);
-                s.band1_h.fill = fill(col(0.6));
-                s.band1_v.fill = fill(col(0.6));
-                bold_edges(&mut s);
+            grid(&mut s.whole, no);
+            s.whole.fill = nofill;
+        }
+        Family::Themed1 => {
+            s.background = fill(col(0.27));
+            s.whole.text_color = Some(dk1);
+            grid(&mut s.whole, lnref(acc, 1));
+            s.whole.fill = nofill;
+            // alpha 40 % accent over the background
+            bands(&mut s, col(0.16));
+            s.band1_v.top = lnref(acc, 1);
+            s.band1_v.bottom = lnref(acc, 1);
+            bold_edges(&mut s);
+            for (p, inner_left) in [(&mut s.last_col, true), (&mut s.first_col, false)] {
+                outer(p, lnref(acc, 1));
+                if inner_left {
+                    p.left = lnref(acc, 2);
+                } else {
+                    p.right = lnref(acc, 2);
+                }
+                p.inside_h = lnref(acc, 1);
+                p.inside_v = no;
             }
+            outer(&mut s.last_row, lnref(acc, 1));
+            s.last_row.top = lnref(acc, 2);
+            s.last_row.bottom = lnref(acc, 2);
+            s.last_row.inside_h = no;
+            s.last_row.inside_v = no;
+            s.last_row.fill = nofill;
+            outer(&mut s.first_row, lnref(acc, 1));
+            s.first_row.bottom = lnref(lt1, 2);
+            s.first_row.inside_h = no;
+            s.first_row.inside_v = no;
+            s.first_row.fill = fill(acc);
+            s.first_row.text_color = Some(lt1);
+        }
+        Family::Themed2 if accent == 0 => {
+            // No Style, Table Grid
+            s.whole.text_color = Some(dk1);
+            grid(&mut s.whole, ln(dk1, 12_700));
+            s.whole.fill = nofill;
         }
         Family::Themed2 => {
-            if accent == 0 {
-                // No Style, Table Grid
-                let l = line(dk1, 1.0);
-                all(&mut s.whole, l);
-                s.whole.inside_h = l;
-                s.whole.inside_v = l;
-                s.whole.text_color = Some(dk1);
-            } else {
-                s.whole.fill = fill(col(0.0));
-                s.whole.text_color = Some(lt1);
-                all(&mut s.whole, line(col(0.5), 1.0));
-                s.first_row.bottom = line(lt1, 1.0);
-                s.last_row.top = line(lt1, 1.0);
-                s.first_col.right = line(lt1, 1.0);
-                s.last_col.left = line(lt1, 1.0);
-                s.band1_h.fill = fill(col(0.2));
-                s.band1_v.fill = fill(col(0.2));
-                bold_edges(&mut s);
-            }
+            s.background = fill(acc);
+            s.whole.text_color = Some(lt1);
+            outer(&mut s.whole, lnref(col(0.5), 1));
+            s.whole.inside_h = no;
+            s.whole.inside_v = no;
+            s.whole.fill = nofill;
+            // alpha 20 % white over the accent background
+            bands(&mut s, col(0.2));
+            bold_edges(&mut s);
+            s.last_col.left = lnref(lt1, 2);
+            s.first_col.right = lnref(lt1, 2);
+            s.last_row.top = lnref(lt1, 2);
+            s.last_row.fill = nofill;
+            s.first_row.bottom = lnref(lt1, 3);
+            s.first_row.fill = nofill;
+            s.se_cell.left = no;
+            s.se_cell.top = no;
+            s.sw_cell.right = no;
+            s.sw_cell.top = no;
+            s.ne_cell.bottom = no;
         }
         Family::Light1 => {
             s.whole.text_color = Some(dk1);
-            s.whole.top = line(col(0.0), 1.0);
-            s.whole.bottom = line(col(0.0), 1.0);
-            s.first_row.bottom = line(col(0.0), 1.0);
-            s.last_row.top = line(col(0.0), 1.0);
-            s.band1_h.fill = fill(col(0.8));
-            s.band1_v.fill = fill(col(0.8));
+            grid(&mut s.whole, no);
+            s.whole.top = ln(acc, 12_700);
+            s.whole.bottom = ln(acc, 12_700);
+            s.whole.fill = nofill;
+            bands(&mut s, col(0.8));
             bold_edges(&mut s);
+            s.last_row.top = ln(acc, 12_700);
+            s.last_row.fill = nofill;
+            s.first_row.bottom = ln(acc, 12_700);
+            s.first_row.fill = nofill;
         }
         Family::Light2 => {
             s.whole.text_color = Some(dk1);
-            all(&mut s.whole, line(col(0.0), 1.0));
-            s.first_row.fill = fill(col(0.0));
-            s.first_row.text_color = Some(lt1);
-            s.last_row.top = line(col(0.0), 3.0);
-            s.band1_h.top = line(col(0.0), 1.0);
-            s.band1_h.bottom = line(col(0.0), 1.0);
-            s.band1_v.left = line(col(0.0), 1.0);
-            s.band1_v.right = line(col(0.0), 1.0);
-            s.band2_v.left = line(col(0.0), 1.0);
-            s.band2_v.right = line(col(0.0), 1.0);
+            outer(&mut s.whole, lnref(acc, 1));
+            s.whole.inside_h = no;
+            s.whole.inside_v = no;
+            s.whole.fill = nofill;
+            s.band1_h.top = lnref(acc, 1);
+            s.band1_h.bottom = lnref(acc, 1);
+            for p in [&mut s.band1_v, &mut s.band2_v] {
+                p.left = lnref(acc, 1);
+                p.right = lnref(acc, 1);
+            }
             bold_edges(&mut s);
+            s.last_row.top = dbl(acc);
+            s.first_row.fill = fill(acc);
+            s.first_row.text_color = Some(lt1);
         }
         Family::Light3 => {
             s.whole.text_color = Some(dk1);
-            let l = line(col(0.0), 1.0);
-            all(&mut s.whole, l);
-            s.whole.inside_h = l;
-            s.whole.inside_v = l;
-            s.first_row.text_color = Some(col(0.0));
-            s.first_row.bottom = line(col(0.0), 1.0);
-            s.last_row.top = line(col(0.0), 3.0);
-            s.band1_h.fill = fill(col(0.8));
-            s.band1_v.fill = fill(col(0.8));
+            grid(&mut s.whole, ln(acc, 12_700));
+            s.whole.fill = nofill;
+            bands(&mut s, col(0.8));
             bold_edges(&mut s);
+            s.last_row.top = dbl(acc);
+            s.last_row.fill = nofill;
+            s.first_row.bottom = ln(acc, 25_400);
+            s.first_row.fill = nofill;
         }
         Family::Medium1 => {
             s.whole.text_color = Some(dk1);
+            outer(&mut s.whole, ln(acc, 12_700));
+            s.whole.inside_h = ln(acc, 12_700);
+            s.whole.inside_v = no;
             s.whole.fill = fill(lt1);
-            all(&mut s.whole, line(col(0.0), 1.0));
-            s.whole.inside_h = line(col(0.0), 1.0);
-            s.first_row.fill = fill(col(0.0));
-            s.first_row.text_color = Some(lt1);
-            s.last_row.fill = fill(lt1);
-            s.last_row.top = line(col(0.0), 3.0);
-            s.band1_h.fill = fill(col(0.8));
-            s.band1_v.fill = fill(col(0.8));
+            bands(&mut s, col(0.8));
             bold_edges(&mut s);
+            s.last_row.top = dbl(acc);
+            s.last_row.fill = fill(lt1);
+            s.first_row.fill = fill(acc);
+            s.first_row.text_color = Some(lt1);
         }
         Family::Medium2 => {
-            let thin = line(lt1, 1.0);
             s.whole.text_color = Some(dk1);
+            grid(&mut s.whole, ln(lt1, 12_700));
             s.whole.fill = fill(col(0.8));
-            all(&mut s.whole, thin);
-            s.whole.inside_h = thin;
-            s.whole.inside_v = thin;
-            s.band1_h.fill = fill(col(0.6));
-            s.band1_v.fill = fill(col(0.6));
+            bands(&mut s, col(0.6));
             for p in [
                 &mut s.first_row,
                 &mut s.last_row,
                 &mut s.first_col,
                 &mut s.last_col,
             ] {
-                p.fill = fill(col(0.0));
+                p.fill = fill(acc);
                 p.text_color = Some(lt1);
                 p.bold = Some(true);
             }
-            s.first_row.bottom = line(lt1, 3.0);
-            s.last_row.top = line(lt1, 3.0);
+            s.first_row.bottom = ln(lt1, 38_100);
+            s.last_row.top = ln(lt1, 38_100);
         }
         Family::Medium3 => {
             s.whole.text_color = Some(dk1);
+            grid(&mut s.whole, no);
+            s.whole.top = ln(dk1, 25_400);
+            s.whole.bottom = ln(dk1, 25_400);
             s.whole.fill = fill(lt1);
-            s.whole.top = line(dk1, 2.0);
-            s.whole.bottom = line(dk1, 2.0);
-            s.first_row.fill = fill(col(0.0));
-            s.first_row.text_color = Some(lt1);
-            s.first_row.bottom = line(dk1, 1.0);
-            s.first_col.fill = fill(col(0.0));
-            s.first_col.text_color = Some(lt1);
-            s.last_col.fill = fill(col(0.0));
-            s.last_col.text_color = Some(lt1);
-            s.last_row.fill = fill(lt1);
-            s.last_row.top = line(dk1, 3.0);
-            let band = Color::Theme {
-                slot: ThemeColorSlot::Dark1,
-                tint: 0.8,
-            };
-            s.band1_h.fill = fill(band);
-            s.band1_v.fill = fill(band);
+            bands(&mut s, dk1t(0.8));
             bold_edges(&mut s);
+            for p in [&mut s.first_col, &mut s.last_col] {
+                p.fill = fill(acc);
+                p.text_color = Some(lt1);
+            }
+            s.last_row.top = dbl(dk1);
+            s.last_row.fill = fill(lt1);
+            for p in [&mut s.se_cell, &mut s.sw_cell] {
+                p.bold = Some(true);
+                p.text_color = Some(dk1);
+            }
+            s.first_row.text_color = Some(lt1);
+            s.first_row.bottom = ln(dk1, 25_400);
+            s.first_row.fill = fill(acc);
         }
         Family::Medium4 => {
-            let l = line(col(0.0), 1.0);
             s.whole.text_color = Some(dk1);
+            grid(&mut s.whole, ln(acc, 12_700));
             s.whole.fill = fill(col(0.8));
-            all(&mut s.whole, l);
-            s.whole.inside_h = l;
-            s.whole.inside_v = l;
-            s.first_row.fill = fill(col(0.8));
-            s.first_row.text_color = Some(col(0.0));
-            s.band1_h.fill = fill(col(0.6));
-            s.band1_v.fill = fill(col(0.6));
-            s.last_row.fill = fill(col(0.8));
-            s.last_row.top = line(col(0.0), 3.0);
+            bands(&mut s, col(0.6));
             bold_edges(&mut s);
+            s.last_row.top = ln(acc, 25_400);
+            s.last_row.fill = fill(col(0.8));
+            s.first_row.fill = fill(col(0.8));
         }
         Family::Dark1 => {
-            // accents darkened; the plain variant uses Dark 1 lightened
+            // accents: the accent and its shades; plain: Dark 1 and its tints
             let k = |amount: f64| {
                 if accent == 0 {
-                    Color::Theme {
-                        slot: ThemeColorSlot::Dark1,
-                        tint: amount,
-                    }
+                    dk1t(amount)
                 } else {
                     col(-amount)
                 }
             };
+            let (whole, band, cols, total) = if accent == 0 {
+                (k(0.8), k(0.6), k(0.4), k(0.4))
+            } else {
+                (acc, k(0.4), k(0.4), k(0.6))
+            };
             s.whole.text_color = Some(lt1);
-            s.whole.fill = fill(k(0.2));
-            s.band1_h.fill = fill(k(0.4));
-            s.band1_v.fill = fill(k(0.4));
-            s.first_row.fill = fill(dk1);
-            s.first_row.bottom = line(lt1, 2.0);
-            s.first_col.fill = fill(k(0.6));
-            s.first_col.right = line(lt1, 2.0);
-            s.last_col.fill = fill(k(0.6));
-            s.last_col.left = line(lt1, 2.0);
-            s.last_row.fill = fill(k(0.2));
-            s.last_row.top = line(lt1, 2.0);
+            grid(&mut s.whole, no);
+            s.whole.fill = fill(whole);
+            bands(&mut s, band);
             bold_edges(&mut s);
+            s.last_col.left = ln(lt1, 25_400);
+            s.last_col.fill = fill(cols);
+            s.first_col.right = ln(lt1, 25_400);
+            s.first_col.fill = fill(cols);
+            s.last_row.top = ln(lt1, 25_400);
+            s.last_row.fill = fill(total);
+            s.first_row.bottom = ln(lt1, 25_400);
+            s.first_row.fill = fill(dk1);
+            s.se_cell.left = no;
+            s.sw_cell.right = no;
+            s.ne_cell.left = no;
+            s.nw_cell.right = no;
         }
         Family::Dark2 => {
             let head = if accent == 0 {
@@ -695,14 +817,14 @@ fn builtin(id: &str, family: Family, accent: u8) -> TableStyleDef {
                 Color::theme(accent_slot(accent + 1))
             };
             s.whole.text_color = Some(dk1);
+            grid(&mut s.whole, no);
             s.whole.fill = fill(col(0.8));
-            s.band1_h.fill = fill(col(0.6));
-            s.band1_v.fill = fill(col(0.6));
+            bands(&mut s, col(0.6));
+            bold_edges(&mut s);
+            s.last_row.top = dbl(dk1);
+            s.last_row.fill = fill(col(0.8));
             s.first_row.fill = fill(head);
             s.first_row.text_color = Some(lt1);
-            s.last_row.fill = fill(col(0.8));
-            s.last_row.top = line(dk1, 3.0);
-            bold_edges(&mut s);
         }
     }
     s
@@ -824,5 +946,166 @@ mod tests {
         let json = serde_json::to_string(ms2).unwrap();
         let back: TableStyleDef = serde_json::from_str(&json).unwrap();
         assert_eq!(&back, ms2);
+    }
+
+    fn style(name: &str) -> &'static TableStyleDef {
+        builtin_table_styles()
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("{name}"))
+    }
+
+    fn th(slot: ThemeColorSlot, tint: f64) -> Color {
+        Color::Theme { slot, tint }
+    }
+
+    fn all_flags() -> TableLook {
+        TableLook {
+            first_row: true,
+            first_col: true,
+            last_row: true,
+            last_col: true,
+            band_rows: true,
+            band_cols: false,
+        }
+    }
+
+    #[test]
+    fn dark_style_1_accent_1_as_powerpoint_defines_it() {
+        let s = style("Dark Style 1 - Accent 1");
+        let a1 = |t| th(ThemeColorSlot::Accent1, t);
+        let lt1 = Color::theme(ThemeColorSlot::Light1);
+        // body: the accent, bands its 60 % shade, white bold-less text
+        let body = s.cell(look(), 4, 3, 2, 1);
+        assert_eq!(body.fill, Fill::Solid(a1(0.0)));
+        assert_eq!(body.text_color, Some(lt1));
+        assert!(!body.bold);
+        assert_eq!(s.cell(look(), 4, 3, 1, 1).fill, Fill::Solid(a1(-0.4)));
+        assert!(body.borders.left.is_none() && body.borders.right.is_none());
+        // header: Dark 1, a 2 pt white line below, bold
+        let head = s.cell(look(), 4, 3, 0, 1);
+        assert_eq!(head.fill, Fill::Solid(Color::theme(ThemeColorSlot::Dark1)));
+        assert_eq!(head.borders.bottom, Some(Line::solid(lt1, Emu(25_400))));
+        assert!(head.bold);
+        // first column: shade, a white line on its right – except in the
+        // header and total rows (the nw / sw corner cells remove it)
+        let fc = all_flags();
+        assert_eq!(
+            s.cell(fc, 4, 3, 1, 0).borders.right,
+            Some(Line::solid(lt1, Emu(25_400)))
+        );
+        assert_eq!(s.cell(fc, 4, 3, 0, 0).borders.right, None);
+        assert_eq!(s.cell(fc, 4, 3, 3, 0).borders.right, None);
+        assert_eq!(s.cell(fc, 4, 3, 0, 1).borders.left, None, "shared edge");
+        // total row: the 40 % shade
+        assert_eq!(s.cell(fc, 4, 3, 3, 1).fill, Fill::Solid(a1(-0.6)));
+        // the plain variant uses Dark 1 and its tints
+        let plain = style("Dark Style 1");
+        assert_eq!(
+            plain.cell(look(), 4, 3, 2, 1).fill,
+            Fill::Solid(th(ThemeColorSlot::Dark1, 0.8))
+        );
+    }
+
+    #[test]
+    fn total_rows_take_double_lines() {
+        for (name, color) in [
+            ("Light Style 2 - Accent 2", th(ThemeColorSlot::Accent2, 0.0)),
+            ("Light Style 3 - Accent 4", th(ThemeColorSlot::Accent4, 0.0)),
+            (
+                "Medium Style 1 - Accent 6",
+                th(ThemeColorSlot::Accent6, 0.0),
+            ),
+            (
+                "Medium Style 3 - Accent 1",
+                Color::theme(ThemeColorSlot::Dark1),
+            ),
+            (
+                "Dark Style 2 - Accent 5/Accent 6",
+                Color::theme(ThemeColorSlot::Dark1),
+            ),
+        ] {
+            let s = style(name);
+            let look = TableLook {
+                last_row: true,
+                ..TableLook::default()
+            };
+            let total = s.cell(look, 4, 2, 3, 0);
+            let top = total.borders.top.unwrap_or_else(|| panic!("{name}"));
+            assert_eq!(top.width, Emu(50_800), "{name}");
+            assert_eq!(top.compound, crate::shape::LineCompound::Double, "{name}");
+            assert_eq!(top.fill, Fill::Solid(color), "{name}");
+            assert!(total.bold, "{name}");
+        }
+        // Medium Style 2 and 4 use single lines
+        let look = TableLook {
+            last_row: true,
+            ..TableLook::default()
+        };
+        let m4 = style("Medium Style 4 - Accent 1").cell(look, 4, 2, 3, 0);
+        assert_eq!(m4.borders.top.unwrap().width, Emu(25_400));
+        assert!(m4.borders.top.unwrap().compound.is_single());
+    }
+
+    #[test]
+    fn light_and_medium_headers() {
+        // Light Style 3: no header fill or text colour, a 2 pt accent line
+        let l3 = style("Light Style 3 - Accent 2").cell(look(), 3, 3, 0, 1);
+        assert_eq!(l3.fill, Fill::None);
+        assert_eq!(l3.text_color, Some(Color::theme(ThemeColorSlot::Dark1)));
+        assert_eq!(l3.borders.bottom.unwrap().width, Emu(25_400));
+        // Medium Style 4: the header shares the body's light accent, dark text
+        let m4 = style("Medium Style 4 - Accent 3");
+        let h = m4.cell(look(), 3, 3, 0, 1);
+        assert_eq!(h.fill, Fill::Solid(th(ThemeColorSlot::Accent3, 0.8)));
+        assert_eq!(h.text_color, Some(Color::theme(ThemeColorSlot::Dark1)));
+        assert!(h.bold);
+        // Medium Style 1: horizontal lines only, inside verticals removed
+        let m1 = style("Medium Style 1 - Accent 1").cell(look(), 3, 3, 1, 1);
+        assert!(m1.borders.left.is_none() && m1.borders.right.is_none());
+        assert_eq!(m1.borders.bottom.unwrap().width, Emu(12_700));
+        // Medium Style 3: the corner cells of the total row keep dark text
+        let m3 = style("Medium Style 3 - Accent 1");
+        let fc = all_flags();
+        let lt1 = Color::theme(ThemeColorSlot::Light1);
+        assert_eq!(m3.cell(fc, 4, 3, 1, 2).text_color, Some(lt1));
+        assert_eq!(
+            m3.cell(fc, 4, 3, 3, 2).text_color,
+            Some(Color::theme(ThemeColorSlot::Dark1))
+        );
+        assert_eq!(m3.cell(fc, 4, 3, 3, 2).fill, Fill::Solid(lt1));
+    }
+
+    #[test]
+    fn themed_styles_show_their_background() {
+        let t2 = style("Themed Style 2 - Accent 1");
+        let a1 = |t| th(ThemeColorSlot::Accent1, t);
+        // no part fills the cells: the table background (the accent) shows
+        let mut l = look();
+        l.band_rows = false;
+        assert_eq!(t2.cell(l, 3, 3, 1, 1).fill, Fill::Solid(a1(0.0)));
+        // bands: 20 % white over it
+        assert_eq!(t2.cell(look(), 3, 3, 1, 1).fill, Fill::Solid(a1(0.2)));
+        // the header's line is the theme's third line width (lnRef 3)
+        assert_eq!(
+            t2.cell(look(), 3, 3, 0, 1).borders.bottom.unwrap().width,
+            Emu(LINE_REF_WIDTHS[2])
+        );
+        let t1 = style("Themed Style 1 - Accent 1");
+        assert_eq!(t1.background, Some(Fill::Solid(a1(0.27))));
+        assert_eq!(
+            t1.cell(look(), 3, 3, 1, 1).borders.left.unwrap().width,
+            Emu(6_350)
+        );
+        // No Style, Table Grid: a 1 pt Text 1 grid, no fill
+        let grid = style("No Style, Table Grid").cell(look(), 3, 3, 1, 1);
+        assert_eq!(grid.fill, Fill::None);
+        assert_eq!(
+            grid.borders.left,
+            Some(Line::solid(
+                Color::theme(ThemeColorSlot::Dark1),
+                Emu(12_700)
+            ))
+        );
     }
 }

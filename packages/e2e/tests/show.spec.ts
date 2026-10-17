@@ -361,9 +361,13 @@ test.describe("Show", () => {
     const before = await pixel();
     expect(before[2]).toBeGreaterThan(before[0]); // accent 1: blue
     await page.getByRole("tab", { name: "Table Design" }).click();
-    await page.getByRole("button", { name: "Medium Style 2 – Accent 2" }).click();
+    // the inline gallery is Best Match for Document (Accent 1); the other accents are under More (P9-S2)
+    await page.getByRole("button", { name: "More table styles" }).click();
+    const medium = page.getByTestId("table-styles-menu").getByRole("group", { name: "Medium" });
+    await medium.getByRole("button", { name: "Medium Style 2 – Accent 2" }).click();
     await expect.poll(async () => { const [r, , b] = await pixel(); return r > b; }).toBe(true); // accent 2: orange
-    await expect(page.getByRole("button", { name: "Medium Style 2 – Accent 2" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "More table styles" }).click();
+    await expect(page.getByTestId("table-styles-menu").getByRole("group", { name: "Medium" }).getByRole("button", { name: "Medium Style 2 – Accent 2" })).toHaveAttribute("aria-pressed", "true");
     errors.expectNone();
   });
 
@@ -913,7 +917,7 @@ test.describe("Show", () => {
     await page.getByRole("tab", { name: "Table Design" }).click();
     await page.getByRole("button", { name: "More table styles" }).click();
     const menu = page.getByTestId("table-styles-menu");
-    await expect(menu.getByRole("heading")).toHaveText(["Light", "Medium", "Dark"]);
+    await expect(menu.getByRole("heading")).toHaveText(["Best Match for Document", "Light", "Medium", "Dark"]);
     await menu.getByRole("group", { name: "Medium" }).getByRole("button", { name: "Medium Style 2 – Accent 3" }).click();
     await expect(page.getByTestId("dirty")).toHaveText("Modified");
     const pptx = unzip(await saveViaBackstage(page));
