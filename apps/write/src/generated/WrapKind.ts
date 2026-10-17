@@ -3,4 +3,4 @@
 /**
  * How text flows around a floating object (Word's "Wrap Text").
  */
-export type WrapKind = "square" | "tight" | "topAndBottom" | "behind" | "inFront";
+export type WrapKind = "square" | "tight" | "through" | "topAndBottom" | "behind" | "inFront";

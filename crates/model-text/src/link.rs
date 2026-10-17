@@ -138,6 +138,12 @@ pub struct Hyperlink {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub tooltip: Option<String>,
+    /// Written as a HYPERLINK field (`HYPERLINK "url" \o "tip"`, the
+    /// field's result being the linked runs) instead of `w:hyperlink`:
+    /// links read from such fields stay fields.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub field: bool,
 }
 
 impl Hyperlink {
@@ -146,8 +152,109 @@ impl Hyperlink {
         Self {
             target,
             tooltip: None,
+            field: false,
         }
     }
+
+    /// The link of a HYPERLINK field instruction (`HYPERLINK "url"`,
+    /// `\l "bookmark"` for a place in the document (after a URL: its
+    /// `#fragment`), `\o "tip"` for the ScreenTip; `\m`, `\n`, `\t`
+    /// ignored), or `None` for other instructions.
+    pub fn parse_field(instr: &str) -> Option<Hyperlink> {
+        let instr = instr.trim();
+        let (name, rest) = instr.split_once(char::is_whitespace).unwrap_or((instr, ""));
+        if !name.eq_ignore_ascii_case("HYPERLINK") {
+            return None;
+        }
+        let args = field_args(rest);
+        let mut url: Option<String> = None;
+        let mut location: Option<String> = None;
+        let mut tooltip: Option<String> = None;
+        let mut i = 0;
+        while i < args.len() {
+            let a = &args[i];
+            match a.as_str() {
+                "\\l" | "\\L" => {
+                    location = args.get(i + 1).cloned();
+                    i += 1;
+                }
+                "\\o" | "\\O" => {
+                    tooltip = args.get(i + 1).cloned();
+                    i += 1;
+                }
+                "\\t" | "\\T" => i += 1,
+                s if s.starts_with('\\') => {}
+                s if url.is_none() => url = Some(s.to_owned()),
+                _ => {}
+            }
+            i += 1;
+        }
+        let target = match (
+            url.filter(|u| !u.is_empty()),
+            location.filter(|l| !l.is_empty()),
+        ) {
+            (Some(u), Some(l)) => LinkTarget::Url(format!("{u}#{l}")),
+            (Some(u), None) => LinkTarget::from_url(&u),
+            (None, Some(l)) => LinkTarget::Bookmark(l),
+            (None, None) => return None,
+        };
+        Some(Hyperlink {
+            target,
+            tooltip: tooltip.filter(|t| !t.is_empty()),
+            field: true,
+        })
+    }
+
+    /// The HYPERLINK field instruction of this link (see
+    /// [`parse_field`](Self::parse_field)).
+    pub fn field_instruction(&self) -> String {
+        let q = |s: &str| format!("\"{}\"", s.replace('"', "\\\""));
+        let mut out = match &self.target {
+            LinkTarget::Bookmark(b) => format!("HYPERLINK \\l {}", q(b)),
+            t => format!("HYPERLINK {}", q(&t.href())),
+        };
+        if let Some(tip) = &self.tooltip {
+            out.push_str(&format!(" \\o {}", q(tip)));
+        }
+        out
+    }
+}
+
+/// The arguments of a field instruction: quoted strings (with `\"`
+/// escapes) and bare words.
+fn field_args(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = s.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        let mut cur = String::new();
+        if c == '"' {
+            chars.next();
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' if chars.peek() == Some(&'"') => {
+                        cur.push('"');
+                        chars.next();
+                    }
+                    '"' => break,
+                    c => cur.push(c),
+                }
+            }
+        } else {
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() {
+                    break;
+                }
+                cur.push(c);
+                chars.next();
+            }
+        }
+        out.push(cur);
+    }
+    out
 }
 
 /// Document-unique id of a bookmark (docx `w:id`). Serializes as a number.
@@ -561,5 +668,31 @@ mod tests {
             serde_json::to_string(&h).unwrap(),
             r#"{"target":{"kind":"url","value":"https://a.at"}}"#
         );
+    }
+
+    #[test]
+    fn hyperlink_fields_parse_and_write() {
+        let h = Hyperlink::parse_field(r#" HYPERLINK "https://example.com/a b" \o "A \"tip\"" "#)
+            .unwrap();
+        assert_eq!(h.target, LinkTarget::Url("https://example.com/a b".into()));
+        assert_eq!(h.tooltip.as_deref(), Some("A \"tip\""));
+        assert!(h.field);
+        assert_eq!(
+            h.field_instruction(),
+            r#"HYPERLINK "https://example.com/a b" \o "A \"tip\"""#
+        );
+        assert_eq!(Hyperlink::parse_field(&h.field_instruction()), Some(h));
+        let b = Hyperlink::parse_field(r#"HYPERLINK \l "_Toc12" \h"#).unwrap();
+        assert_eq!(b.target, LinkTarget::Bookmark("_Toc12".into()));
+        assert_eq!(b.field_instruction(), r#"HYPERLINK \l "_Toc12""#);
+        let both =
+            Hyperlink::parse_field(r#"HYPERLINK "doc.docx" \l "intro" \t "_blank""#).unwrap();
+        assert_eq!(both.target, LinkTarget::Url("doc.docx#intro".into()));
+        let mail = Hyperlink::parse_field("HYPERLINK mailto:a@b.c").unwrap();
+        assert!(matches!(mail.target, LinkTarget::Email { .. }));
+        assert_eq!(Hyperlink::parse_field("PAGE"), None);
+        assert_eq!(Hyperlink::parse_field("HYPERLINK"), None);
+        let json = serde_json::to_value(Hyperlink::new(LinkTarget::Url("u".into()))).unwrap();
+        assert!(json.get("field").is_none());
     }
 }

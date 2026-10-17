@@ -95,13 +95,18 @@ const lastDrawingCmd = (backend: FakeWriteBackend) =>
   flat(applied(backend)).filter((c): c is Extract<WriteCommand, { type: "setDrawingProps" }> => c.type === "setDrawingProps").pop()!;
 
 describe("Insert › Shapes and Text Box", () => {
-  it("the shapes gallery inserts the preset at the caret (InsertDrawing) and selects it", async () => {
+  it("the shapes gallery arms the drawing tool; Enter inserts the preset at the caret (InsertDrawing) and selects it", async () => {
     const { backend, editor, editorEl } = await mount();
     caret(editor, 1, 5);
     fireEvent.click(tab("Insert"));
     fireEvent.click(screen.getByRole("button", { name: "Shapes" }));
     const lib = await screen.findByTestId("shape-library");
     fireEvent.click(within(lib).getByRole("button", { name: "Rounded rectangle" }));
+    // Word: the pointer becomes a crosshair until a click or drag on the page; Enter inserts at the caret.
+    await waitFor(() => expect(editorEl.dataset.drawTool).toBe("roundRect"));
+    expect(applied(backend).some((c) => c.type === "insertDrawing")).toBe(false);
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(editorEl.dataset.drawTool).toBeUndefined());
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "insertDrawing", block: 1, offset: 5, kind: "shape", preset: "roundRect", width: 900000, height: 900000 }));
     await waitFor(() => expect(editorEl.querySelector(".drawing-wrap[data-preset='roundRect']")).toBeTruthy());
     await waitFor(() => expect(tab("Shape Format")).toBeTruthy());
@@ -247,6 +252,31 @@ describe("Picture Format", () => {
     fireEvent.click(screen.getByRole("button", { name: "Border weight and dashes" }));
     fireEvent.click(menuItem("3 pt"));
     await waitFor(() => expect(formats(backend).pop()?.format.border).toMatchObject({ width: 38100 }));
+  });
+
+  it("P9-W4: Picture Effects › Soft Edges and Bevel → SetImageFormat (a:softEdge, a:bevelT)", async () => {
+    const { backend } = await picture();
+    fireEvent.click(screen.getByRole("button", { name: "Picture Effects" }));
+    fireEvent.click(menuItem("5 pt"));
+    await waitFor(() => expect(formats(backend).pop()?.format).toEqual({ softEdge: 63500 }));
+    fireEvent.click(screen.getByRole("button", { name: "Picture Effects" }));
+    fireEvent.click(menuItem("Relaxed Inset"));
+    await waitFor(() => expect(formats(backend).pop()?.format).toEqual({ softEdge: 63500, bevel: { preset: "relaxedInset", width: 76200, height: 25400 } }));
+  });
+
+  it("P9-W4: Crop ▾ › Aspect Ratio 16:9 crops the picture centred (SetImageFormat + SetImageSize); Fit pads it; Crop to Shape", async () => {
+    const { backend } = await picture();
+    fireEvent.click(screen.getByRole("button", { name: "Crop options" }));
+    const panel = await screen.findByTestId("crop-panel");
+    fireEvent.click(within(panel).getByRole("button", { name: "16:9" }));
+    await waitFor(() => expect(formats(backend).pop()?.format).toEqual({ crop: { left: 0, top: 21875, right: 0, bottom: 21875 } }));
+    await waitFor(() => expect(flat(applied(backend))).toContainEqual(expect.objectContaining({ type: "setImageSize", width: 952500, height: 535781 })));
+    fireEvent.click(screen.getByRole("button", { name: "Crop options" }));
+    fireEvent.click(within(await screen.findByTestId("crop-panel")).getByRole("button", { name: "Fit" }));
+    await waitFor(() => expect(formats(backend).pop()?.format.crop).toEqual({ left: -38889, top: 0, right: -38889, bottom: 0 }));
+    fireEvent.click(screen.getByRole("button", { name: "Crop options" }));
+    fireEvent.click(within(await screen.findByTestId("crop-panel")).getByRole("button", { name: "Heart" }));
+    await waitFor(() => expect(formats(backend).pop()?.format.geometry).toBe("heart"));
   });
 
   it("Crop enters crop mode on the picture; Enter leaves it", async () => {

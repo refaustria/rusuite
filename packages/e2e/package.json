@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "e2e": "playwright test",
-    "serve": "node serve.mjs"
+    "serve": "node serve.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
-    "@types/node": "22.10.2"
+    "@types/node": "22.10.2",
+    "typescript": "5.9.3"
   }
 }

@@ -2,10 +2,13 @@
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { Anchor } from "./Anchor";
 import type { DrawingKind } from "./DrawingKind";
+import type { DrawingPicture } from "./DrawingPicture";
 import type { DrawingText } from "./DrawingText";
+import type { Hyperlink } from "./Hyperlink";
 import type { NodeId } from "./NodeId";
 import type { ShapeFill } from "./ShapeFill";
 import type { ShapeLine } from "./ShapeLine";
+import type { TextChain } from "./TextChain";
 
 /**
  * A shape or text box in the text (see the module docs).
@@ -81,4 +84,37 @@ textColor?: Color,
 /**
  * The text (always present for text boxes).
  */
-text?: DrawingText, };
+text?: DrawingText, 
+/**
+ * The linked text box chain this text box belongs to.
+ */
+chain?: TextChain, 
+/**
+ * Members of a group, in z-order (first = bottom).
+ */
+children?: Array<Drawing>, 
+/**
+ * Left edge inside the parent group (EMU; 0 outside groups).
+ */
+x?: number, 
+/**
+ * Top edge inside the parent group (EMU; 0 outside groups).
+ */
+y?: number, 
+/**
+ * The picture of a [`DrawingKind::Picture`] member.
+ */
+picture?: DrawingPicture, 
+/**
+ * The hyperlink of the shape (`wp:docPr/a:hlinkClick`).
+ */
+link?: Hyperlink, 
+/**
+ * Marked as decorative (Alt Text › Mark as decorative; the
+ * `adec:decorative` extension of `wp:docPr`).
+ */
+decorative?: boolean, 
+/**
+ * Hidden (Selection Pane; `wp:docPr/@hidden`).
+ */
+hidden?: boolean, };

@@ -132,7 +132,8 @@ test.describe("Write quality pass (P8-38)", () => {
       const { bottom, cover } = await lastLineAndCover(page);
       return cover - bottom;
     }).toBeGreaterThanOrEqual(-0.5);
-    await editor(page).locator("p", { hasText: "The last paragraph." }).click();
+    // P9-W4: the moved picture now has text on both sides; click the paragraph's text, not its middle.
+    await editor(page).locator("p", { hasText: "The last paragraph." }).click({ position: { x: 5, y: 5 } });
     await expect(page.getByRole("tab", { name: "Picture Format" })).toHaveCount(0);
     await page.getByRole("tab", { name: "Home" }).click();
     await expect(page.getByTestId("ribbon-panel").getByRole("button", { name: "Crop" })).toHaveCount(0);

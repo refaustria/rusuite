@@ -23,6 +23,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
   - [Write quality pass (P8-38)](#write-quality-pass-p8-38)
   - [Write pagination round 3 (P9-W2)](#write-pagination-round-3-p9-w2)
   - [Write styles round 2, templates and properties (P9-W3)](#write-styles-round-2-templates-and-properties-p9-w3)
+  - [Write drawings, pictures and floating objects round 2 (P9-W4)](#write-drawings-pictures-and-floating-objects-round-2-p9-w4)
 - [Building blocks (@rusuite/ui-shared)](#building-blocks-rusuiteui-shared)
 - [Keyboard](#keyboard)
 - [Tabs per app](#tabs-per-app)
@@ -466,6 +467,45 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
   Save date first.
 - **Comments** without a user name are written by the document's author (File › Info › Author) instead of asking for
   a name; with neither, the User Name dialog asks as before.
+
+### Write drawings, pictures and floating objects round 2 (P9-W4)
+- **Drawing shapes** (`features/drawings/drawTool.ts`): Insert › Shapes and Text Box › Draw Text Box arm the drawing tool
+  (crosshair, `data-draw-tool` on the editor): a click on the page inserts the shape at Word's default size, a drag at the
+  drawn size, Shift keeps it square (lines at 45° steps); Enter inserts it at the caret (keyboard), Esc cancels. Drawn
+  shapes float In Front of Text (text boxes: Square), anchored to the paragraph at the drawn top edge; drawn on a drawing
+  canvas, the shape becomes one of its members. Insert › Shapes › New Drawing Canvas inserts an inline canvas (15 × 6 cm).
+- **Handles** rotate with the shape (a frame with the eight resize handles and the rotation handle); a drag keeps the
+  opposite handle in place. Moving snaps the object's edges and centre to the column's edges and centre and the
+  paragraph's top (5 px); Alt moves freely. Arrow keys nudge the selected floating objects by Word's grid (0.13 in),
+  Ctrl+arrows by one pixel.
+- **Several objects**: Shift/Ctrl+click adds floating pictures and shapes to the selection (drawn with an outline);
+  Arrange › Group ▾ (Shape Format, Picture Format, Layout) groups them (`wpg:wgp`; pictures become picture members),
+  Ungroup puts the members back as floating objects at their places, Regroup groups the last ungrouped objects again.
+  A click on a member of the selected group selects the member (Shape Format edits it; fill/outline/text colour of the
+  whole group go to all its shapes); dragging a selected member moves it inside the group (the group's frame follows).
+  Resizing a group scales its members; grouped text boxes keep their editable text.
+- **Linked text boxes**: Shape Format › Text › Create Link, then a click on an empty text box links it (Word's rules:
+  the target must be empty and unlinked, the source must not link onward; messages otherwise); the story flows into the
+  next box (`textChain.ts`); Break Link ends the chain after the selected box.
+- **Pictures**: crop mode shows the cut-off parts dimmed (a mask around the crop window); Crop ▾ (split button) offers
+  Crop to Shape (any preset, a clip path from the core's outline), Aspect Ratio (1:1 … 16:10), Fill and Fit; Picture
+  Effects ▾ adds Shadow, Soft Edges (1–50 pt, a feathered CSS mask) and Bevel (Word's twelve presets, an inset light and
+  shade). Wrap Text has Through; Square/Tight/Through pictures with room on both sides get text on both sides
+  (`wrapBoth.ts`, docs/write-layout.md).
+- **Links and alt text**: Insert › Link (Ctrl+K) on a selected shape links the shape; Ctrl+click on a linked picture or
+  shape follows the link (its ScreenTip is the tooltip); the context menu of a linked picture or shape has Edit / Open /
+  Remove Link (Remove keeps the object). HYPERLINK fields read from files are shown like links and stay fields when edited.
+  Alt Text has Mark as decorative.
+- **Arrange**: Align ▾ with Align to Page / Margin / Selected Objects (one object: aligned semantically, relative to the
+  page or margin; several: moved), Distribute Horizontally / Vertically; Bring Forward ▾ / Send Backward ▾ (z-order,
+  Bring in Front of Text, Send Behind Text); the **Selection Pane** (Alt+F10, `ui/arrangeControls.tsx`): every picture
+  and shape top-most first with Word's default names, click (Ctrl: add) selects, double-click renames, the eye hides /
+  shows (not shown, not printed), Show All / Hide All, ▲ ▼ reorder. Position ▾ › More Layout Options… opens Word's
+  Position tab: alignment, absolute position or relative position (%) per axis with every reference (margin, page,
+  column, character, the margin areas; paragraph, line), Move object with text, Lock anchor, Allow overlap, Layout in
+  table cell. Layout › Arrange holds the order, pane, align and group commands too.
+- **Drawing canvas**: shapes drawn on it become members (moved inside it, selected like group members), the canvas
+  resizes without scaling them, Shape Format › Size › Fit shrinks it to its members.
 
 ## Building blocks (`@rusuite/ui-shared`)
 

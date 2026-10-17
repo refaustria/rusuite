@@ -15,6 +15,8 @@ import { paginationPlugin, relayoutPages, remeasurePages, type PageLayout } from
 import type { FlowProps } from "./layout/measure";
 import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
 import { linksPlugin } from "./links";
+import { objectsPlugin } from "./drawings/objects";
+import { wrapBothPlugin } from "./wrapBoth";
 import { plainTextSlice } from "./plainPaste";
 import { selectsAll, updateFieldsCommand as updateSelectedFields } from "./references";
 import { paragraphStyleId, resolveParagraph } from "./styleCss";
@@ -47,7 +49,7 @@ export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
   | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font"
-  | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | "newDocument" | "manageStyles" | null;
+  | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | "newDocument" | "manageStyles" | "layout" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -86,6 +88,8 @@ export interface WriteUiState {
   navigation: boolean;
   /** Reveal Formatting pane (Shift+F1) and its "Distinguish style source". */
   revealFormatting: boolean;
+  /** Layout › Arrange › Selection Pane (Alt+F10). */
+  selectionPane: boolean;
   revealSource: boolean;
   /** The Apply Styles box (Ctrl+Shift+S). */
   applyStyles: boolean;
@@ -128,6 +132,7 @@ export class WriteUi {
     styleInspector: false,
     navigation: false,
     revealFormatting: false,
+    selectionPane: false,
     revealSource: false,
     applyStyles: false,
     styleDialog: null,
@@ -333,6 +338,11 @@ export class WriteFeatures {
             ui.set({ applyStyles: true });
             return true;
           },
+          // Word: Alt+F10 shows the Selection Pane.
+          "Alt-F10": () => {
+            ui.set({ selectionPane: !ui.getState().selectionPane });
+            return true;
+          },
           // Word: Shift+F1 shows the Reveal Formatting pane.
           "Shift-F1": () => {
             ui.set({ revealFormatting: !ui.getState().revealFormatting });
@@ -389,6 +399,8 @@ export class WriteFeatures {
         return [
           findPlugin(),
           linksPlugin(),
+          objectsPlugin(),
+          wrapBothPlugin(),
           wordsUnderlinePlugin(),
           tableRenderPlugin(() => ctl.styles),
           paragraphBoxPlugin(),

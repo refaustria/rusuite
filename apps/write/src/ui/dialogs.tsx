@@ -128,28 +128,38 @@ export function RowHeightDialog({ open, initial, onSubmit, onClose }: {
 
 // ----- alt text ---------------------------------------------------------------------
 
-export function AltTextDialog({ open, initial, onSubmit, onClose }: {
+export function AltTextDialog({ open, initial, decorative: decorativeInitial = false, onSubmit, onClose }: {
   open: boolean;
   initial: string;
-  onSubmit: (alt: string) => void;
+  /** Mark as decorative (Word's Alt Text pane): screen readers skip the object; its description is not used. */
+  decorative?: boolean;
+  onSubmit: (alt: string, decorative: boolean) => void;
   onClose: () => void;
 }) {
   const t = useT();
   const [alt, setAlt] = useState(initial);
+  const [decorative, setDecorative] = useState(decorativeInitial);
   useEffect(() => {
-    if (open) setAlt(initial);
-  }, [open, initial]);
+    if (open) {
+      setAlt(initial);
+      setDecorative(decorativeInitial);
+    }
+  }, [open, initial, decorativeInitial]);
   return (
     <Dialog open={open} title={t("write.altText")} onClose={onClose}>
       <form
         className="flex w-80 flex-col gap-2 text-sm"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit(alt.trim());
+          onSubmit(decorative ? "" : alt.trim(), decorative);
         }}
       >
         <p className="text-xs text-ui-muted">{t("write.altTextQuestion")}</p>
-        <textarea aria-label={t("write.altText")} className="h-20 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg" value={alt} onChange={(e) => setAlt(e.target.value)} />
+        <textarea aria-label={t("write.altText")} disabled={decorative} className="h-20 w-full rounded border border-ui-border bg-ui-bg p-2 text-sm text-ui-fg disabled:opacity-50" value={alt} onChange={(e) => setAlt(e.target.value)} />
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={decorative} onChange={(e) => setDecorative(e.target.checked)} />
+          {t("write.markDecorative")}
+        </label>
         <Buttons onClose={onClose} />
       </form>
     </Dialog>
@@ -774,14 +784,17 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
       <AltTextDialog
         open={dialog === "altText" && (!!image || !!drawing)}
         initial={(image?.node.attrs.alt as string | null) ?? drawing?.value.alt ?? ""}
+        decorative={image ? !!image.node.attrs.decorative : !!drawing?.value.decorative}
         onClose={close}
-        onSubmit={(alt) => {
-          if (editor && image) setImageAttrs(editor.view, image.pos, { alt: alt || null });
+        onSubmit={(alt, decorative) => {
+          if (editor && image) setImageAttrs(editor.view, image.pos, { alt: alt || null, decorative });
           else if (editor && drawing) {
             const d = { ...drawing.value };
             if (alt) d.alt = alt;
             else delete d.alt;
-            setDrawingValue(editor.view, drawing.pos, d);
+            if (decorative) d.decorative = true;
+            else delete d.decorative;
+            setDrawingValue(editor.view, drawing.pos, d, true, drawing.path);
           }
           close();
         }}

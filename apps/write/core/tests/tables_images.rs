@@ -490,7 +490,8 @@ fn floating_images() {
             })
         })
         .unwrap();
-    assert_eq!(img.anchor, Some(custom));
+    // The z-order comes back from `relativeHeight` (P9-W4).
+    assert_eq!(img.anchor.map(|a| Anchor { z: 0, ..a }), Some(custom));
     // Back to inline.
     apply(
         &mut h,

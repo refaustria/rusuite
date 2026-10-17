@@ -84,7 +84,7 @@ describe("placement", () => {
   it("top and bottom is a block; behind / in front are out of the flow with their z-order", () => {
     expect(floatPlacement(newAnchor("topAndBottom"), ctx)).toEqual({ mode: "block", css: { display: "block", "margin-left": "0px", "margin-top": "0px", "margin-bottom": "0px" } });
     const behind = floatPlacement({ ...newAnchor("behind"), v: { relativeTo: "paragraph", place: { kind: "offset", value: 95250 } } }, ctx);
-    expect(behind).toEqual({ mode: "behind", css: { position: "absolute", left: "0px", top: "10px", "z-index": "-1" } });
+    expect(behind).toEqual({ mode: "behind", css: { position: "absolute", left: "0px", top: "10px", "z-index": "-1000000000" } });
     expect(floatPlacement(newAnchor("inFront"), ctx).css["z-index"]).toBe("3");
   });
 });
