@@ -247,6 +247,10 @@ The same keys work in the full-window show (F5), in the presenter view and in it
 | +, − | Zoom into the slide about the pointer, zoom out |
 | Esc | Leave zoom / See all slides / the pen first; else end the show |
 
+In the presenter view (P9-S5) the same keys draw, zoom and show "See all slides" in the console and on the slide show
+window. Typing in the presenter view's notes edits them (the show keys do not apply there); Esc leaves the notes. At
+the end of a show with ink: "Keep ink annotations?" (Keep / Discard).
+
 Hidden slides are skipped unless the show starts on one. The mouse pointer hides after 3 s without movement. With
 Transitions › On mouse click off, a click does not leave the slide (the keys still do).
 

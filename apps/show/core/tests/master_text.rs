@@ -307,6 +307,7 @@ fn chart_and_table_placeholders() {
                 target: DesignTarget::Layout(custom.clone()),
                 kind,
                 transform: at,
+                text_only: false,
             },
         );
     }
@@ -337,6 +338,7 @@ fn chart_and_table_placeholders() {
                 target: DesignTarget::Master,
                 kind: PlaceholderKind::Table,
                 transform: tr(0, 0, 100, 100),
+                text_only: false,
             }
         ),
         "invalid_command"

@@ -7,17 +7,17 @@ use core_model::Color;
 use fmt_ooxml::{Package, PartName, TargetMode};
 use model_show::clip::media_content_type;
 use model_show::{
-    Adjust, Attach, Background, BodyProps, Connector, ConnectorKind, Crop, Emu, Fill, Layout,
-    LayoutKind, Line, MediaClip, MediaId, MediaKind, NodeId, PictureFill, PictureProps,
+    Adjust, Attach, Background, BodyProps, Connector, ConnectorKind, Crop, Design, Emu, Fill,
+    Layout, LayoutKind, Line, MediaClip, MediaId, MediaKind, NodeId, PictureFill, PictureProps,
     PlaceholderDef, PlaceholderKind, Presentation, Preset, Recolor, Section, Shadow, Shape,
-    ShapeKind, Slide, SlideMaster, SlideSize, TextBody, TextField, Transform,
+    ShapeKind, Slide, SlideMaster, SlideSize, TextBody, TextField, Theme, Transform,
 };
 
 use crate::anim::{read_media_timing, read_timing};
 use crate::chart::{shape_from_chart, CHART_URI, XLSX_CT};
 use crate::drawing::{
     color_and_alpha, read_arrows, read_color, read_fill, read_line, read_text_body, read_xfrm,
-    Space, Xfrm, ANGLE_UNITS_PER_DEGREE, STYLE_LINE_WIDTHS,
+    use_color_map, Space, Xfrm, ANGLE_UNITS_PER_DEGREE, STYLE_LINE_WIDTHS,
 };
 use crate::geom::{read_adjust, read_geometry};
 use crate::link::{read_hlink, resolve_part_links, resolve_slide_links};
@@ -125,7 +125,8 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     let mut p = Presentation::empty(size);
     let mut context = PptxContext::default();
 
-    // the master (first of sldMasterIdLst) and its theme
+    // the masters (the first is the main design, the others further
+    // designs) and their themes
     let masters: Vec<PartName> = root
         .child("sldMasterIdLst")
         .map(|l| {
@@ -135,9 +136,6 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 .collect()
         })
         .unwrap_or_default();
-    if masters.len() > 1 {
-        w.add("only the first slide master is kept (slides of the others use its layouts)");
-    }
     let master = masters
         .first()
         .cloned()
@@ -179,9 +177,13 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         synthesized: HashSet::new(),
         consumed: &mut consumed,
         default_table_style,
+        design: None,
     };
     if let Some(m) = &master {
         reader.read_master(m)?;
+    }
+    for (i, m) in masters.iter().enumerate().skip(1) {
+        reader.read_design(m, i as u32)?;
     }
     // slide numeric ids (for sections), in slide order
     let mut slide_numbers: Vec<(u32, NodeId)> = Vec::new();
@@ -251,6 +253,58 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     Ok(ReadOutput {
         presentation: p,
         context,
+        warnings: w.into_vec(),
+    })
+}
+
+/// The design of a theme file (`.thmx`, P9-S5): a presentation without
+/// slides holding the file's theme and, when the package has one, its
+/// slide master and layouts (read as for a `.pptx` with `slide_size`; a
+/// theme without a master keeps the Office master).
+pub(crate) fn read_thmx(
+    pkg: &Package,
+    main: &PartName,
+    slide_size: SlideSize,
+) -> Result<ReadOutput> {
+    let mut w = Warnings::default();
+    let mut p = Presentation::empty(slide_size);
+    let data = &pkg
+        .part(main)
+        .ok_or_else(|| Error::MissingPart(main.to_string()))?
+        .data;
+    p.theme = read_theme(data, main.as_str())?;
+    let mut consumed: BTreeSet<PartName> = BTreeSet::new();
+    consumed.insert(main.clone());
+    // the master: related to the theme part, else the first master part
+    let master = related(pkg, main, "slideMaster").or_else(|| {
+        pkg.parts()
+            .find(|(_, part)| part.content_type.ends_with("slideMaster+xml"))
+            .map(|(n, _)| n.clone())
+    });
+    let mut reader = Reader {
+        pkg,
+        p: &mut p,
+        w: &mut w,
+        media: HashMap::new(),
+        layouts: HashMap::new(),
+        synthesized: HashSet::new(),
+        consumed: &mut consumed,
+        default_table_style: None,
+        design: None,
+    };
+    match &master {
+        Some(m) => reader.read_master(m)?,
+        None => reader
+            .w
+            .add("the theme file has no slide master: the Office master is kept"),
+    }
+    p.normalize();
+    Ok(ReadOutput {
+        presentation: p,
+        context: PptxContext {
+            theme_xml: Some(data.clone()),
+            ..PptxContext::default()
+        },
         warnings: w.into_vec(),
     })
 }
@@ -476,13 +530,16 @@ struct Reader<'a> {
     w: &'a mut Warnings,
     /// Media part → id in the presentation's store (first-reference order).
     media: HashMap<PartName, MediaId>,
-    /// Layout part → the layout it became.
-    layouts: HashMap<PartName, LayoutKind>,
+    /// Layout part → the design (`None` = main) and layout it became.
+    layouts: HashMap<PartName, (Option<u32>, LayoutKind)>,
     /// Standard layouts generated from the master (the file has none).
     synthesized: HashSet<LayoutKind>,
     consumed: &'a mut BTreeSet<PartName>,
     /// `def` of `ppt/tableStyles.xml`.
     default_table_style: Option<String>,
+    /// The design whose master is being read (`None` = the main one; its
+    /// parts are swapped into the presentation meanwhile).
+    design: Option<u32>,
 }
 
 /// Per-part state while reading shapes.
@@ -517,6 +574,22 @@ fn without_placeholders(tree: &El) -> El {
         _ => true,
     });
     t
+}
+
+/// The font size of the first run (or field, else the paragraph end) of
+/// a text body: LibreOffice writes the size of its master's date, footer
+/// and slide-number placeholders there rather than in `a:lstStyle`
+/// (P8-22, P9-S5).
+fn first_run_size(tx: Option<&El>) -> Option<core_model::FontSize> {
+    let p = tx?.child("p")?;
+    let rpr = p
+        .elements()
+        .filter(|e| e.name == "r" || e.name == "fld")
+        .find_map(|e| e.child("rPr"))
+        .or_else(|| p.child("endParaRPr"))?;
+    rpr.attr("sz")
+        .and_then(parse_u32)
+        .map(core_model::FontSize::from_hundredths)
 }
 
 /// The plain text and first field of a placeholder's text body.
@@ -558,6 +631,36 @@ fn text_and_field(sp: &El, w: &mut Warnings) -> (String, Option<TextField>) {
 }
 
 impl Reader<'_> {
+    /// Reads a further master (`p:sldMasterId` after the first) with its
+    /// theme and layouts as design `id` (P9-S5).
+    fn read_design(&mut self, part: &PartName, id: u32) -> Result<()> {
+        let theme = match related(self.pkg, part, "theme")
+            .and_then(|t| self.pkg.part(&t).map(|d| (t.clone(), d.data.clone())))
+        {
+            Some((name, data)) => {
+                self.consumed.insert(name.clone());
+                read_theme(&data, name.as_str())?
+            }
+            None => Theme::default(),
+        };
+        let size = self.p.slide_size;
+        self.p.designs.push(Design {
+            id,
+            master: SlideMaster::builtin(size),
+            layouts: Vec::new(),
+            theme,
+        });
+        // read with the main reader code: the design's parts swapped in
+        self.p.swap_design(id);
+        let synthesized = std::mem::take(&mut self.synthesized);
+        self.design = Some(id);
+        let r = self.read_master(part);
+        self.design = None;
+        self.synthesized = synthesized;
+        self.p.swap_design(id);
+        r
+    }
+
     /// Reads the master, its layouts (in `p:sldLayoutIdLst` order) and
     /// decorative shapes; standard layouts the file lacks are added from
     /// the master.
@@ -570,6 +673,9 @@ impl Reader<'_> {
         let size = self.p.slide_size;
         let builtin = SlideMaster::builtin(size);
         let c_sld = root.child("cSld");
+        // the master's colours, its layouts' and slides' under its colour map
+        let color_map = read_clr_map(root.child("clrMap"));
+        let _map = use_color_map(color_map);
         let background = c_sld
             .and_then(|c| c.child("bg"))
             .and_then(|bg| self.read_background(bg, part))
@@ -580,7 +686,7 @@ impl Reader<'_> {
             placeholders: Vec::new(),
             shapes: Vec::new(),
             text_styles: read_text_styles(root.child("txStyles"), self.w),
-            color_map: read_clr_map(root.child("clrMap")),
+            color_map,
             header_footer: Default::default(),
             guides: crate::props::read_p15_guides(&root, "sldGuideLst"),
         };
@@ -602,7 +708,10 @@ impl Reader<'_> {
                     .unwrap_or_default();
                 let (sp_para, sp_run) = m.style_defaults(kind);
                 let tx = sp.child("txBody");
-                let (lp, lr) = lst_style_lvl1(tx, self.w);
+                let (lp, mut lr) = lst_style_lvl1(tx, self.w);
+                if kind.is_header_footer() && lr.size.is_none() {
+                    lr.size = first_run_size(tx);
+                }
                 let (body, vertical) = body_pr_of(
                     tx,
                     BodyProps::default(),
@@ -660,7 +769,7 @@ impl Reader<'_> {
                 if layout.kind == LayoutKind::Title && hides_hf {
                     not_on_title = true;
                 }
-                self.layouts.insert(lp, layout.kind.clone());
+                self.layouts.insert(lp, (self.design, layout.kind.clone()));
                 layouts.push(layout);
             }
         }
@@ -782,7 +891,10 @@ impl Reader<'_> {
                     None => m.style_defaults(pk),
                 };
                 let tx = sp.child("txBody");
-                let (lp, lr) = lst_style_lvl1(tx, self.w);
+                let (lp, mut lr) = lst_style_lvl1(tx, self.w);
+                if pk.is_header_footer() && lr.size.is_none() {
+                    lr.size = first_run_size(tx);
+                }
                 let body_base = base.map_or_else(BodyProps::default, |d| d.body_defaults);
                 let (body, vertical) =
                     body_pr_of(tx, body_base, ph.attr("orient") == Some("vert"), self.w);
@@ -832,7 +944,7 @@ impl Reader<'_> {
             None => self.p.layouts.push(layout),
         }
         self.synthesized.remove(&kind);
-        self.layouts.insert(lp.clone(), kind);
+        self.layouts.insert(lp.clone(), (None, kind));
         Ok(())
     }
 
@@ -844,7 +956,7 @@ impl Reader<'_> {
             .data;
         self.consumed.insert(part.clone());
         let root = parse(data, part.as_str())?;
-        let c_sld = root.child("cSld").ok_or_else(|| Error::Malformed {
+        root.child("cSld").ok_or_else(|| Error::Malformed {
             part: part.to_string(),
             reason: "no p:cSld".into(),
         })?;
@@ -854,9 +966,45 @@ impl Reader<'_> {
                 self.adopt_layout(lp)?;
             }
         }
-        let file_kind = layout_part
+        // a slide of a further design: read with that design swapped in
+        let design = layout_part
             .as_ref()
-            .and_then(|lp| self.layouts.get(lp).cloned());
+            .and_then(|lp| self.layouts.get(lp))
+            .and_then(|(d, _)| *d);
+        if let Some(d) = design {
+            self.p.swap_design(d);
+        }
+        let r = self.read_slide_in(part, &root, layout_part.as_ref(), design);
+        if let Some(d) = design {
+            self.p.swap_design(d);
+        }
+        let slide = r?;
+        let id = slide.id;
+        self.p.slides.push(slide);
+        Ok(id)
+    }
+
+    /// [`read_slide`](Self::read_slide) with the slide's design in place.
+    fn read_slide_in(
+        &mut self,
+        part: &PartName,
+        root: &El,
+        layout_part: Option<&PartName>,
+        design: Option<u32>,
+    ) -> Result<Slide> {
+        let c_sld = root.child("cSld").ok_or_else(|| Error::Malformed {
+            part: part.to_string(),
+            reason: "no p:cSld".into(),
+        })?;
+        // colours under the master's colour map, or the slide's override
+        let map = root
+            .child("clrMapOvr")
+            .and_then(|o| o.child("overrideClrMapping"))
+            .map_or(self.p.master.color_map, |o| read_clr_map(Some(o)));
+        let _map = use_color_map(map);
+        let file_kind = layout_part
+            .and_then(|lp| self.layouts.get(lp))
+            .map(|(_, k)| k.clone());
         let file_layout = file_kind.as_ref().and_then(|k| self.p.layout(k).cloned());
         let tree = c_sld.child("spTree");
         let mut types = Vec::new();
@@ -909,7 +1057,7 @@ impl Reader<'_> {
                     .add("connector attachments to groups or connectors dropped");
             }
         }
-        slide.transition = read_slide_transition(&root, self.w).map(|(mut t, sound)| {
+        slide.transition = read_slide_transition(root, self.w).map(|(mut t, sound)| {
             t.sound = match sound {
                 Some((None, _)) => Some(model_show::TransitionSound::StopPrevious),
                 Some((Some(rid), loop_until_next)) => {
@@ -967,9 +1115,8 @@ impl Reader<'_> {
                 a.id = self.p.alloc_id();
             }
         }
-        let id = slide.id;
-        self.p.slides.push(slide);
-        Ok(id)
+        slide.design = design;
+        Ok(slide)
     }
 
     /// The plain text of the slide's notes (`notesSlide` part, body
@@ -1791,11 +1938,9 @@ impl Reader<'_> {
             {
                 let (g, adjust) =
                     read_geometry(Some(sp), transform.w.0 as f64, transform.h.0 as f64, self.w);
-                if !adjust.is_empty() {
-                    self.w.add("picture shape adjust values dropped");
-                }
                 if g != Preset::Rect {
                     props.geometry = Some(g);
+                    props.adjust = adjust;
                 }
             }
             if let Some(eff) = sp.child("effectLst") {

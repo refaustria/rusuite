@@ -467,6 +467,160 @@ fn smoke_report(
     smoke.finish("Rusuite Show", &window.title().unwrap_or_default(), &report);
 }
 
+/// Design › Save Current Theme (P9-S5): writes a file that is not the
+/// document (a `.thmx`) where the native save dialog says, without binding
+/// the document to it or recording it as recent. The file name, or `None`
+/// when cancelled.
+#[tauri::command]
+async fn export_file(
+    window: tauri::Window,
+    suggested_name: String,
+    bytes_base64: String,
+    filter_name: String,
+    extension: String,
+) -> Result<Option<String>, FileError> {
+    let dialog = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter(filter_name, &[extension.as_str()])
+        .set_file_name(suggested_name);
+    blocking(move || {
+        let Some(path) = dialog.blocking_save_file() else {
+            return Ok(None);
+        };
+        let path = into_path(path)?;
+        write_file(&path, &bytes_base64)?;
+        Ok(Some(file_name(&path)))
+    })
+    .await
+}
+
+// ----- Slide Show › Monitors (P9-S5) -------------------------------------------------------
+
+/// A monitor as the Monitor menu lists it (logical pixels).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorInfo {
+    /// Index in the shell's monitor list (the remembered choice).
+    pub index: usize,
+    /// The system's name of the monitor, if any.
+    pub name: Option<String>,
+    /// Whether it is the primary monitor.
+    pub primary: bool,
+    /// Left edge.
+    pub x: f64,
+    /// Top edge.
+    pub y: f64,
+    /// Width.
+    pub width: f64,
+    /// Height.
+    pub height: f64,
+}
+
+/// A monitor's rectangle in physical pixels: `(x, y, width, height)`.
+type PhysRect = (i32, i32, u32, u32);
+
+/// The monitor (index into `rects`) containing the point `p`.
+fn monitor_at(rects: &[PhysRect], p: (i32, i32)) -> Option<usize> {
+    rects.iter().position(|&(x, y, w, h)| {
+        p.0 >= x
+            && p.1 >= y
+            && i64::from(p.0) < i64::from(x) + i64::from(w)
+            && i64::from(p.1) < i64::from(y) + i64::from(h)
+    })
+}
+
+/// Swap displays: where the presenter view (`main`) and the slide show
+/// (`audience`) go – each to the other's monitor; `None` when they share
+/// one (nothing to swap) or a monitor is unknown.
+fn swap_plan(main: Option<usize>, audience: Option<usize>) -> Option<(usize, usize)> {
+    match (main, audience) {
+        (Some(m), Some(a)) if m != a => Some((a, m)),
+        _ => None,
+    }
+}
+
+/// The monitors, primary flagged (P9-S5: Slide Show › Monitor).
+#[tauri::command]
+fn show_monitors(window: tauri::WebviewWindow) -> Vec<MonitorInfo> {
+    let primary = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| *m.position());
+    window
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .map(|(index, m)| {
+            let k = m.scale_factor().max(0.1);
+            MonitorInfo {
+                index,
+                name: m.name().cloned(),
+                primary: primary == Some(*m.position()),
+                x: f64::from(m.position().x) / k,
+                y: f64::from(m.position().y) / k,
+                width: f64::from(m.size().width) / k,
+                height: f64::from(m.size().height) / k,
+            }
+        })
+        .collect()
+}
+
+/// Presenter view › Swap displays: the slide show window moves to the
+/// presenter view's monitor (full screen) and the main window to the
+/// show's. Returns whether anything moved.
+#[tauri::command]
+fn show_swap_displays(app: tauri::AppHandle) -> bool {
+    let (Some(main), Some(show)) = (
+        app.get_webview_window("main"),
+        app.get_webview_window("audience"),
+    ) else {
+        return false;
+    };
+    let monitors = main.available_monitors().unwrap_or_default();
+    let rects: Vec<PhysRect> = monitors
+        .iter()
+        .map(|m| {
+            (
+                m.position().x,
+                m.position().y,
+                m.size().width,
+                m.size().height,
+            )
+        })
+        .collect();
+    let centre = |w: &tauri::WebviewWindow| -> Option<(i32, i32)> {
+        let p = w.outer_position().ok()?;
+        let s = w.outer_size().ok()?;
+        let half = |v: u32| i32::try_from(v / 2).unwrap_or(0);
+        Some((
+            p.x.saturating_add(half(s.width)),
+            p.y.saturating_add(half(s.height)),
+        ))
+    };
+    let at = |w: &tauri::WebviewWindow| centre(w).and_then(|c| monitor_at(&rects, c));
+    let Some((main_to, show_to)) = swap_plan(at(&main), at(&show)) else {
+        return false;
+    };
+    let origin = |i: usize| {
+        let (x, y, _, _) = rects[i];
+        tauri::PhysicalPosition::new(x, y)
+    };
+    let main_max = main.is_maximized().unwrap_or(false);
+    let _ = show.set_fullscreen(false);
+    let _ = main.unmaximize();
+    let _ = show.set_position(origin(show_to));
+    let _ = main.set_position(origin(main_to));
+    let _ = show.set_fullscreen(true);
+    if main_max {
+        let _ = main.maximize();
+    }
+    true
+}
+
 /// Builds and runs the Tauri application.
 ///
 /// # Panics
@@ -519,6 +673,9 @@ pub fn run() {
             recovery_remove,
             set_close_guard,
             print_webview,
+            show_monitors,
+            show_swap_displays,
+            export_file,
             connectors_tauri::connector_list,
             connectors_tauri::connector_stat,
             connectors_tauri::connector_read,
@@ -543,6 +700,18 @@ mod tests {
 
     fn call(state: &ShowState, request: Value) -> Value {
         serde_json::from_str(&state.dispatch(&request.to_string())).unwrap()
+    }
+
+    #[test]
+    fn monitors_contain_points_and_swap_exchanges_them() {
+        let rects = [(0, 0, 1920, 1080), (1920, 0, 2560, 1440)];
+        assert_eq!(monitor_at(&rects, (10, 10)), Some(0));
+        assert_eq!(monitor_at(&rects, (1920, 5)), Some(1));
+        assert_eq!(monitor_at(&rects, (5000, 5)), None);
+        assert_eq!(monitor_at(&rects, (-1, 5)), None);
+        assert_eq!(swap_plan(Some(0), Some(1)), Some((1, 0)));
+        assert_eq!(swap_plan(Some(1), Some(1)), None);
+        assert_eq!(swap_plan(None, Some(1)), None);
     }
 
     #[test]

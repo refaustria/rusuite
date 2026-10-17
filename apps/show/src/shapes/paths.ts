@@ -38,7 +38,11 @@ export function pathQueryOf(shape: Shape): PathQuery | null {
     return q;
   }
   if (k.kind === "picture" && k.value.props?.geometry && k.value.props.geometry !== "rect") {
-    return { kind: { kind: "preset", value: k.value.props.geometry }, w: t.w, h: t.h };
+    const q: PathQuery = { kind: { kind: "preset", value: k.value.props.geometry }, w: t.w, h: t.h };
+    // the picture shape's adjust values (rounded corners …; P9-S5)
+    const adjust = k.value.props.adjust;
+    if (adjust && Object.keys(adjust).length) q.adjust = adjust;
+    return q;
   }
   return null;
 }

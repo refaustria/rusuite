@@ -16,11 +16,11 @@ use core_model::{ColorScheme, FontScheme, RunProperties};
 use model_show::{
     Action, Adjust, AlignMode, Alignment, Anchor, Animation, AnimationKind, ArrowEnd, Axis,
     Background, BodyProps, Bookmark, Bullet, ChartData, ChartShape, Connector, ConnectorKind, Crop,
-    CustomShow, Direction, Effect, EffectStyle, Fill, Guide, HfDate, Hyperlink, Insets, Iterate,
-    Layout, LayoutKind, Line, MediaClip, MediaStart, NodeId, PictureProps, PlaceholderKind, Preset,
-    Recolor, Repeat, Section, Shadow, Shape, ShapeKind, ShowSettings, Slide, SlideMaster,
-    SlideSize, StartOn, Table, TableLook, TextBody, TextBuild, TextClass, TextSpacing, Theme,
-    Transform, Transition, Trigger, ViewProps,
+    CustomShow, Design, Direction, Effect, EffectStyle, Fill, Guide, HfDate, Hyperlink, Insets,
+    Iterate, Layout, LayoutKind, Line, MediaClip, MediaStart, NodeId, PictureProps,
+    PlaceholderKind, Preset, Recolor, Repeat, Section, Shadow, Shape, ShapeKind, ShowSettings,
+    Slide, SlideMaster, SlideSize, StartOn, Table, TableLook, TextBody, TextBuild, TextClass,
+    TextSpacing, Theme, Transform, Transition, Trigger, ViewProps,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
@@ -634,6 +634,10 @@ impl PicturePatch {
             p.transparency = v.clamp(0.0, 1.0);
         }
         if let Some(g) = &self.geometry {
+            // another outline shape: its default adjust values
+            if p.geometry != *g {
+                p.adjust.clear();
+            }
             p.geometry.clone_from(g);
         }
         if let Some(s) = self.shadow {
@@ -853,13 +857,19 @@ pub enum ShowCommand {
     Ungroup { group: NodeId },
     /// Adds an image (bytes as standard base64) on top of the slide.
     /// `transform` absent = natural size (96 dpi), scaled down to fit the
-    /// slide, centered.
+    /// slide, centered. `placeholder` (P9-S5: the "Insert Picture" icon of
+    /// an empty picture or content placeholder): the picture takes that
+    /// placeholder's place, box and z-order (cropped to fill it, as
+    /// PowerPoint does) and stays a placeholder of its layout.
     InsertPicture {
         slide: NodeId,
         content_type: String,
         bytes_base64: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         transform: Option<Transform>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        placeholder: Option<NodeId>,
         #[ts(type = "number")]
         new_id: i64,
     },
@@ -1090,11 +1100,16 @@ pub enum ShowCommand {
     RenameLayout { layout: LayoutKind, name: String },
     /// Adds a placeholder of `kind` at `transform` to the master (one per
     /// kind) or to a layout (Slide Master › Insert Placeholder; the next
-    /// free `idx`, text defaults from the master).
+    /// free `idx`, text defaults from the master). `textOnly` (P9-S5): a
+    /// "Text" placeholder (`type="body"`: text only, no content icons)
+    /// instead of "Content" (body kinds only).
     AddPlaceholder {
         target: DesignTarget,
         kind: PlaceholderKind,
         transform: Transform,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        text_only: bool,
     },
     /// Removes a placeholder of the master or a layout (slides keep their
     /// placeholder shapes).
@@ -1312,23 +1327,42 @@ pub enum ShowCommand {
     /// `layouts` (the source layouts they use) and `media` (the source
     /// media they reference) come from `peekPresentation`; every id is
     /// renewed, media are added (identical ones shared). With
-    /// `keepSourceFormatting` each source layout becomes a custom layout
-    /// (`custom:<name>`, made unique); without, slides move to this
-    /// presentation's layout of the same kind (custom ones: inferred from
-    /// their placeholders), their placeholders re-mapped like
-    /// `setSlideLayout`. Links to slides that are not inserted are dropped.
+    /// `keepSourceFormatting` and `designs` (P9-S5: the source's designs
+    /// the slides use, its main one as id 0) each source master comes
+    /// with its theme and layouts as a further design (an identical one
+    /// is shared, the destination's own when it is the same), the slides
+    /// keep their layouts on it; with `keepSourceFormatting` but no
+    /// designs each source layout becomes a custom layout
+    /// (`custom:<name>`, made unique). Without, slides move to this
+    /// presentation's layout of the same kind and name (custom ones
+    /// without a namesake: inferred from their placeholders), their
+    /// placeholders re-mapped like `setSlideLayout`. Links to slides that
+    /// are not inserted are dropped.
     InsertSlides {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<NodeId>,
         slides: Vec<Slide>,
         #[serde(default)]
         layouts: Vec<Layout>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<Design>>")]
+        designs: Vec<Design>,
         #[serde(default)]
         #[ts(as = "Vec<model_show::ts::MediaItem>")]
         media: MediaStore,
         #[serde(default)]
         keep_source_formatting: bool,
     },
+    /// Design › Browse for Themes (P9-S5): the design of a theme file
+    /// (`.thmx`, `.potx`, `.pptx`; standard base64) replaces the master,
+    /// its layouts and the theme (further designs are dropped, as when
+    /// PowerPoint applies a theme to all slides); every slide moves to
+    /// the new layout of its kind (custom layouts: of the same name, else
+    /// inferred from the placeholders), its placeholders re-mapped like
+    /// `setSlideLayout`. Pictures of the new master and layouts are added
+    /// to the media. The master and layouts are scaled to the slide size
+    /// (a `.thmx` counts as made for 16:9, a template has its own size).
+    ImportDesign { bytes_base64: String },
     /// Sets the view settings: guides, grid, snapping, ruler, last view
     /// (stored in `viewProps.xml`; undoable like PowerPoint's guide moves).
     SetViewProps { view: ViewProps },
@@ -1368,11 +1402,15 @@ pub enum ShowCommand {
         master: Box<SlideMaster>,
         layouts: Vec<Layout>,
     },
-    /// *Internal.* Puts theme, master and layouts back.
+    /// *Internal.* Puts theme, master and layouts (and the further
+    /// designs, when given) back.
     RestoreDesign {
         theme: Box<Theme>,
         master: Box<SlideMaster>,
         layouts: Vec<Layout>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        designs: Option<Vec<Design>>,
     },
     /// *Internal.* Puts the sections back.
     RestoreSections { sections: Vec<Section> },

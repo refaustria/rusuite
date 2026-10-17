@@ -10,7 +10,7 @@ import type { ViewState } from "./ViewState";
  * A request from the UI. JSON: `{"type":"apply","command":{...}}`,
  * `{"type":"undo"}`, `{"type":"getMedia","id":3}`.
  */
-export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "savePptx", 
+export type Request = { "type": "apply", command: ShowCommand, } | { "type": "undo" } | { "type": "redo" } | { "type": "load", presentation: Presentation, } | { "type": "getPresentation" } | { "type": "newPresentation" } | { "type": "getMedia", id: MediaId, } | { "type": "openPptx", bytesBase64: string, name: string, } | { "type": "saveTheme" } | { "type": "savePptx", 
 /**
  * The view the user is in (Normal, Slide Sorter …), stamped into
  * `viewProps.xml` `lastView` without an undo step.
@@ -19,4 +19,11 @@ lastView?: ViewKind,
 /**
  * Zoom and pane sizes, stamped likewise (P9-S3).
  */
-viewState?: ViewState, } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };
+viewState?: ViewState, 
+/**
+ * The UI's clock (P9-S5): the current text of each `datetimeN`
+ * field (format number → text, in the UI's language); date fields
+ * are written showing it. The document is not changed. (Keys are
+ * strings on the wire: JSON object keys.)
+ */
+dateTexts?: { [key in string]: string }, } | { "type": "recoverySnapshot" } | { "type": "restoreRecovery", json: string, name?: string, } | { "type": "documentState" } | { "type": "markSaved", name?: string | null, } | { "type": "shapePaths", queries: Array<PathQuery>, } | { "type": "getThemes" } | { "type": "peekPresentation", bytesBase64: string, };

@@ -165,6 +165,10 @@ pub enum Request {
     /// Replaces the presentation by a `.pptx` file (standard base64 of its
     /// bytes; `name` is the file name shown to the user) → `opened`.
     OpenPptx { bytes_base64: String, name: String },
+    /// Design › Save Current Theme (P9-S5): the main design (theme,
+    /// master, layouts) as a `.thmx` file → `saved` (named after the
+    /// theme). Changes nothing.
+    SaveTheme,
     /// Writes the presentation as `.pptx` → `saved`. Does NOT mark it
     /// saved: the shell sends `markSaved` once the file was really written.
     SavePptx {
@@ -177,6 +181,13 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         view_state: Option<ViewState>,
+        /// The UI's clock (P9-S5): the current text of each `datetimeN`
+        /// field (format number → text, in the UI's language); date fields
+        /// are written showing it. The document is not changed. (Keys are
+        /// strings on the wire: JSON object keys.)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<std::collections::HashMap<String, String>>")]
+        date_texts: Option<std::collections::BTreeMap<String, String>>,
     },
     /// The whole presentation for crash recovery → `recoverySnapshot` (changes
     /// nothing; the JSON is the input of `restoreRecovery`).
@@ -338,9 +349,20 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
                 envelope: Box::new(host.envelope(ShowPatch::default())),
             }
         }
+        Request::SaveTheme => {
+            let pres = host.doc().presentation();
+            let bytes = fmt_pptx::write_thmx(pres)
+                .map_err(|e| DispatchError::new("internal", e.to_string()))?;
+            let name = pres.theme.name.trim();
+            ResponseBody::Saved {
+                bytes_base64: base64_encode(&bytes),
+                suggested_name: format!("{}.thmx", if name.is_empty() { "Theme" } else { name }),
+            }
+        }
         Request::SavePptx {
             last_view,
             view_state,
+            date_texts,
         } => {
             if let Some(v) = last_view {
                 host.doc_mut().stamp_last_view(v);
@@ -348,7 +370,12 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
             if let Some(s) = &view_state {
                 host.doc_mut().stamp_view_state(s);
             }
-            let bytes = host.doc().save_pptx()?;
+            let dates: std::collections::BTreeMap<u8, String> = date_texts
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|(k, v)| Some((k.parse().ok()?, v)))
+                .collect();
+            let bytes = host.doc().save_pptx_dated(&dates)?;
             ResponseBody::Saved {
                 bytes_base64: base64_encode(&bytes),
                 suggested_name: host.doc().suggested_name(),

@@ -34,6 +34,11 @@ transparency?: number,
  */
 geometry?: Preset, 
 /**
+ * Adjust values of [`geometry`](Self::geometry) (`a:avLst`, e.g. the
+ * corner radius of a rounded picture; P9-S5).
+ */
+adjust?: { [key in string]: number }, 
+/**
  * Outer shadow.
  */
 shadow?: Shadow, };

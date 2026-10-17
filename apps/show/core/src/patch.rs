@@ -4,8 +4,8 @@
 
 use app_common::Patch;
 use model_show::{
-    CustomShow, Layout, NodeId, Section, ShowSettings, Slide, SlideMaster, SlideSize, Theme,
-    ViewProps,
+    CustomShow, Design, Layout, NodeId, Section, ShowSettings, Slide, SlideMaster, SlideSize,
+    Theme, ViewProps,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -44,6 +44,10 @@ pub struct ShowPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub layouts: Option<Vec<Layout>>,
+    /// All further designs (P9-S5), when the design changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub designs: Option<Vec<Design>>,
     /// All sections, when they changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -99,6 +103,7 @@ impl Patch for ShowPatch {
             self.theme = other.theme;
             self.master = other.master;
             self.layouts = other.layouts;
+            self.designs = other.designs;
         }
         if other.sections.is_some() {
             self.sections = other.sections;

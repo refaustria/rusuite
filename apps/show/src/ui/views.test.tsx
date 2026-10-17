@@ -137,7 +137,7 @@ describe("Selection pane, Format Shape pane, contextual tabs", () => {
     fireEvent.click(within(dlg).getByRole("radio", { name: "Manually" }));
     fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
     await flush();
-    expect(backend.commands.at(-1)).toEqual({ type: "setShowSettings", settings: { loop: true, withoutNarration: false, withoutAnimation: false, useTimings: false, showScrollbar: true } });
+    expect(backend.commands.at(-1)).toEqual({ type: "setShowSettings", settings: { loop: true, withoutNarration: false, withoutAnimation: false, useTimings: false, showScrollbar: true, showMediaControls: true } });
     fireEvent.click(screen.getByRole("button", { name: "Hide slide" }));
     await flush();
     expect(backend.commands.at(-1)).toEqual({ type: "setSlidesHidden", slides: [1], hidden: true });

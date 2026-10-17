@@ -1,7 +1,8 @@
 // The audience window of the presenter view (P7-8): `?audience=<id>` in the
 // URL makes main.tsx render this instead of the editor (no backend, no
 // document session). It shows what the presenter sends and forwards its own
-// keys and clicks to the presenter, which owns the show.
+// keys and clicks to the presenter, which owns the show; the presenter's
+// ink, laser pointer and zoom are drawn here too (P9-S5).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isTauri } from "@rusuite/ui-shared";
@@ -11,6 +12,7 @@ import { pathCache } from "../shapes/paths";
 import { Presenter } from "./Presenter";
 import type { ShowAction, ShowState } from "./showState";
 import { openSync, type ShowView, type SyncChannel } from "./sync";
+import { INITIAL_TOOLS, type ToolsState } from "./ShowTools";
 import { useT } from "../i18n";
 
 function closeWindow() {
@@ -32,6 +34,7 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
   const [ch, setCh] = useState<SyncChannel | null>(null);
   const [deck, setDeck] = useState<{ deck: DeckContext; slides: Slide[]; media: Map<number, string>; version: number } | null>(null);
   const [view, setView] = useState<ShowView>({ slideIndex: 0, step: 0, blackout: "none", ended: false });
+  const [tools, setTools] = useState<ToolsState>(INITIAL_TOOLS);
 
   useEffect(() => {
     let alive = true;
@@ -45,6 +48,7 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
         if (m.kind === "deck" && m.paths) pathCache.load(m.paths);
         if (m.kind === "deck") setDeck((d) => ({ deck: m.deck, slides: m.slides, media: new Map(m.media), version: (d?.version ?? 0) + 1 }));
         else if (m.kind === "state") setView({ slideIndex: m.slideIndex, step: m.step ?? 0, blackout: m.blackout, ended: m.ended });
+        else if (m.kind === "tools") setTools({ ...INITIAL_TOOLS, ...m.tools, ink: new Map(m.tools.ink) });
         else if (m.kind === "end") onEnd();
       });
       setCh(c);
@@ -95,6 +99,7 @@ export function Audience({ id, channel, onEnd = closeWindow }: AudienceProps) {
       show={show}
       onAction={onAction}
       fullscreenExits={false}
+      mirror={tools}
     />
   );
 }

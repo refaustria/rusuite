@@ -171,6 +171,14 @@ pub struct PictureProps {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub geometry: Option<Preset>,
+    /// Adjust values of [`geometry`](Self::geometry) (`a:avLst`, e.g. the
+    /// corner radius of a rounded picture; P9-S5).
+    #[serde(skip_serializing_if = "crate::Adjust::is_empty")]
+    #[cfg_attr(
+        feature = "ts",
+        ts(optional, as = "Option<std::collections::HashMap<String, f64>>")
+    )]
+    pub adjust: crate::Adjust,
     /// Outer shadow.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]

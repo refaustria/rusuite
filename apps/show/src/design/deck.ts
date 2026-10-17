@@ -5,6 +5,7 @@
 // master and layout drawn below the slide (`showMasterShapes`).
 
 import type { TableStyleDef } from "../generated/TableStyleDef";
+import type { Design } from "../generated/Design";
 import type { RunProperties } from "../../../../packages/ui-shared/src/generated/RunProperties";
 import type { Layout } from "../generated/Layout";
 import type { LayoutKind } from "../generated/LayoutKind";
@@ -35,6 +36,19 @@ export interface DeckContext {
   sections?: Section[];
   /** The presentation's own table styles (built-ins need none). */
   tableStyles?: TableStyleDef[];
+  /** Further designs (P9-S5): slides whose `design` names one use its master, layouts and theme. */
+  designs?: Design[];
+}
+
+/**
+ * The deck as slide `slide` sees it: its further design's master, layouts
+ * and theme instead of the main ones (the deck itself for slides of the
+ * main design).
+ */
+export function deckFor(deck: DeckContext, slide: Pick<Slide, "design">): DeckContext {
+  if (slide.design === undefined || slide.design === null) return deck;
+  const d = deck.designs?.find((x) => x.id === slide.design);
+  return d ? { ...deck, master: d.master, layouts: d.layouts, theme: d.theme } : deck;
 }
 
 /** The deck context of a presentation. */
@@ -47,6 +61,7 @@ export function deckOf(pres: Presentation): DeckContext {
     order: pres.slides.map((s) => s.id),
     sections: pres.sections,
     tableStyles: pres.tableStyles,
+    ...(pres.designs?.length ? { designs: pres.designs } : {}),
   };
 }
 
@@ -184,7 +199,7 @@ export function stableDeck(pres: Presentation): DeckContext {
   const d = lastDeck;
   if (
     d && key === lastKey && d.slideSize === pres.slideSize && d.layouts === pres.layouts && d.theme === pres.theme &&
-    d.master === pres.master && d.sections === pres.sections
+    d.master === pres.master && d.sections === pres.sections && d.designs === (pres.designs?.length ? pres.designs : undefined)
   ) {
     return d;
   }
@@ -195,7 +210,8 @@ export function stableDeck(pres: Presentation): DeckContext {
 
 /** Every decorative shape of the master and the layouts (to fetch their outlines with the slides'). */
 export function allDesignShapes(deck: DeckContext): Shape[] {
-  return [...(deck.master?.shapes ?? []), ...deck.layouts.flatMap((l) => l.shapes ?? [])];
+  const extra = (deck.designs ?? []).flatMap((d) => [...(d.master.shapes ?? []), ...d.layouts.flatMap((l) => l.shapes ?? [])]);
+  return [...(deck.master?.shapes ?? []), ...deck.layouts.flatMap((l) => l.shapes ?? []), ...extra];
 }
 
 /** The slides plus one pseudo slide holding the design shapes, for `slideQueries`. */

@@ -17,6 +17,7 @@ import type { Axis } from "../generated/Axis";
 import type { Bullet } from "../generated/Bullet";
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { Layout } from "../generated/Layout";
+import type { Design } from "../generated/Design";
 import type { LayoutKind } from "../generated/LayoutKind";
 import type { PlaceholderKind } from "../generated/PlaceholderKind";
 import type { SlideScale } from "../generated/SlideScale";
@@ -54,6 +55,8 @@ import { applyPreset, presetById } from "../charts/presets";
 import { transposeData } from "../charts/data";
 import type { Chart } from "../charts/types";
 import { linkAt, linkCommands, reusePayload } from "./rich";
+import { inkFreeforms, type InkStroke } from "../present/tools";
+import { exportFile, thmxName } from "../design/themeFile";
 import { effectiveParagraph, findShape, placeholderDef, textOf } from "../model";
 import {
   alignCommand, alignmentCommand, bodyFromText, bulletCommand, compound, duplicateCommand, formatCommands, indentCommands,
@@ -89,7 +92,7 @@ import type { TextField } from "../generated/TextField";
 import { DESIGN_COMMANDS, DESIGN_SHAPE_BASE, designSlide, placeholderOfShape, targetPlaceholders, translateDesignCommand, validTarget } from "../design/master";
 import { hfCommand, insertField, type HfValues } from "../design/hf";
 import { moveToSectionCommand, removeAllSectionsCommand } from "../design/sections";
-import { fieldText } from "../design/fields";
+import { dateTexts, fieldText } from "../design/fields";
 import { NO_CROP, stylePatch, type PictureStyle } from "../design/picture";
 import { t } from "../i18n";
 import { centredTransform } from "../geometry";
@@ -277,6 +280,7 @@ export function applyPatch(pres: Presentation, patch: ShowPatch): Presentation {
   if (patch.theme) out.theme = patch.theme;
   if (patch.master) out.master = patch.master;
   if (patch.layouts) out.layouts = patch.layouts;
+  if (patch.designs) out.designs = patch.designs;
   if (patch.sections) out.sections = patch.sections;
   if (patch.view) out.view = patch.view;
   if (patch.showSettings) out.showSettings = patch.showSettings;
@@ -506,11 +510,11 @@ export class ShowStore {
       dirty: env.dirty,
       info: p.info ?? s.info,
     });
-    this.fetchMissingMedia(p.slides, { master: p.master, layouts: p.layouts });
+    this.fetchMissingMedia(p.slides, { master: p.master, layouts: p.layouts, designs: p.designs });
     return idMap;
   }
 
-  private fetchMissingMedia(slides: Slide[], design?: { master?: SlideMaster; layouts?: Layout[] }): void {
+  private fetchMissingMedia(slides: Slide[], design?: { master?: SlideMaster; layouts?: Layout[]; designs?: Design[] }): void {
     const want = new Set<number>();
     // picture backgrounds of slides, layouts and the master
     const bg = (b: Background | null | undefined) => {
@@ -523,6 +527,13 @@ export class ShowStore {
     });
     bg(design?.master?.background);
     design?.layouts?.forEach((l) => bg(l.background));
+    // further designs (P9-S5): their backgrounds and pictures
+    const extra: Shape[] = [];
+    for (const d of design?.designs ?? []) {
+      bg(d.master.background);
+      d.layouts.forEach((l) => bg(l.background));
+      extra.push(...(d.master.shapes ?? []), ...d.layouts.flatMap((l) => l.shapes ?? []));
+    }
     const walk = (shapes: Shape[]) => {
       for (const sh of shapes) {
         if (sh.kind.kind === "picture") want.add(sh.kind.value.media);
@@ -533,6 +544,7 @@ export class ShowStore {
       }
     };
     slides.forEach((s) => walk(s.shapes));
+    walk(extra);
     for (const id of want) {
       if (this.media.has(id) || this.mediaPending.has(id)) continue;
       this.mediaPending.add(id);
@@ -1201,6 +1213,15 @@ export class ShowStore {
     const newId = this.temp();
     this.set({ selection: [newId] });
     await this.run({ type: "insertPicture", slide, contentType, bytesBase64, newId });
+  }
+
+  /** The "Insert Picture" icon of an empty picture / content placeholder (P9-S5): the picture fills the placeholder. */
+  async insertPictureInto(placeholder: NodeId, contentType: string, bytesBase64: string): Promise<void> {
+    const slide = this.state.current;
+    if (slide === null) return;
+    const newId = this.temp();
+    this.set({ selection: [newId] });
+    await this.run({ type: "insertPicture", slide, contentType, bytesBase64, placeholder, newId });
   }
 
   /** Fill of the selected shapes (`null` = no fill). */
@@ -1976,9 +1997,10 @@ export class ShowStore {
    * Slide Master › Insert Placeholder: a placeholder of `kind` in the
    * selected layout (the master: only kinds it lacks), centred at half
    * the slide's size (date / footer / number at the master's position),
-   * then selected.
+   * then selected. `textOnly`: Insert Placeholder › Text (a body
+   * placeholder for text only, P9-S5) rather than Content.
    */
-  async insertPlaceholder(kind: PlaceholderKind): Promise<void> {
+  async insertPlaceholder(kind: PlaceholderKind, textOnly = false): Promise<void> {
     const pres = this.state.pres;
     const mv = this.state.masterView;
     if (!pres || !mv) return;
@@ -1989,7 +2011,7 @@ export class ShowStore {
       ? fromMaster.transform
       : { x: Math.round(size.width / 4), y: Math.round(size.height / 4), w: Math.round(size.width / 2), h: Math.round(size.height / 2), rotationDeg: 0 };
     const before = targetPlaceholders(pres, mv).length;
-    const res = await this.run({ type: "addPlaceholder", target: mv, kind, transform });
+    const res = await this.run({ type: "addPlaceholder", target: mv, kind, transform, ...(textOnly && kind === "body" ? { textOnly: true } : {}) });
     if (res && this.state.pres) {
       const after = targetPlaceholders(this.state.pres, mv);
       if (after.length > before) this.set({ selection: [DESIGN_SHAPE_BASE + after.length - 1] });
@@ -2344,12 +2366,28 @@ export class ShowStore {
     const src = this.state.reuse?.pres;
     if (!src || !ids.length || this.state.masterView) return;
     if (this.state.editing) await this.commitEdit();
-    const { slides, layouts, media } = reusePayload(src, ids);
+    const { slides, layouts, designs, media } = reusePayload(src, ids, keepSourceFormatting);
     const before = new Set(this.state.pres?.slides.map((s) => s.id) ?? []);
-    const res = await this.run({ type: "insertSlides", after: this.state.current ?? undefined, slides, layouts, media, keepSourceFormatting });
+    const res = await this.run({ type: "insertSlides", after: this.state.current ?? undefined, slides, layouts, ...(designs.length ? { designs } : {}), media, keepSourceFormatting });
     const added = res?.env.patch.slidesOrder?.filter((id) => !before.has(id)) ?? [];
     const last = added[added.length - 1];
     if (last !== undefined) this.selectSlide(last);
+  }
+
+  /** Design › Browse for Themes (P9-S5): a `.thmx` / `.potx` / `.pptx` replaces the design (one undo step). */
+  async importDesign(file: { name: string; bytesBase64: string }): Promise<void> {
+    if (this.state.editing) await this.commitEdit();
+    await this.run({ type: "importDesign", bytesBase64: file.bytesBase64 });
+  }
+
+  /** Design › Save Current Theme (P9-S5): the theme, master and layouts as a `.thmx` file. */
+  async saveTheme(): Promise<void> {
+    try {
+      const saved = await this.enqueue(() => this.api.saveTheme());
+      await exportFile(thmxName(saved.suggestedName), saved.bytesBase64, t("show.design.themeFilter"), "thmx");
+    } catch (e) {
+      this.pushError(e);
+    }
   }
 
   // --- views, guides, selection pane, text options, show setup (P8-28) ------------------
@@ -2479,6 +2517,46 @@ export class ShowStore {
     const settings = this.state.pres?.showSettings ?? DEFAULT_SHOW_SETTINGS;
     if (!settings.useTimings) commands.push({ type: "setShowSettings", settings: { ...settings, useTimings: true } });
     await this.run(compound(commands));
+  }
+
+  /**
+   * "Keep ink annotations?" › Keep (P9-S5): every stroke of the show
+   * becomes a freeform named "Ink N" on its slide (pen ink on top,
+   * highlighter ink below the slide's shapes), one undo step. PowerPoint
+   * writes ink as `p14:contentPart` ink parts; Rusuite writes freeforms
+   * (`a:custGeom`), which every Office version and LibreOffice show.
+   */
+  async keepInk(ink: ReadonlyMap<NodeId, readonly InkStroke[]>): Promise<void> {
+    const slides = this.state.pres?.slides ?? [];
+    const commands: ShowCommand[] = [];
+    let n = 0;
+    for (const slide of slides) {
+      const strokes = ink.get(slide.id);
+      if (!strokes?.length) continue;
+      let under = 0;
+      for (const f of inkFreeforms(strokes, EMU_PER_PX)) {
+        n++;
+        const shape: Shape = {
+          id: this.temp(),
+          name: `Ink ${n}`,
+          transform: { ...f.box, rotationDeg: 0 },
+          kind: {
+            kind: "auto",
+            value: {
+              geometry: {
+                custom: {
+                  paths: [{ w: f.box.w, h: f.box.h, fill: false, stroke: true, commands: f.points.map((p, i) => ({ kind: i === 0 ? "moveTo" : "lineTo", x: p.x, y: p.y })) }],
+                },
+              },
+            },
+          },
+          fill: { kind: "none" },
+          line: { fill: { kind: "solid", value: { kind: "rgb", value: f.color } }, width: f.width, dash: "solid" },
+        };
+        commands.push(f.highlighter ? { type: "addShape", slide: slide.id, shape, index: under++ } : { type: "addShape", slide: slide.id, shape });
+      }
+    }
+    if (commands.length) await this.run(compound(commands));
   }
 
   // ----- Outline View
@@ -2783,7 +2861,8 @@ export class ShowStore {
       if (this.state.editing) await this.commitEdit();
       const view = lastViewOf(this.state.view);
       const state = viewStateOf(this.state, typeof window === "undefined" ? 0 : window.innerWidth);
-      const saved = await this.enqueue(() => this.api.savePptx(view, state));
+      // date fields are written showing today's date (the core has no clock; P9-S5)
+      const saved = await this.enqueue(() => this.api.savePptx(view, state, dateTexts(new Date())));
       const result = await this.api.backend.saveFile(asName ?? saved.suggestedName, saved.bytesBase64, { saveAs: asName !== undefined });
       if (!result) return;
       const name = typeof result === "object" ? result.name : asName;
@@ -2844,7 +2923,7 @@ export function windowStateOf(v: ViewProps | undefined, windowWidth: number): Pi
 }
 
 /** `ShowSettings::default`. */
-export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true, showScrollbar: true };
+export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true, showScrollbar: true, showMediaControls: true };
 
 const DEFAULT_BODY: BodyProps = { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" };
 

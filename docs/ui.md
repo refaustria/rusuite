@@ -1648,3 +1648,58 @@ privacy-check allow-list, reachable only from the controller's `submit`).
 - **Privacy**: nothing is sent before Submit (e2e `report.spec.ts` audits the requests); the payload has no document
   content (the relay also refuses unknown fields); File › Home › Privacy has the paragraph `privacy.report`; the portal's
   privacy page has a "Reporting a problem" section.
+
+## Show: presenter view, rehearsal and reuse round 2 (P9-S5)
+
+- **Presenter view** (Alt+F5, View › Presenter view): the **speaker notes are editable** (the text is saved to the deck
+  when the field loses focus or the slide changes, one undo step per edit; show keys do not apply while typing, Esc
+  leaves the field). The header has the total time with **Pause timer / Resume timer** and **Reset timer**, and the
+  **time on the current slide** (it starts again on every slide and stops while paused). Buttons below the slide:
+  Previous, Next, **Black screen, White screen** (B / W), the pointer menu (laser pointer, pen, highlighter, eraser,
+  arrow, six ink colours, erase all, show / hide ink), **See all slides** (G), **Zoom** (+ / −) and, on the desktop,
+  **Swap displays** (the presenter view and the slide show change monitors). Ink, the laser pointer and the zoom are
+  drawn on the slide show window too.
+- **Keep ink annotations?** At the end of a show (single window or presenter view) with ink: Keep turns every stroke
+  into a freeform named "Ink N" on its slide (pen ink on top; highlighter ink below the slide's shapes, because the
+  model's outlines have no transparency – it marks the text from behind), one undo step; Discard drops it. PowerPoint
+  writes ink as `p14:contentPart` ink parts (InkML); Rusuite writes freeforms (`a:custGeom`), which PowerPoint,
+  LibreOffice and older Office versions all show and edit.
+- **Slide Show › Monitor: <name> ▾** (Monitors group): Automatic (a screen other than the presenter view's; with one
+  screen a normal window), Primary Monitor, or one of the screens; the choice is remembered. The desktop app lists the
+  monitors from the shell and opens the slide show window full screen on the chosen one. In the browser **Detect
+  screens…** asks for the Window Management permission and lists the screens; the slide show window then opens on the
+  chosen screen. When the browser blocks the window, the Presentation API (a second display or a cast target) is tried
+  before falling back to the single-window show with the notes overlay.
+- **Slide Show › Record ▾** (From Current Slide… / From Beginning…): a rehearsal with the pen at hand; at the end the
+  slide timings (Use Timings on) and the ink are saved without asking. Narration (audio, camera) is not recorded.
+  **Rehearse Timings** keeps PowerPoint's Recording tool bar (Next, Pause, the slide's time, Repeat, the total) and its
+  closing question; the timings are saved as `advTm` (whole seconds) and Use Timings is turned on.
+- **Set Up group**: PowerPoint's **Play Narrations**, **Use Timings** and **Show Media Controls** check boxes (Loop
+  until Esc stays in Set Up Slide Show). Without media controls the clips in the show have no play bar.
+- **Reuse Slides › Keep source formatting** brings the source slide's master with its theme and all its layouts as a
+  further design of the presentation (shared when the same master is reused again; the presentation's own design when
+  it is the same); the slides keep their layouts on it, the thumbnails and the show draw them with that design, and the
+  file has one more `p:sldMasterId`. Without it ("Use destination theme") slides take this presentation's layout of the
+  same kind and name. Limits: the layout galleries and the Slide Master view show the main design only; a slide of a
+  further design changes layout among its own design's layouts.
+- **Design › More themes ▾ › Browse for Themes…** reads a `.thmx`, `.potx` or `.pptx` and applies its design to all
+  slides: the theme, the master and its layouts replace the presentation's (scaled to the slide size – a `.thmx` counts
+  as made for 16:9, a template has its own size; further designs go), every slide moves to
+  the new layout of its kind (custom layouts: by name, else inferred from the placeholders), one undo step. **Save
+  Current Theme…** writes the theme, master and layouts as a `.thmx` (the desktop app asks where; the browser downloads
+  it) – it never becomes the document's file.
+- **Slide Master › Insert Placeholder ▾** has **Text** (a text-only body placeholder, `type="body"`) beside Content.
+  Empty placeholders prompt per type ("Click to add text", "Click icon to add picture", chart, table). Empty **picture
+  placeholders** show an **Insert Picture** icon on the stage: the picked image fills the placeholder (cropped to its
+  proportions, centred), stays a placeholder of the layout and keeps its z-order. (Content placeholders keep their
+  text click target; the core's `insertPicture` accepts them too.)
+- **Date fields** (Insert › Date & Time with Update automatically, the footers' date) are saved showing the current
+  date and time in the UI language, as PowerPoint writes them; the document keeps its stored text.
+- Files: non-standard colour maps of masters (`p:clrMap`, e.g. dark masters with `bg1="dk1"`) and slides
+  (`p:clrMapOvr`) are honoured when colours are read and written; LibreOffice masters without a size in their footer
+  list styles take it from their runs; picture shapes keep their adjust values (rounded corners …).
+- Already present before P9-S5: Rehearse Timings with its tool bar and question, the slide-show tools (pointer
+  options, ink, See all slides, magnifier) in the single-window show, the combo chart z-order (areas behind columns,
+  P8-45) and the shared chart presets (Show imports the ui-shared chart preset module directly; re-exporting it from
+  the ui-shared index is left for X2).
+

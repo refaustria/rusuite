@@ -265,6 +265,10 @@ pub struct ShowSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub pen_color: Option<String>,
+    /// Slide Show › Show Media Controls: the play bar of audio and video
+    /// in the show (`p14:showMediaCtrls` in `p:showPr/p:extLst`; absent =
+    /// shown).
+    pub show_media_controls: bool,
 }
 
 fn is_speaker(t: &ShowType) -> bool {
@@ -283,6 +287,7 @@ impl Default for ShowSettings {
             show_scrollbar: true,
             custom_show: None,
             pen_color: None,
+            show_media_controls: true,
         }
     }
 }

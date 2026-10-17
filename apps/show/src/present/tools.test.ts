@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eraseAt, seeAllColumns, svgPoints, toolKey, withStrokes, zoomOffset, zoomStep, type InkStroke } from "./tools";
+import { eraseAt, inkFreeforms, seeAllColumns, svgPoints, toolKey, withStrokes, zoomOffset, zoomStep, type InkStroke } from "./tools";
 import { initialShow, reduceShow, showRange, type ShowState } from "./showState";
 import { showSlides } from "./SlideShow";
 import type { Slide } from "../generated/Slide";
@@ -41,6 +41,19 @@ describe("slide-show tools", () => {
     expect(ink.get(7)).toEqual([a]);
     expect(withStrokes(ink, 7, []).has(7)).toBe(false);
     expect(svgPoints(a.points)).toBe("0,0 100,0");
+  });
+
+  it("kept ink: one freeform per stroke in slide EMU, its points relative to the box (P9-S5)", () => {
+    const pen: InkStroke = { mode: "pen", color: "#e81123", points: [{ x: 10, y: 20 }, { x: 10.2, y: 20.1 }, { x: 30, y: 60 }] };
+    const dot: InkStroke = { mode: "highlighter", color: "#ffb900", points: [{ x: 5, y: 5 }] };
+    const [a, b] = inkFreeforms([pen, dot], 9525);
+    expect(a).toEqual({ highlighter: false, color: "E81123", width: 3 * 9525, box: { x: 95250, y: 190500, w: 190500, h: 381000 }, points: [{ x: 0, y: 0 }, { x: 190500, y: 381000 }] });
+    // a dot becomes a tiny stroke
+    expect(b!.highlighter).toBe(true);
+    expect(b!.width).toBe(14 * 9525);
+    expect(b!.points).toHaveLength(2);
+    expect(b!.box.w).toBeGreaterThan(0);
+    expect(inkFreeforms([{ mode: "pen", color: "#000000", points: [] }], 9525)).toEqual([]);
   });
 
   it("See all slides grid columns", () => {

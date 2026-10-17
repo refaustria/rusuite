@@ -136,11 +136,15 @@ describe("last view on save", () => {
     const n = backend.commands.length;
     await store.save();
     // P9-S3: the zoom, the sorter zoom and the panes go with it
-    expect(backend.log.find((r) => r.type === "savePptx")).toEqual({
+    expect(backend.log.find((r) => r.type === "savePptx")).toMatchObject({
       type: "savePptx",
       lastView: "slideSorter",
       viewState: { zoom: 150, sorterZoom: 60, restoredLeft: 15620, restoredTop: 100000 },
     });
+    // P9-S5: the UI's clock for date fields, every datetimeN format
+    const sent = backend.log.find((r) => r.type === "savePptx") as { dateTexts?: Record<number, string> };
+    expect(Object.keys(sent.dateTexts ?? {})).toHaveLength(14);
+    expect(sent.dateTexts?.[10]).toMatch(/^\d{1,2}:\d{2}$/);
     expect(backend.commands.length).toBe(n);
   });
 });

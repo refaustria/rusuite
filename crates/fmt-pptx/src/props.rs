@@ -308,6 +308,9 @@ pub fn read_p15_guides(parent: &El, list: &str) -> Vec<Guide> {
         .collect()
 }
 
+/// `p:ext/@uri` of `p14:showMediaCtrls` (Slide Show › Show Media Controls).
+pub const MEDIA_CONTROLS_URI: &str = "{2FDB2607-1784-4EEB-B798-7EB5836EED8A}";
+
 /// `ppt/presProps.xml`: `p:showPr` when the settings differ from the
 /// defaults.
 pub fn pres_props_xml(s: &ShowSettings) -> Vec<u8> {
@@ -348,6 +351,16 @@ pub fn pres_props_xml(s: &ShowSettings) -> Vec<u8> {
         x.start("p:penClr", &[]);
         x.empty("a:srgbClr", &[("val", c)]);
         x.end("p:penClr");
+    }
+    if !s.show_media_controls {
+        x.start("p:extLst", &[]);
+        x.start("p:ext", &[("uri", MEDIA_CONTROLS_URI)]);
+        x.empty(
+            "p14:showMediaCtrls",
+            &[("xmlns:p14", crate::parts::NS_P14), ("val", "0")],
+        );
+        x.end("p:ext");
+        x.end("p:extLst");
     }
     x.end("p:showPr");
     x.end("p:presentationPr");
@@ -396,6 +409,13 @@ pub fn read_pres_props(root: &El) -> ShowSettings {
                 _ => preset_rgb(c.attr("val")?),
             })
             .filter(|v| model_show::view::is_rrggbb(v)),
+        show_media_controls: sp
+            .child("extLst")
+            .into_iter()
+            .flat_map(|l| l.elements())
+            .filter_map(|e| e.child("showMediaCtrls"))
+            .find_map(|c| c.attr("val").and_then(parse_bool))
+            .unwrap_or(true),
     }
 }
 
@@ -525,6 +545,40 @@ mod tests {
         assert_eq!(v.guides[1].orient, GuideOrient::Vertical);
         assert_eq!(v.grid_spacing, Emu(72_008));
         assert!(v.snap_to_shapes);
+    }
+
+    #[test]
+    fn show_pr_toggles_media_controls_narration_timings() {
+        // Slide Show › Play Narrations / Use Timings / Show Media Controls (P9-S5)
+        let s = ShowSettings {
+            without_narration: true,
+            use_timings: false,
+            show_media_controls: false,
+            ..ShowSettings::default()
+        };
+        let xml = pres_props_xml(&s);
+        let text = String::from_utf8(xml.clone()).unwrap();
+        assert!(
+            text.contains(r#"<p:showPr showNarration="0" useTimings="0">"#),
+            "{text}"
+        );
+        assert!(
+            text.contains(r#"<p:extLst><p:ext uri="{2FDB2607-1784-4EEB-B798-7EB5836EED8A}"><p14:showMediaCtrls xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" val="0"/></p:ext></p:extLst></p:showPr>"#),
+            "{text}"
+        );
+        assert_eq!(read_pres_props(&parse(&xml, "p").unwrap()), s);
+        // PowerPoint's file: controls on (written as val="1"), absent = on
+        let ppt = br#"<p:presentationPr xmlns:p="p" xmlns:a="a" xmlns:p14="x"><p:showPr showNarration="1"><p:present/><p:sldAll/><p:extLst><p:ext uri="{EC167BDD-8182-4AB7-AECC-EB403E3ABB37}"><p14:laserClr><a:srgbClr val="FF0000"/></p14:laserClr></p:ext><p:ext uri="{2FDB2607-1784-4EEB-B798-7EB5836EED8A}"><p14:showMediaCtrls val="1"/></p:ext></p:extLst></p:showPr></p:presentationPr>"#;
+        let read = read_pres_props(&parse(ppt, "p").unwrap());
+        assert!(read.show_media_controls);
+        assert!(!read.without_narration);
+        let off = String::from_utf8_lossy(ppt)
+            .replace(r#"showMediaCtrls val="1""#, r#"showMediaCtrls val="0""#)
+            .into_bytes();
+        assert!(!read_pres_props(&parse(&off, "p").unwrap()).show_media_controls);
+        assert!(!String::from_utf8(pres_props_xml(&ShowSettings::default()))
+            .unwrap()
+            .contains("showMediaCtrls"));
     }
 
     #[test]

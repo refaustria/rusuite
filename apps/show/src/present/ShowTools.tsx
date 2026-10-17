@@ -5,6 +5,8 @@
 // all slides" (G or −) and the magnifier (+ / −, about the pointer; Esc
 // zooms out). A small tool bar appears in the lower left on pointer
 // movement (pointer events, 32 px buttons). Pure parts: `tools.ts`.
+// The presenter view (P9-S5) shares one tools state with the audience
+// window: ink, laser pointer and zoom are drawn on both (`readOnly` there).
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Slide } from "../generated/Slide";
@@ -24,11 +26,13 @@ export interface ToolsState {
   inkVisible: boolean;
   seeAll: boolean;
   zoom: number;
-  /** Zoom centre (screen px of the show area). */
+  /** Zoom centre as a fraction (0–1) of the show area's width and height (the same on every screen). */
   focus: { x: number; y: number };
+  /** The laser pointer (slide px; `null` = off the slide). */
+  laser: { x: number; y: number } | null;
 }
 
-export const INITIAL_TOOLS: ToolsState = { mode: "arrow", penColor: DEFAULT_PEN, ink: new Map(), inkVisible: true, seeAll: false, zoom: 1, focus: { x: 0, y: 0 } };
+export const INITIAL_TOOLS: ToolsState = { mode: "arrow", penColor: DEFAULT_PEN, ink: new Map(), inkVisible: true, seeAll: false, zoom: 1, focus: { x: 0.5, y: 0.5 }, laser: null };
 
 /** The tools' state with a setter whose updater runs at once (keys decide synchronously whether they were handled). */
 export function useTools(penColor?: string): [ToolsState, (f: (s: ToolsState) => ToolsState) => void] {
@@ -47,13 +51,20 @@ export function useTools(penColor?: string): [ToolsState, (f: (s: ToolsState) =>
 /** Whether the tools take the pointer (a click must not advance the show). */
 export const toolsCapture = (s: ToolsState): boolean => s.seeAll || s.zoom > 1 || s.mode === "pen" || s.mode === "highlighter" || s.mode === "eraser";
 
-/** The tools' keys on `window` (capture phase, before the show's navigation keys). */
+/** Whether a key event comes from a text field (the presenter view's notes): no show or tool keys there. */
+export const typingIn = (e: KeyboardEvent): boolean => {
+  const el = e.target as HTMLElement | null;
+  return !!el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT" || el.isContentEditable);
+};
+
+/** The tools' keys on `window` (capture phase, before the show's navigation keys); `pointer` as fractions of the show area. */
 export function useToolKeys(setTools: (f: (s: ToolsState) => ToolsState) => void, slideId: number | undefined, pointer: React.MutableRefObject<{ x: number; y: number }>, enabled = true) {
   const idRef = useRef(slideId);
   idRef.current = slideId;
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
+      if (typingIn(e)) return;
       let handled = true;
       setTools((s) => {
         if (e.key === "Escape" && (s.seeAll || s.zoom > 1 || s.mode !== "arrow")) {
@@ -86,22 +97,28 @@ export function useToolKeys(setTools: (f: (s: ToolsState) => ToolsState) => void
   }, [enabled, setTools, pointer]);
 }
 
-/** Ink, laser pointer and eraser over the slide (`box`: the slide's screen rectangle inside the show area). */
-export function InkLayer({ tools, setTools, slide, box, scale }: {
+/**
+ * Ink, laser pointer and eraser over the slide (`box`: the slide's screen
+ * rectangle inside the show area). `readOnly`: only shows them (the
+ * audience window of the presenter view).
+ */
+export function InkLayer({ tools, setTools, slide, box, scale, readOnly = false }: {
   tools: ToolsState;
   setTools: (f: (s: ToolsState) => ToolsState) => void;
   slide: Slide;
   box: { x: number; y: number; width: number; height: number };
   scale: number;
+  readOnly?: boolean;
 }) {
   const [drawing, setDrawing] = useState<InkStroke | null>(null);
-  const [laser, setLaser] = useState<{ x: number; y: number } | null>(null);
+  const laser = tools.mode === "laser" ? tools.laser : null;
+  const setLaser = (p: { x: number; y: number } | null) => setTools((s) => (s.laser === p || (s.laser && p && s.laser.x === p.x && s.laser.y === p.y) ? s : { ...s, laser: p }));
   const strokes = tools.ink.get(slide.id) ?? [];
   const toSlide = (e: React.PointerEvent) => {
     const r = (e.currentTarget as Element).getBoundingClientRect();
     return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
   };
-  const capture = tools.mode === "pen" || tools.mode === "highlighter" || tools.mode === "eraser";
+  const capture = !readOnly && (tools.mode === "pen" || tools.mode === "highlighter" || tools.mode === "eraser");
   const erase = (p: { x: number; y: number }) => setTools((s) => ({ ...s, ink: withStrokes(s.ink, slide.id, eraseAt(s.ink.get(slide.id) ?? [], p, 10 / scale)) }));
   return (
     <svg
@@ -109,7 +126,7 @@ export function InkLayer({ tools, setTools, slide, box, scale }: {
       data-strokes={strokes.length}
       data-mode={tools.mode}
       className="absolute"
-      style={{ zIndex: 5, left: box.x, top: box.y, width: box.width, height: box.height, pointerEvents: capture || tools.mode === "laser" ? "auto" : "none", cursor: capture ? "crosshair" : tools.mode === "laser" ? "none" : undefined, touchAction: "none" }}
+      style={{ zIndex: 5, left: box.x, top: box.y, width: box.width, height: box.height, pointerEvents: capture || (tools.mode === "laser" && !readOnly) ? "auto" : "none", cursor: capture ? "crosshair" : tools.mode === "laser" ? "none" : undefined, touchAction: "none" }}
       viewBox={`0 0 ${box.width / scale} ${box.height / scale}`}
       onPointerDown={(e) => {
         if (!capture || e.button !== 0) return;
@@ -120,8 +137,9 @@ export function InkLayer({ tools, setTools, slide, box, scale }: {
         else setDrawing({ mode: tools.mode === "highlighter" ? "highlighter" : "pen", color: tools.penColor, points: [p] });
       }}
       onPointerMove={(e) => {
+        if (readOnly) return;
         const p = toSlide(e);
-        if (tools.mode === "laser") setLaser(p);
+        if (tools.mode === "laser") setLaser({ x: Math.round(p.x), y: Math.round(p.y) });
         if (!capture || !(e.buttons & 1)) return;
         if (tools.mode === "eraser") erase(p);
         else if (drawing) setDrawing({ ...drawing, points: [...drawing.points, p] });
@@ -133,7 +151,7 @@ export function InkLayer({ tools, setTools, slide, box, scale }: {
         setDrawing(null);
         if (d) setTools((s) => ({ ...s, ink: withStrokes(s.ink, slide.id, [...(s.ink.get(slide.id) ?? []), d]) }));
       }}
-      onPointerLeave={() => setLaser(null)}
+      onPointerLeave={() => !readOnly && tools.mode === "laser" && setLaser(null)}
       onClick={(e) => capture && e.stopPropagation()}
     >
       {tools.inkVisible &&
@@ -189,14 +207,15 @@ export function SeeAll({ deck, slides, media, current, width, onPick }: { deck: 
 
 const TB = "flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white/80 hover:bg-black/70 hover:text-white";
 
-/** The tool bar in the lower left (shown while the pointer moves). */
-export function ToolBar({ tools, setTools, onPrev, onNext, visible, extra }: {
+/** The tool bar in the lower left (shown while the pointer moves); `inline`: always shown, in the flow, without Previous / Next (the presenter view has its own). */
+export function ToolBar({ tools, setTools, onPrev, onNext, visible, extra, inline = false }: {
   tools: ToolsState;
   setTools: (f: (s: ToolsState) => ToolsState) => void;
   onPrev: () => void;
   onNext: () => void;
   visible: boolean;
   extra?: ReactNode;
+  inline?: boolean;
 }) {
   const t = useT();
   const [menu, setMenu] = useState(false);
@@ -210,11 +229,11 @@ export function ToolBar({ tools, setTools, onPrev, onNext, visible, extra }: {
   return (
     <div
       data-testid="show-toolbar"
-      className={`absolute bottom-3 left-3 z-20 flex items-center gap-1 transition-opacity ${visible || menu ? "opacity-100" : "pointer-events-none opacity-0"}`}
+      className={inline ? "relative z-20 flex items-center gap-1" : `absolute bottom-3 left-3 z-20 flex items-center gap-1 transition-opacity ${visible || menu ? "opacity-100" : "pointer-events-none opacity-0"}`}
       onClick={(e) => e.stopPropagation()}
     >
-      <button type="button" className={TB} aria-label={t("show.reading.previous")} title={t("show.reading.previous")} onClick={onPrev}>◀</button>
-      <button type="button" className={TB} aria-label={t("show.reading.next")} title={t("show.reading.next")} onClick={onNext}>▶</button>
+      {!inline && <button type="button" className={TB} aria-label={t("show.reading.previous")} title={t("show.reading.previous")} onClick={onPrev}>◀</button>}
+      {!inline && <button type="button" className={TB} aria-label={t("show.reading.next")} title={t("show.reading.next")} onClick={onNext}>▶</button>}
       <div className="relative">
         <button type="button" className={TB} aria-label={t("show.tools.pointer")} title={t("show.tools.pointer")} aria-haspopup="menu" aria-expanded={menu} data-testid="pointer-options" onClick={() => setMenu((m) => !m)}>
           ✎
@@ -237,7 +256,7 @@ export function ToolBar({ tools, setTools, onPrev, onNext, visible, extra }: {
         )}
       </div>
       <button type="button" className={TB} aria-label={t("show.tools.seeAll")} title={t("show.tools.seeAll")} data-testid="see-all-button" onClick={() => setTools((s) => ({ ...s, seeAll: !s.seeAll, zoom: 1 }))}>▦</button>
-      <button type="button" className={TB} aria-label={t("show.tools.zoomIn")} title={t("show.tools.zoomIn")} onClick={() => setTools((s) => ({ ...s, zoom: zoomStep(s.zoom, 1), focus: s.zoom === 1 ? { x: window.innerWidth / 2, y: window.innerHeight / 2 } : s.focus }))}>＋</button>
+      <button type="button" className={TB} aria-label={t("show.tools.zoomIn")} title={t("show.tools.zoomIn")} onClick={() => setTools((s) => ({ ...s, zoom: zoomStep(s.zoom, 1), focus: s.zoom === 1 ? { x: 0.5, y: 0.5 } : s.focus }))}>＋</button>
       {tools.zoom > 1 && <button type="button" className={TB} aria-label={t("show.tools.zoomOut")} title={t("show.tools.zoomOut")} onClick={() => setTools((s) => ({ ...s, zoom: zoomStep(s.zoom, -1) }))}>－</button>}
       {extra}
     </div>
@@ -247,7 +266,7 @@ export function ToolBar({ tools, setTools, onPrev, onNext, visible, extra }: {
 /** The CSS transform of the zoomed show area. */
 export function zoomTransform(tools: ToolsState, width: number, height: number): string | undefined {
   if (tools.zoom <= 1) return undefined;
-  const o = zoomOffset(tools.focus, tools.zoom, width, height);
+  const o = zoomOffset({ x: tools.focus.x * width, y: tools.focus.y * height }, tools.zoom, width, height);
   return `translate(${o.x}px, ${o.y}px) scale(${tools.zoom})`;
 }
 
