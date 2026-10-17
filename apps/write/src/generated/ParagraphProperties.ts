@@ -63,6 +63,13 @@ pageBreakBefore?: boolean | null,
  */
 contextualSpacing?: boolean, 
 /**
+ * Outline level (docx `w:outlineLvl`, 0-based: `0` = level 1 … `8` =
+ * level 9, `9` = body text). Heading styles set it; a direct value
+ * puts any paragraph into the Navigation pane and the table of
+ * contents (or, `9`, takes a heading out).
+ */
+outlineLevel?: number, 
+/**
  * Paragraph borders (docx `w:pBdr`), merged side by side.
  */
 borders?: ParagraphBorders, 

@@ -53,7 +53,12 @@ pub enum Request {
     OpenXlsx { bytes_base64: String, name: String },
     /// Writes the document as `.xlsx` → `saved`. Does NOT mark it saved:
     /// the shell sends `markSaved` once the file was really written.
-    SaveXlsx,
+    /// `activeSheet` (the UI's) becomes the sheet the file opens on.
+    SaveXlsx {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        active_sheet: Option<u32>,
+    },
     /// Marks the current state as saved (after the shell wrote the file);
     /// `name` (save as) replaces the document's file name → `documentState`.
     MarkSaved {
@@ -434,7 +439,11 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
                 envelope: Box::new(host.envelope(CalcPatch::default())),
             }
         }
-        Request::SaveXlsx => {
+        Request::SaveXlsx { active_sheet } => {
+            if let Some(id) = active_sheet {
+                let id = model_sheet::SheetId(id);
+                host.doc_mut().workbook_mut().set_active_sheet(Some(id));
+            }
             let bytes = host.doc().save_xlsx()?;
             ResponseBody::Saved {
                 bytes_base64: base64::engine::general_purpose::STANDARD.encode(bytes),

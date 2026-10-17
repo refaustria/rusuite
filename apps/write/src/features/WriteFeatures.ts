@@ -22,11 +22,13 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { insertNote } from "./structureCommands";
 import { listBackspace } from "./listKeys";
 import { formatTarget } from "./runFormat";
-import { toggleChar } from "./wordKeys";
+import { toggleChar, wordUnderline } from "./wordKeys";
+import { toggleHeading } from "../sync/editorCommands";
 import { getLocale } from "@rusuite/ui-shared";
 import { caretToCell, inLastCell, tableContext } from "./tables";
 import { paragraphBoxPlugin } from "./paragraphBox";
 import { contextualSpacingPlugin, refreshContextualSpacing } from "./contextualSpacing";
+import { listIndentPlugin, refreshListIndent } from "./listIndent";
 import { refreshSectionWidths, sectionWidthPlugin } from "./sectionWidths";
 import { refreshTables, tableRenderPlugin } from "./tableRender";
 import { refreshTabs, tabStopsPlugin } from "./tabStops";
@@ -42,7 +44,8 @@ export type WriteView = "print" | "draft";
 export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
-  | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font" | null;
+  | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font"
+  | "numberFormat" | "bulletFormat" | "numberingValue" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -294,6 +297,12 @@ export class WriteFeatures {
           "Mod-Shift-k": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "smallCaps"),
           "Mod-Shift-a": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "allCaps"),
           "Mod-Shift-d": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "doubleUnderline"),
+          "Mod-Shift-w": () => wordUnderline(formatTarget(this.editor as Editor), ctl.styles),
+          // Word: Ctrl+Alt+1/2/3 are the Heading 1–3 styles (a toggle). Bound before Tiptap's heading keymap so that
+          // both paths (focus in the editor, focus elsewhere: ShortcutLayer) do the same thing.
+          "Mod-Alt-1": () => toggleHeading(this.editor as Editor, 1),
+          "Mod-Alt-2": () => toggleHeading(this.editor as Editor, 2),
+          "Mod-Alt-3": () => toggleHeading(this.editor as Editor, 3),
           // Word: Backspace at a list item's start removes the number first, keeping the indent (W-28).
           Backspace: () => listBackspace(this.editor as Editor, ctl),
           Escape: () => {
@@ -365,6 +374,7 @@ export class WriteFeatures {
           tableRenderPlugin(() => ctl.styles),
           paragraphBoxPlugin(),
           contextualSpacingPlugin(() => ctl.styles),
+          listIndentPlugin(() => ctl.numbering, () => ctl.styles),
           sectionWidthPlugin({ enabled: () => ui.getState().view === "print", sections: () => ctl.sections, page: () => ctl.page, styles: () => ctl.styles }),
           tabStopsPlugin(() => ctl.styles),
           columnResizePlugin(ctl),
@@ -449,6 +459,7 @@ export class WriteFeatures {
               let page = ctl.page;
               let sections = ctl.sections;
               let styles = ctl.styles;
+              let numbering = ctl.numbering;
               installStyleSheetCss(styles, view.dom.ownerDocument);
               // Shortcuts that read the selection (Ctrl+K, Ctrl+Alt+M, F9…) must see the one the browser shows: a
               // Shift+Arrow just before may not have reached the editor state yet (ProseMirror reads it on
@@ -472,7 +483,12 @@ export class WriteFeatures {
                   refreshTables(view);
                   refreshTabs(view);
                   refreshContextualSpacing(view);
+                  refreshListIndent(view);
                   refreshSectionWidths(view);
+                }
+                if (ctl.numbering !== numbering) {
+                  numbering = ctl.numbering;
+                  refreshListIndent(view);
                 }
                 if (ctl.page !== page || ctl.sections !== sections) {
                   page = ctl.page;

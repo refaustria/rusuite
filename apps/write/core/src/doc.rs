@@ -32,6 +32,7 @@ use crate::tree::{
 };
 
 mod drawings;
+mod lists;
 
 /// Word's style for list items (`w:contextualSpacing`, indent 720).
 const LIST_PARAGRAPH: &str = "ListParagraph";
@@ -1590,7 +1591,12 @@ impl WriteDocument {
                 to,
                 case,
             } => self.change_case(*block, *from, *to, *case, ch),
-            C::ApplyNumbering { levels, items } => self.apply_numbering(levels, items, ch),
+            C::ApplyNumbering {
+                levels,
+                preset,
+                format,
+                items,
+            } => self.apply_numbering(levels, *preset, format.as_ref(), items, ch),
             C::Compound { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());
                 for cmd in commands {
@@ -4556,6 +4562,9 @@ fn para_diff(want: &ParagraphProperties, have: &ParagraphProperties) -> Paragrap
         contextual_spacing: want
             .contextual_spacing
             .filter(|_| want.contextual_spacing != have.contextual_spacing),
+        outline_level: want
+            .outline_level
+            .filter(|_| want.outline_level != have.outline_level),
         borders: want.borders.filter(|_| want.borders != have.borders),
         shading: want.shading.filter(|_| want.shading != have.shading),
         tabs: if want.tabs != have.tabs {

@@ -4,6 +4,7 @@ import type { CellStyle } from "./CellStyle";
 import type { NameInfo } from "./NameInfo";
 import type { Person } from "./Person";
 import type { SheetInfo } from "./SheetInfo";
+import type { WorkbookProtection } from "./WorkbookProtection";
 
 /**
  * Workbook metadata sent on open/new.
@@ -30,4 +31,12 @@ persons?: Array<Person>,
  * Pivot tables whose source changed since their last refresh;
  * absent = none.
  */
-stalePivots?: Array<number>, };
+stalePivots?: Array<number>, 
+/**
+ * Review › Protect Workbook; absent = unprotected.
+ */
+workbookProtection?: WorkbookProtection, 
+/**
+ * The sheet the file opened on (`<workbookView activeTab>`).
+ */
+activeSheet: number, };

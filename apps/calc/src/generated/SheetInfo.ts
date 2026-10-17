@@ -2,6 +2,7 @@
 import type { Color } from "../../../../packages/ui-shared/src/generated/Color";
 import type { AutoFilter } from "./AutoFilter";
 import type { OutlineProps } from "./OutlineProps";
+import type { SheetProtection } from "./SheetProtection";
 import type { SheetView } from "./SheetView";
 import type { SortState } from "./SortState";
 import type { Table } from "./Table";
@@ -50,4 +51,9 @@ rowBreaks?: Array<number>, colBreaks?: Array<number>,
  * The deepest outline level of the rows and of the columns (the
  * outline bars show `level + 1` buttons).
  */
-maxOutline?: [number, number], };
+maxOutline?: [number, number], 
+/**
+ * Review › Protect Sheet (in force: `sheet` true); absent =
+ * unprotected.
+ */
+protection?: SheetProtection, };

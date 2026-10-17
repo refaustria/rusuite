@@ -57,9 +57,9 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
 - **Layout**: Margins / Orientation / Size act on the caret's section (`SetSection { page }`; `SetPage` for documents without
   sections); Breaks ▾ (Page break; section breaks Next page / Continuous / Even page / Odd page → `SplitParagraph` +
   `InsertSectionBreak`).
-- **Home › Paragraph › Multilevel list** ▾: 1 / 1.1 / 1.1.1, 1 / a) / i, Legal (I. / 1.1 with legal numbering): a new list
-  definition (`RestoreNumbering`) applied to the selected paragraphs, keeping their levels. Right-click in a list: **Restart
-  at 1** (`RestartList`) / **Continue numbering** (`ContinueList`).
+- **Home › Paragraph › Multilevel list** ▾: Word's list library (see "Write lists, numbering and Word shortcuts (P9-W1)"
+  below); right-click in a list: **Restart at 1** (`RestartList`) / **Continue numbering** (`ContinueList`) / **Set
+  Numbering Value…**.
 - **Header and footer** dialog: Different first page (`titlePage`), Different odd & even pages, one text per slot; each
   changed slot is stored as blocks of the caret's section (`SetHeaderFooter`, `{PAGE}` → a page field).
 - **Rendering**: fields are grey-shaded with their cached result, or the live value (page numbers from the pagination, date,
@@ -327,8 +327,8 @@ The deferred items of docs/qa/write-2026-10.md:
   indent. Turning bullets off keeps List Paragraph (and its 1.27 cm indent), as in Word.
 - **Backspace at a list item's start (W-28)**: the first press removes the number or bullet and keeps the text at the
   level's indent (`ListBackspace`: a direct left indent, no first-line outdent; the saved file has Word's values); the
-  paragraph is then an ordinary one and the next Backspace joins it to the previous paragraph. On screen the editor's
-  list rendering (CSS padding per level, the label inline) is an approximation, so the text can move by a few pixels.
+  paragraph is then an ordinary one (P9-W1: the next Backspace outdents it, the third joins it). The approximate CSS
+  list rendering of this round was replaced by the level indents in P9-W1.
 - **Captions (W-22)**: the Caption box of Insert Caption starts empty after "Figure 1"; the separator is typed by the user
   (Word), a caption without text is exactly "Figure 1".
 - **Shortcuts (W-30)**: Ctrl+] / Ctrl+[ (font size ±1 pt, each run from its own size), Ctrl+Shift+> / < (Word's size
@@ -343,6 +343,45 @@ The deferred items of docs/qa/write-2026-10.md:
   frame as wide as the widest page (the view scrolls sideways to it); the blocks of a section with another text width
   are moved and widened into its text column (node decorations), so a landscape section's lines are as long as on paper.
   File › Print and Export PDF still use the first section's paper size for every page.
+
+### Write lists, numbering and Word shortcuts (P9-W1)
+- **List placement like Word**: a list paragraph sits at its numbering level's real indent (`w:ind` left / hanging of
+  the level, overlaid by the paragraph's own direct indent) instead of a fixed CSS step per nesting level; the label hangs
+  at the first-line position, the tab after it (the level's `w:suff`: tab / space / nothing) reaches the text, and the
+  label is aligned left, centred or right at that position (`w:lvlJc`, `Level.alignment`). Node decorations
+  (`features/listIndent.ts`: `--li-left`, `--li-hang`; the list nodes lose the browser padding) give the editor, the
+  measured pagination and the print clones the same geometry. Paragraphs numbered through their style (heading
+  numbering) are placed the same way. New lists keep Word's List Paragraph style with contextual spacing (P8-46).
+- **Backspace at a list item's start** in Word's three steps: the number goes (indent kept, `ListBackspace`), the
+  second press moves the paragraph to the margin (left and first-line indent 0; 0 written explicitly where the style
+  indents, e.g. List Paragraph), the third joins it. Tab / Shift+Tab change the level.
+- **Galleries** (Home › Paragraph, next to the list buttons): **Bullet library ▾** (•, ○, ■, ➢, ✓, ◆, –, None,
+  Define New Bullet…), **Numbering library ▾** (1. 1) I. A. a) a. i., None, Define New Number Format…, Set Numbering
+  Value…) and **Multilevel list ▾** with Word's seven list-library presets: 1) a) i); 1. 1.1. 1.1.1.; ➢ ■ •; and the
+  four linked to Heading 1–9: Article I. / Section 1.01 / (a); 1 / 1.1 / 1.1.1; I. / A. / 1.; Chapter 1. Each choice is
+  one `ApplyNumbering` with a preset id (`ListPreset`, the levels are defined once in model-text) or an explicit level
+  `format`; a single-level choice replaces the caret's level of the current list (keeping its indent), a multilevel
+  one makes a new list; with the caret in a list (no selection) the whole list changes (W-27). None removes the
+  numbering (`ApplyList` none).
+- **Define New Number Format…**: number style (1, I, i, A, a, 1st, 01, none), the format text with `%1` for the number
+  ("Part %1:"; OK needs the `%1` unless the style is none), font, alignment, a preview. **Define New Bullet…**: a symbol
+  from a small table and a font (picture bullets are not offered). Both send `ApplyNumbering { format }`; `%1` becomes
+  the level's own token.
+- **Set Numbering Value…** (Numbering ▾ and the list item's context menu): Start new list + Set value to → `RestartList
+  { start }` (saved as `w:lvlOverride/w:startOverride`); Continue from previous list → `ContinueList`.
+- **Heading numbering**: the linked presets number the heading styles (`Level.style` ↔ `w:lvl/w:pStyle`; the style's
+  `numbering` points to its level) — every Heading N paragraph shows its number, a paragraph on a linked level gets the
+  style, a heading keeps its own. Table of contents entries start with the heading's number ("1.1 Scope", the core's
+  `build_toc`; bullets are left out), and the Navigation pane lists numbered headings with their numbers.
+- **Outline levels**: `ParagraphProperties.outlineLevel` (`w:outlineLvl`, 0–8, 9 = Body Text; the built-in Heading
+  styles carry Word's values) is read and written by fmt-docx; a paragraph with an outline level is in the Navigation
+  pane and the TOC, Body Text takes a heading out. Paragraph dialog › Outline level sets it.
+- **Word shortcuts (W-30, rest)**: Ctrl+Shift+W (word underline: the words underlined, not the spaces; the model has no
+  `words` underline kind, so the file holds underlined words), Shift+F3 with Sentence case for a selection that ends a
+  sentence and the word before the caret right after a period, Ctrl+Alt+1..3 bound in the editor's own keymap to the same
+  Heading style toggle as the shortcut map (one `SetStyle`, the paragraph keeps its id). The others (Ctrl+Shift+> / <,
+  Ctrl+] / [, Ctrl+Shift+K / A / D, Ctrl+T / Ctrl+Shift+T, Ctrl+M / Ctrl+Shift+M, Ctrl+Q, Ctrl+Space, Ctrl+Shift+N,
+  Ctrl+E / L / R / J, Ctrl+1 / 2 / 5, Ctrl+0) were bound in P8-46 / earlier and are covered by tests now.
 
 ## Building blocks (`@rusuite/ui-shared`)
 
@@ -373,9 +412,10 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Merge & Center ▾ (Merge & Center – a toggle that unmerges a merged selection –, Merge Across, Merge Cells, Unmerge Cells);
   Number: the Number Format box (Excel's eleven entries with previews), Accounting ▾, %, Comma Style, decimals ±
   (see [number-formats.md](number-formats.md)); Styles: Conditional Formatting ▾; Cells: Insert ▾ (Insert Cells…, rows, columns, sheet), Delete ▾ (Delete Cells…, rows, columns, sheet), Format ▾ (row height, column width, autofit, hide/unhide
-  rows and columns, Hide Sheet / Unhide Sheet…, Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
+  rows and columns, Hide Sheet / Unhide Sheet…, Organize Sheets: Rename Sheet, Move or Copy Sheet…, Tab Color…; Protection:
+  Protect Sheet… / Unprotect Sheet…, Lock Cell; Format cells…); Editing: Clear, Find ▾ Replace, Sort & Filter ▾ (Sort A
   to Z, Sort Z to A, Custom Sort…, Filter, Clear, Reapply)), Insert (Tables › PivotTable, Table; Illustrations › Pictures; New sheet, rows/columns, Charts, Links › Link), Page Layout (P8-35), Formulas (see below), Data (Get & Transform › From Text/CSV; Sort & Filter: A→Z,
-  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Text to Columns, Remove Duplicates, Data Validation…; Forecast › What-If Analysis › Goal Seek…; Outline: Group ▾, Ungroup ▾, Subtotal, Show/Hide Detail), Review (Comments, Notes ▾; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
+  Z→A, Sort (Custom Sort dialog), Filter toggle, Clear, Reapply; Data Tools: Text to Columns, Remove Duplicates, Data Validation…; Forecast › What-If Analysis › Goal Seek…; Outline: Group ▾, Ungroup ▾, Subtotal, Show/Hide Detail), Review (Comments, Notes ▾, Protect: Protect Sheet… / Unprotect Sheet, Protect Workbook; see below), View (Show: gridlines, headings, formula bar; zoom 50–200 % via CSS `zoom` on the grid with hit-testing
   scaled; Window: Freeze Panes ▾ (Freeze/Unfreeze Panes, Freeze Top Row, Freeze First Column); shortcuts help). Zoom,
   gridlines, headings and frozen panes are the active sheet's `SheetView` (`setSheetView` / `setFreeze`, undoable, saved in
   the file's `<sheetView>`); the formula bar toggle is the app's.
@@ -575,11 +615,40 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   (family, style, size, underline none/single/double, colour, strikethrough, superscript, subscript, preview), Border
   (presets None / Outline / Inside, the eight edge buttons around a clickable 2 × 2 preview incl. both diagonals, seven
   line styles, colour → the core's `setBorders`, which sets outer and inner edges per cell and can remove lines), Fill
-  (No Color, theme and standard colours, sample; patterns are not offered) and Protection (Locked, Hidden – stored and
-  saved; sheet protection itself is not implemented). OK sends only what changed (`formatCommands`), as one compound.
-  The grid draws rotated text (inside its cell), shrinks the font of shrink-to-fit cells and draws diagonal borders;
-  the print view does not show rotation or diagonals yet. `fmt-xlsx` reads and writes `textRotation`, `shrinkToFit`,
-  `<protection>` and the diagonal (`diagonalUp` / `diagonalDown`, one line style as in SpreadsheetML).
+  (No Color, theme and standard colours; Pattern Color and Pattern Style with Excel's 17 patterns – the background colour
+  under them –, sample) and Protection (Locked, Hidden). OK sends only what changed (`formatCommands`), as one compound.
+  The grid draws rotated text (inside its cell; a rotation refits the row height like Excel), shrinks the font of
+  shrink-to-fit cells, draws diagonal borders, pattern fills (`grid/patterns.ts`, a 4 × 4 tile per pattern) and double
+  / accounting underlines (accounting: across the cell, lower); the print view shows the same (rotation, both
+  diagonals, patterns as an SVG background, double / accounting underlines). `fmt-xlsx` reads and writes
+  `textRotation`, `shrinkToFit`, `<protection>`, the diagonal (`diagonalUp` / `diagonalDown`, one line style as in
+  SpreadsheetML), `patternFill/@patternType` with `fgColor` / `bgColor` and `<u val="singleAccounting|doubleAccounting">`.
+- **Calc Home › Borders ▾** (P9-C1, `ui/bordersMenu.tsx`): Excel's list – Bottom, Top, Left, Right Border, No Border, All
+  Borders, Outside Borders, Thick Outside Borders (medium), Bottom Double Border, Thick Bottom Border, Top and Bottom
+  Border, More Borders… (Format Cells › Border). Each is one `setBorders` command (one undo step); an edited outline edge
+  also clears the facing side of the neighbouring cells, as Excel draws one line per edge.
+- **Calc protection** (P9-C1, `apps/calc/src/protection`): Review › Protect › Protect Sheet… opens Excel's dialog
+  ("Protect worksheet and contents of locked cells", Password to unprotect sheet, "Allow all users of this worksheet
+  to:" with Excel's 15 options and defaults), then Confirm Password when a password was given ("Confirmation password
+  is not identical."). The core hashes the password as Excel does (SHA-512, 16 random bytes of salt from the browser,
+  100000 spins; files with the legacy 16-bit `password` hash are verified too). The button turns into Unprotect Sheet
+  (a password prompt when there is one; a wrong password keeps the prompt open with Excel's message). Protect Workbook
+  opens Protect Structure and Windows (Structure, Windows, optional password); the button stays pressed while the
+  workbook is protected and then unprotects. On a protected sheet every change is checked in the core (`sheet_protected`
+  with Excel's message as a toast): cell input and clearing need unlocked cells, formatting / column / row / insert /
+  delete / sort / AutoFilter / pivot / object / hyperlink commands need the option that allows them, merges, Insert /
+  Delete Cells, rules, validation, outline and tables are refused; typing into a locked cell shows the message without
+  opening the editor. A locked structure refuses adding, deleting, renaming, moving, copying, hiding, unhiding and
+  recolouring sheets (`workbook_protected`). Hidden formulas (Format Cells › Protection › Hidden) show an empty, read-only
+  formula bar while the sheet is protected. The status bar shows a padlock on a protected sheet; the sheet tab menu has
+  Protect Sheet… / Unprotect Sheet…; Home › Format ▾ has Protect Sheet… and Lock Cell (toggles `locked` on the
+  selection). Selecting locked cells is not restricted on screen (the option is stored and saved).
+- **Calc sheets** (P9-C1): Move or Copy… (sheet tab menu, Home › Format ▾ › Organize Sheets) with To book (this
+  workbook), Before sheet (the visible sheets and "(move to end)") and Create a copy – one `moveSheet` or
+  `duplicateSheet` with `index` (copies are named "Sheet1 (2)"), one undo step. Unhide lists the hidden sheets with
+  multi-select (Ctrl+click toggles, Shift+click extends; Excel 365) and shows them in one step. Ctrl+PageUp/PageDown
+  switch to the previous / next visible sheet. A coloured tab is filled with its colour while inactive and shows it as
+  a bar when active. Saving writes the active sheet (`activeTab`, `tabSelected`); opening shows the file's active sheet.
 - **Calc circular references** (P8-44): as Excel with iterative calculation off, the cells of a cycle show 0 (their
   dependents compute with it) and the status bar says "Circular reference: B8" (the cycle's first cell; with a sheet
   prefix in a workbook of several sheets) for as long as the cycle exists (`CalcDocument` re-checks it after every

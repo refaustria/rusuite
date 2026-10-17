@@ -18,7 +18,7 @@ use model_text::{
     WrapKind,
 };
 use model_text::{Columns, Comment, CommentId, CoreProperties, DocumentSettings, Hyperlink};
-use model_text::{Drawing, DrawingKind, Level, PictureFormat};
+use model_text::{Drawing, DrawingKind, Level, ListPreset, PictureFormat};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -962,10 +962,20 @@ pub enum WriteCommand {
         to: u32,
         case: TextCase,
     },
-    /// Home › Multilevel List / list presets: a new list with `levels`
-    /// (levels 0..=8) for the paragraphs `items` (`[paragraph, level]`).
+    /// Home › Bullets ▾ / Numbering ▾ / Multilevel List ▾, Define New
+    /// Number Format / Bullet: a new list for the paragraphs `items`
+    /// (`[paragraph, level]`) with `levels` (levels 0..=8), else the levels
+    /// of a multilevel `preset`, else the first item's list (or Word's
+    /// default list) whose level of the first item takes the single-level
+    /// `format` or `preset`. Levels linked to a style (heading presets)
+    /// number that style; their items get the style.
     ApplyNumbering {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         levels: Vec<Level>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preset: Option<ListPreset>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        format: Option<Level>,
         #[ts(type = "Array<[NodeId, number]>")]
         items: Vec<(NodeId, u8)>,
     },

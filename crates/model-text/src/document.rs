@@ -366,10 +366,19 @@ impl Document {
 
     // ----- table of contents ---------------------------------------------
 
-    /// The outline level (1-based) of `p`: N for a paragraph whose style,
-    /// or a style it is based on, is the built-in `Heading N` (id
-    /// `HeadingN` or name `heading N`, N = 1..9).
+    /// The outline level (1-based) of `p`: its outline level (docx
+    /// `w:outlineLvl`, direct or from its style chain; body text = `None`),
+    /// else N for a paragraph whose style, or a style it is based on, is
+    /// the built-in `Heading N` (id `HeadingN` or name `heading N`,
+    /// N = 1..9).
     pub fn outline_level(&self, p: &Paragraph) -> Option<u8> {
+        let direct = p.props.outline_level.or_else(|| {
+            let style = self.effective_style(p)?;
+            self.styles.resolve_paragraph(style).outline_level
+        });
+        if let Some(l) = direct {
+            return (l < 9).then_some(l + 1);
+        }
         let mut id = self.effective_style(p)?.to_owned();
         for _ in 0..16 {
             let style = self.styles.get(&id)?;
@@ -387,16 +396,30 @@ impl Document {
 
     /// Entries for a table of contents over outline levels
     /// `from..=to`: every non-empty heading of the body (table cells
-    /// included) in document order, `page: None`.
+    /// included) in document order, `page: None`. A numbered heading's
+    /// entry starts with its number (`1.1 Scope`, as in Word; bullets are
+    /// left out).
     pub fn build_toc(&self, from: u8, to: u8) -> Vec<TocEntry> {
+        let mut labels: Option<HashMap<NodeId, String>> = None;
         self.paragraphs()
             .filter_map(|p| {
                 let level = self.outline_level(p)?;
                 if level < from || level > to {
                     return None;
                 }
-                let text = p.display_text().replace('\t', " ").trim().to_owned();
-                (!text.is_empty()).then_some(TocEntry {
+                let mut text = p.display_text().replace('\t', " ").trim().to_owned();
+                if text.is_empty() {
+                    return None;
+                }
+                let labels =
+                    labels.get_or_insert_with(|| self.list_numbers().into_iter().collect());
+                if let Some(label) = labels
+                    .get(&p.id)
+                    .filter(|l| l.chars().any(char::is_alphanumeric))
+                {
+                    text = format!("{} {text}", label.trim());
+                }
+                Some(TocEntry {
                     text,
                     level,
                     page: None,

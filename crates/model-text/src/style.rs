@@ -923,6 +923,7 @@ impl StyleSheet {
             s.unhide_when_used = level > 1;
             s.paragraph.spacing = spacing(Some(before), Some(0), None);
             s.paragraph.keep_next = Some(true);
+            s.paragraph.outline_level = Some(level - 1);
             s.run = RunProperties {
                 font: major.clone(),
                 size: size.map(FontSize::from_pt),

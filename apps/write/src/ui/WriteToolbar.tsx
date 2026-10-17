@@ -29,6 +29,7 @@ import { insertImageFile, resetImageSize, selectedImage, setImageAttrs } from ".
 import { caretIntoNewTable, tableContext, tableIds } from "../features/tables";
 import { plainTextSlice } from "../features/plainPaste";
 import { tableInfo, tableTabs, type TableInfo } from "./tableTabs";
+import { ListGalleries } from "./listGalleries";
 import { paragraphBorderState, selectedParagraphs } from "../features/paragraphFormat";
 import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControls";
 import { pictureArrangeItems } from "./pictureControls";
@@ -43,7 +44,7 @@ import type { WriteFeatures } from "../features/WriteFeatures";
 import { currentLayout, pageAtPos } from "../features/pagination";
 import { formatDateTime, goToNextRef } from "../features/structure";
 import {
-  applyMultilevel, currentSection, insertField, insertNote, insertSectionBreak, insertToc, sectionCommand, updateTocs, type MultilevelPreset,
+  currentSection, insertField, insertNote, insertSectionBreak, insertToc, sectionCommand, updateTocs,
 } from "../features/structureCommands";
 import type { FieldKind } from "../generated/FieldKind";
 import type { SectionKind } from "../generated/SectionKind";
@@ -221,7 +222,6 @@ const FOOTNOTE_ICON = svg(<><path d="M3 4h9M3 7.5h9M3 11h6" /><path d="M14 3.5v4
 const ENDNOTE_ICON = svg(<><path d="M3 4h9M3 7.5h9" /><path d="M14 3.5v4" /><path d="M3 13h14" strokeDasharray="1.5 1.5" /><path d="M3 16h8" strokeWidth="1" /></>);
 const TOC_ICON = svg(<><path d="M3 4h8M5 8h7M5 12h7M3 16h8" /><path d="M14 4h3M14 8h3M14 12h3M14 16h3" strokeDasharray="1 1.2" /></>);
 const UPDATE_ICON = svg(<><path d="M15.5 8A6 6 0 004.6 6M4.5 12a6 6 0 0010.9 2" /><path d="M4.5 3v3h3M15.5 17v-3h-3" /></>);
-const MULTILEVEL_ICON = svg(<><path d="M3 4.5h1M7 4.5h10M5 10h1M9 10h8M7 15.5h1M11 15.5h6" /></>);
 const FIELD_ICON = svg(<><rect x="3" y="6" width="14" height="8" rx="1.5" /><path d="M6.5 10h7" strokeDasharray="1.5 1.2" /></>);
 const TABS_ICON = svg(<><path d="M3 5v6h5M10 5v6M7 11h6M17 5v6h-5" /><path d="M3 15h14" strokeDasharray="1.5 1.5" /></>);
 const LINK_ICON = svg(<><path d="M8.5 11.5a3.5 3.5 0 005 0l2.5-2.5a3.5 3.5 0 00-5-5L10 5" /><path d="M11.5 8.5a3.5 3.5 0 00-5 0L4 11a3.5 3.5 0 005 5l1-1" /></>);
@@ -234,13 +234,6 @@ const DATE_ICON = svg(<><rect x="3" y="4.5" width="14" height="12" rx="1.5" /><p
 const COLUMNS_ICON = svg(<><path d="M3 4h6M3 7h6M3 10h6M3 13h6M3 16h6" /><path d="M11 4h6M11 7h6M11 10h6M11 13h6M11 16h4" /></>);
 const HYPHEN_ICON = svg(<><path d="M3 6h9M3 10h6M3 14h9" /><path d="M11 10h3" strokeWidth="2" /></>);
 const NEXT_ICON = (down: boolean) => svg(<><path d="M4 5h7M4 9h7M4 13h4" /><path d={down ? "M15 6v8M12.5 11.5L15 14l2.5-2.5" : "M15 14V6M12.5 8.5L15 6l2.5 2.5"} /></>);
-
-/** Multilevel list presets (Word's gallery). */
-export const MULTILEVEL_PRESETS: { id: MultilevelPreset; readonly label: string; sample: string[] }[] = [
-  withLabel({ id: "decimal" as MultilevelPreset, sample: ["1.", "1.1", "1.1.1"] }, "write.multilevel.decimal"),
-  withLabel({ id: "outline" as MultilevelPreset, sample: ["1.", "a)", "i."] }, "write.multilevel.outline"),
-  withLabel({ id: "legal" as MultilevelPreset, sample: ["I.", "1.1", "1.1.1"] }, "write.multilevel.legal"),
-];
 
 /** Fields of Insert › Field. */
 export const FIELD_CHOICES: { id: FieldKind["kind"]; readonly label: string }[] = [
@@ -629,15 +622,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                   indent(editor, d);
                 }}
               />
-              <RibbonMenuButton
-                label={t("write.multilevel")}
-                icon={MULTILEVEL_ICON}
-                menu={MULTILEVEL_PRESETS.map((p) => ({
-                  id: p.id,
-                  label: `${p.label}  (${p.sample.join(" / ")})`,
-                  onSelect: () => void applyMultilevel(editor, ctl, p.id),
-                }))}
-              />
+              <ListGalleries editor={editor} ctl={ctl} features={features} />
               <RibbonMenuButton label={t("write.lineSpacing")} icon="lineSpacing" menu={lineMenu} />
               <RibbonButton label={t("write.paragraphSettings")} icon="format" tooltip={t("write.paragraphSettingsTip")} onClick={() => features.ui.openDialog("paragraph")} />
             </RibbonRow>

@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64 = "=0.23.1"
+sha2 = "0.10"
 core-model = { path = "../core-model" }
 engine-formula = { path = "../engine-formula" }
 serde.workspace = true

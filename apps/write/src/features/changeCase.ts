@@ -62,7 +62,13 @@ export function changeCaseCommand(editor: Editor, kind: TextCase): WriteCommand 
     let b = $p.parentOffset;
     while (a > 0 && isWordChar(text[a - 1]!)) a--;
     while (b < text.length && isWordChar(text[b]!)) b++;
-    if (a === b) return null;
+    if (a === b) {
+      // After a sentence's end (`end.|`): the word before the punctuation (Word).
+      const m = /([\p{L}\p{N}']+)[^\p{L}\p{N}'\s]*$/u.exec(text.slice(0, $p.parentOffset));
+      if (!m) return null;
+      a = m.index;
+      b = a + m[1]!.length;
+    }
     from = $p.start() + a;
     to = $p.start() + b;
   }

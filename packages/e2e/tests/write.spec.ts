@@ -224,18 +224,18 @@ test.describe("Write", () => {
     expect(xml).toContain('w:orient="landscape"');
   });
 
-  test("Multilevel list: 1. then Tab → 1.1", async ({ page }) => {
+  test("Multilevel list: 1. then Tab → 1.1.", async ({ page }) => {
     await openWrite(page);
     await editor(page).click();
     await page.keyboard.type("First item");
     await page.getByRole("button", { name: "Multilevel list" }).click();
-    await page.getByRole("menuitem", { name: /Numbered outline/ }).click();
+    await page.getByTestId("multilevel-gallery").getByRole("button", { name: "1. 1.1. 1.1.1." }).click();
     await expect(editor(page).locator("li p").first()).toHaveAttribute("data-label", "1.");
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
     await page.keyboard.type("Sub item");
     await page.keyboard.press("Tab");
-    await expect(editor(page).locator("li p", { hasText: "Sub item" })).toHaveAttribute("data-label", "1.1");
+    await expect(editor(page).locator("li p", { hasText: "Sub item" })).toHaveAttribute("data-label", "1.1.");
   });
 
   // ----- P8-17: merged cells, table styles, floating images, paragraph borders, tab stops -----

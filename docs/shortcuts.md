@@ -51,7 +51,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+Shift+~, Mod+Shift+!, Mod+Shift+@, Mod+Shift+#, Mod+Shift+$, Mod+Shift+%, Mod+Shift+^ | Number format General, `#,##0.00`, `h:mm AM/PM`, `d-mmm-yy`, currency, `0%`, `0.00E+00` (the Shift+digit keys of a US layout) |
 | Mod+5 | Strikethrough |
 | Mod+;, Mod+Shift+: | Start the cell editor with today's date / the current time (Enter stores it as a date / time) |
-| Mod+PageDown, Mod+PageUp | Next / previous sheet (desktop; browsers keep these keys for their tabs) |
+| Mod+PageDown, Mod+PageUp | Next / previous visible sheet, skipping hidden ones (desktop; browsers keep these keys for their tabs; the grid no longer treats them as PageDown / PageUp, P9-C1) |
 | Mod+C, Mod+X | Copy, cut: the range gets a marching-ants outline; a cut moves the cells on the next paste |
 | Mod+V | Paste at the selection's top-left (relative references shift; the block repeats over a selection that is a multiple of it). Text from other programs is pasted as plain values (TSV) |
 | Mod+Shift+V | Paste values only (formulas paste their current values; destination formats kept) |
@@ -98,7 +98,7 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | --- | --- |
 | Mod+E, Mod+L, Mod+R, Mod+J | Center, left, right, justify |
 | Mod+Shift+L | Bulleted list |
-| Mod+Alt+1..3 | Heading 1..3 (Tiptap also binds 4..6) |
+| Mod+Alt+1..3 | Heading 1..3 style (a toggle: again = Normal); the editor's keymap and the shortcut map run the same command (`SetStyle`), before Tiptap's own heading keys (Tiptap still binds 4..6) |
 | Mod+F | Find: the find bar highlights every match in the document; Enter / Shift+Enter (or ↓ / ↑) go to the next / previous match; Esc closes it and removes the highlights |
 | Mod+H | Find and replace (the bar with the replace field: Replace = the current match, Replace all = Rust `FindReplace`) |
 | Mod+=, Mod+Shift+= | Subscript, superscript (bound in the editor) |
@@ -108,10 +108,11 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+Shift+>, Mod+Shift+< | Grow / shrink font: the next size of Word's list (8, 9, 10, 10.5, 11, 12, 14 … 28, 36, 48, 72; above 72 in steps of 10) |
 | Mod+Shift+K, Mod+Shift+A | Small caps, all caps (toggles; they exclude each other) |
 | Mod+Shift+D | Double underline (toggle) |
-| Shift+F3 | Change case of the selection (or the word at the caret): lowercase → Capitalize Each Word → UPPERCASE → lowercase |
+| Mod+Shift+W | Word underline: the words of the selection get a single underline, the spaces between them none (toggle; stored as underlined words) |
+| Shift+F3 | Change case of the selection (or the word at the caret; right after a sentence's period: the word before it): lowercase → Capitalize Each Word → UPPERCASE → lowercase; a selection that ends a sentence (`.` `!` `?`) cycles through Sentence case instead of Capitalize Each Word |
 | Mod+T, Mod+Shift+T | Hanging indent: the text moves to the next / previous 1.27 cm step, the first line stays |
 | Mod+Q | Remove paragraph formatting (alignment, indents, spacing, borders, shading, tabs, keep options; the style and the list stay) |
-| Backspace at the start of a list item | First removes the number / bullet (the text keeps the level's indent), the next Backspace joins the paragraph to the previous one |
+| Backspace at the start of a list item | First removes the number / bullet (the text keeps the level's indent), the second Backspace moves the paragraph to the margin (Word: Backspace at the start of an indented paragraph removes its left / first-line indent), the third joins it to the previous paragraph |
 | Mod+Shift+C, Mod+Shift+V | Copy formatting (format painter stays on until Esc), paste formatting onto the selection |
 | Mod+1, Mod+2, Mod+5 | Line spacing single, double, 1.5 |
 | Mod+0 | Add / remove 12 pt space before the paragraph |
@@ -129,8 +130,8 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ, TITLE, AUTHOR computed by the core, page/date/time/file name by the UI); Mod+A then F9 updates every field |
 
 In the browser a few of Word's keys belong to the browser and never reach the page: Mod+T (new tab), Mod+Shift+T
-(reopen tab) and Mod+Shift+N (new private window) in Chrome, Mod+Q (quit) in Firefox on Linux. The desktop app gets
-them all.
+(reopen tab), Mod+Shift+N (new private window) and Mod+Shift+W (close the window) in Chrome, Mod+Q (quit) in Firefox on
+Linux. The desktop app gets them all.
 
 ### Mouse
 

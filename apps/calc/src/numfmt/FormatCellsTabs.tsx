@@ -9,7 +9,9 @@ import type { BorderStyle } from "../generated/BorderStyle";
 import type { HAlign } from "../generated/HAlign";
 import type { VAlign } from "../generated/VAlign";
 import { useT } from "../i18n";
-import { borderPreset, toggleEdge, type Edge, type FormatState, type ScriptKind, type UnderlineKind } from "./formatCells";
+import { borderPreset, toggleEdge, UNDERLINE_KINDS, type Edge, type FormatState, type ScriptKind, type UnderlineKind } from "./formatCells";
+import type { PatternType } from "../generated/PatternType";
+import { patternBackground, PATTERN_TYPES } from "../grid/patterns";
 
 const FIELD = "h-7 rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
@@ -111,7 +113,8 @@ export function FontTab({ state, set }: TabProps) {
     fontStyle: state.italic ? "italic" : "normal",
     fontSize: `${Math.min(state.fontSize, 28)}pt`,
     textDecoration: [state.underline !== "none" ? "underline" : "", state.strike ? "line-through" : ""].filter(Boolean).join(" ") || "none",
-    textDecorationStyle: state.underline === "double" ? "double" : "solid",
+    textDecorationStyle: state.underline.startsWith("double") ? "double" : "solid",
+    textUnderlineOffset: state.underline.endsWith("Accounting") ? "0.3em" : undefined,
     color: cssColor(state.color ?? undefined, OFFICE_THEME) ?? undefined,
     verticalAlign: state.script === "superscript" ? "super" : state.script === "subscript" ? "sub" : undefined,
   };
@@ -162,7 +165,7 @@ export function FontTab({ state, set }: TabProps) {
         <label className="flex flex-1 flex-col gap-1">
           {t("calc.fmt.underline")}
           <select className={FIELD} aria-label={t("calc.fmt.underline")} value={state.underline} onChange={(e) => set({ underline: e.target.value as UnderlineKind })}>
-            {(["none", "single", "double"] as UnderlineKind[]).map((u) => (
+            {UNDERLINE_KINDS.map((u) => (
               <option key={u} value={u}>
                 {t(`calc.fmt.u.${u}`)}
               </option>
@@ -353,9 +356,37 @@ export function FillTab({ state, set }: TabProps) {
           })}
         </div>
       </div>
-      <div className="flex flex-1 flex-col gap-1">
+      <div className="flex flex-1 flex-col gap-2">
+        <label className="flex flex-col gap-1">
+          {t("calc.fmt.patternColor")}
+          <ColorPicker label={t("calc.fmt.patternColor")} kind="text" value={state.patternColor ?? undefined} onSelect={(patternColor) => set({ patternColor })} />
+        </label>
+        <label className="flex flex-col gap-1">
+          {t("calc.fmt.patternStyle")}
+          <select
+            className={FIELD}
+            aria-label={t("calc.fmt.patternStyle")}
+            value={state.pattern ?? ""}
+            onChange={(e) => set({ pattern: (e.target.value || null) as PatternType | null })}
+          >
+            <option value="">{t("calc.fmt.pattern.none")}</option>
+            {PATTERN_TYPES.map((p) => (
+              <option key={p} value={p}>
+                {t(`calc.fmt.pattern.${p}`)}
+              </option>
+            ))}
+          </select>
+        </label>
         <span className="text-xs text-ui-muted">{t("calc.fmt.sample")}</span>
-        <div data-testid="fill-sample" className="h-16 rounded border border-ui-border" style={{ background: state.fill ? (cssColor(state.fill, OFFICE_THEME) ?? "transparent") : "#ffffff" }} />
+        <div
+          data-testid="fill-sample"
+          className="h-16 rounded border border-ui-border"
+          style={
+            state.pattern
+              ? patternBackground({ pattern: state.pattern, fg: state.patternColor ?? undefined, bg: state.fill ?? undefined })
+              : { background: state.fill ? (cssColor(state.fill, OFFICE_THEME) ?? "transparent") : "#ffffff" }
+          }
+        />
       </div>
     </div>
   );

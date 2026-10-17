@@ -179,8 +179,9 @@ export class CalcApi {
   }
 
   /** The document as `.xlsx` (base64) plus the file name to offer. */
-  saveXlsx(): Promise<BodyOf<"saved">> {
-    return this.call({ type: "saveXlsx" }, "saved");
+  /** `activeSheet`: the sheet the saved file opens on. */
+  saveXlsx(activeSheet?: number): Promise<BodyOf<"saved">> {
+    return this.call({ type: "saveXlsx", activeSheet }, "saved");
   }
 
   /** Marks the current state saved (after the shell wrote the file). */

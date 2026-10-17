@@ -113,24 +113,80 @@ export function toggleChar(editor: Editor, sheet: StyleSheet | null | undefined,
   return applyRunPatchEach(editor, sheet, () => patch);
 }
 
+/**
+ * Ctrl+Shift+W (Word's word underline): the words of the selection get a single underline, the spaces between
+ * them none; pressed where the selection's start is underlined, the underline goes. (The model has no `words`
+ * underline kind: the result is stored as underlined words, which looks the same in Word.)
+ */
+export function wordUnderline(editor: Editor, sheet: StyleSheet | null | undefined): boolean {
+  const { state } = editor;
+  const at = resolvedRunAt(state, sheet);
+  const on = !at.underline || at.underline === "none";
+  const { from, to, empty } = state.selection;
+  if (empty) return applyRunPatchEach(editor, sheet, () => ({ underline: on ? "single" : null }));
+  const schema = state.schema;
+  const tr = state.tr;
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText) return true;
+    const start = Math.max(from, pos);
+    const end = Math.min(to, pos + node.nodeSize);
+    const text = node.text!.slice(start - pos, end - pos);
+    let offset = start;
+    for (const part of text.split(/(\s+)/u)) {
+      if (!part) continue;
+      const a = offset;
+      const b = offset + part.length;
+      offset = b;
+      const props = patchRun(propsFromMarks(node.marks), { underline: on && !/^\s+$/u.test(part) ? "single" : null });
+      const marks = marksFromProps(schema, props, styleFromMarks(node.marks), linkFromMarks(node.marks));
+      for (const m of node.marks) tr.removeMark(a, b, m.type);
+      for (const m of marks) tr.addMark(a, b, m);
+    }
+    return false;
+  });
+  if (!tr.docChanged) return false;
+  editor.view.dispatch(tr);
+  return true;
+}
+
 // ----- Shift+F3 ---------------------------------------------------------------------------
 
-/** The next case of Shift+F3: lowercase → Capitalize Each Word → UPPERCASE → lowercase (mixed text: UPPERCASE). */
+/** Whether `text` ends a sentence (`.`, `!` or `?`, closing quotes and brackets after it allowed). */
+export function endsSentence(text: string): boolean {
+  return /[.!?]["'”’»)\]]*\s*$/u.test(text);
+}
+
+/**
+ * The next case of Shift+F3 (Word): lowercase → Capitalize Each Word → UPPERCASE → lowercase; a selection that
+ * ends a sentence cycles through Sentence case instead of Capitalize Each Word. Mixed text becomes UPPERCASE.
+ */
 export function nextCase(text: string): TextCase {
   const letters = [...text].filter((c) => c.toLowerCase() !== c.toUpperCase());
   if (!letters.length) return "upper";
   if (letters.every((c) => c === c.toUpperCase())) return "lower";
-  if (letters.every((c) => c === c.toLowerCase())) return "capitalize";
+  if (letters.every((c) => c === c.toLowerCase())) return endsSentence(text) ? "sentence" : "capitalize";
   return "upper";
 }
 
-/** The text Shift+F3 changes: the selection, else the word at the caret. */
+/** The text Shift+F3 changes: the selection, else the word at the caret (after a sentence's end: the word before it). */
 function caseTarget(editor: Editor): string {
   const { state } = editor;
   const { from, to, empty } = state.selection;
   if (!empty) return state.doc.textBetween(from, to, " ", " ");
-  const w = wordAt(state.doc, from);
+  const w = wordAt(state.doc, from) ?? wordBefore(state.doc, from);
   return w ? state.doc.textBetween(w.from, w.to) : "";
+}
+
+/** The word ending before position `pos` across punctuation (`end.|` → `end`), or null. */
+export function wordBefore(doc: PMNode, pos: number): { from: number; to: number } | null {
+  const $pos = doc.resolve(pos);
+  const block = $pos.parent;
+  if (!block.isTextblock) return null;
+  const text = block.textBetween(0, $pos.parentOffset, undefined, "￼");
+  const m = /([\p{L}\p{N}_']+)[^\p{L}\p{N}_\s]*$/u.exec(text);
+  if (!m) return null;
+  const start = $pos.start() + m.index;
+  return { from: start, to: start + m[1]!.length };
 }
 
 /** Shift+F3: `ChangeCase` with the next case of the selection (or the word at the caret), or null. */

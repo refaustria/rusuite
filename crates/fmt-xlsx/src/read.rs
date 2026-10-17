@@ -249,6 +249,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         }
     }
 
+    wb.set_workbook_protection(book.protection.clone());
+    if let Some(&id) = by_index.get(&book.active_tab) {
+        wb.set_active_sheet(Some(id));
+    }
+
     for (name, part) in pkg.parts() {
         if !consumed.contains(name) {
             warnings.push(format!("part {name} ({}) dropped", part.content_type));
@@ -337,6 +342,9 @@ struct BookInfo {
     defined_names: Vec<RawName>,
     /// `<pivotCaches>`: `(cacheId, r:id)`.
     pivot_caches: Vec<(u32, String)>,
+    protection: Option<model_sheet::WorkbookProtection>,
+    /// `<workbookView activeTab>`: position in `<sheets>`.
+    active_tab: usize,
 }
 
 fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
@@ -346,6 +354,8 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
         date1904: false,
         defined_names: Vec::new(),
         pivot_caches: Vec::new(),
+        protection: None,
+        active_tab: 0,
     };
     let mut name: Option<RawName> = None;
     loop {
@@ -376,6 +386,12 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
             }
             Event::Start(el) | Event::Empty(el) => match name_of(&el) {
                 b"workbookPr" => info.date1904 = attr_bool(&el, "date1904").unwrap_or(false),
+                b"workbookProtection" => {
+                    info.protection = crate::protection::workbook_protection_of(&el);
+                }
+                b"workbookView" if info.active_tab == 0 => {
+                    info.active_tab = attr_parse(&el, "activeTab").unwrap_or(0);
+                }
                 b"pivotCache" => {
                     if let (Some(id), Some(rid)) =
                         (attr_parse::<u32>(&el, "cacheId"), attr(&el, "id"))
@@ -564,7 +580,6 @@ struct CellBuf {
 
 /// Elements we drop, with the wording used in the warning.
 const DROPPED: &[(&[u8], &str)] = &[
-    (b"sheetProtection", "sheet protection"),
     (b"picture", "background picture"),
     (b"oleObjects", "OLE objects"),
     (b"controls", "form controls"),
@@ -638,6 +653,10 @@ impl SheetLoader<'_> {
                 Event::Start(ref el) | Event::Empty(ref el) => {
                     let empty = matches!(ev, Event::Empty(_));
                     match name_of(el) {
+                        b"sheetProtection" => {
+                            let p = crate::protection::sheet_protection_of(el);
+                            self.wb.set_sheet_protection(self.sheet, Some(p))?;
+                        }
                         b"tabColor" => {
                             let color = crate::styles::color_of_el(el);
                             self.wb.set_tab_color(self.sheet, color)?;

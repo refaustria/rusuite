@@ -44,7 +44,7 @@ test.describe("Write pre-release fixes (P8-46)", () => {
     errors.expectNone();
   });
 
-  test("W-28: Backspace at a list item's start removes the bullet first (indent kept), then joins", async ({ page }) => {
+  test("W-28: Backspace at a list item's start removes the bullet first (indent kept), then the indent, then joins", async ({ page }) => {
     await openWrite(page);
     await bulletList(page, ["one", "two"]);
     const two = editor(page).locator("p", { hasText: "two" });
@@ -56,6 +56,9 @@ test.describe("Write pre-release fixes (P8-46)", () => {
     // The paragraph keeps the level's indent (0.5", 48 px), it does not jump to the margin.
     await expect.poll(left).toBeGreaterThan(46);
     expect(await left()).toBeLessThan(50);
+    // P9-W1 (Word): the second press outdents to the margin, the third joins.
+    await page.keyboard.press("Backspace");
+    await expect.poll(left).toBeLessThan(2);
     await page.keyboard.press("Backspace");
     await expect(editor(page).locator("li")).toHaveText(["onetwo"]);
     await expect(editor(page).locator("p", { hasText: /^two$/ })).toHaveCount(0);
@@ -77,16 +80,17 @@ test.describe("Write pre-release fixes (P8-46)", () => {
   test.describe("in German", () => {
     test.use({ locale: "de-DE" });
 
-    test("W-26: the reader's numbering warning of provisional-56 is shown in German", async ({ page }) => {
+    test("W-26: the reader's warning of provisional-42 (right-to-left paragraph) is shown in German", async ({ page }) => {
       await page.goto("write/");
       await editor(page).waitFor();
       await page.getByRole("tab", { name: "Datei", exact: true }).click();
       const chooser = page.waitForEvent("filechooser");
       await page.getByTestId("backstage").getByRole("button", { name: /^Öffnen/ }).click();
-      await (await chooser).setFiles(testdata("docx", "provisional-56-images-floating.docx"));
+      // (provisional-56's "list level linked to a style" warning is gone: P9-W1 reads the style links.)
+      await (await chooser).setFiles(testdata("docx", "provisional-42-unicode.docx"));
       const w = page.getByTestId("warnings");
-      await expect(w).toContainText("Listenebene mit einer Formatvorlage verknüpft; Verknüpfung verworfen");
-      await expect(w).not.toContainText("list level linked");
+      await expect(w).toContainText("Absatzrichtung von rechts nach links verworfen");
+      await expect(w).not.toContainText("right-to-left");
       expect(await w.getAttribute("title")).not.toContain("dropped");
     });
   });

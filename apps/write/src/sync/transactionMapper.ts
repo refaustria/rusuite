@@ -336,7 +336,7 @@ function inlineCommand(id: number, oldInlines: Inline[], newInlines: Inline[], o
 
 const PARA_KEYS = [
   "style", "alignment", "indent", "spacing", "numbering", "keepNext", "keepLines", "widowControl", "suppressLineNumbers", "suppressAutoHyphens",
-  "pageBreakBefore", "contextualSpacing", "runDefaults", "borders", "shading", "tabs",
+  "pageBreakBefore", "contextualSpacing", "outlineLevel", "runDefaults", "borders", "shading", "tabs",
 ] as const;
 type ParaKey = (typeof PARA_KEYS)[number];
 

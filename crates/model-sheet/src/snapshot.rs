@@ -32,6 +32,9 @@ pub struct WorkbookSnapshot {
     /// Pivot caches (the tables are in [`SheetSnapshot::pivots`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pivot_caches: Vec<crate::pivot::PivotCache>,
+    /// Review › Protect Workbook; absent = unprotected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<crate::protection::WorkbookProtection>,
 }
 
 /// A defined name in a [`WorkbookSnapshot`].
@@ -119,6 +122,9 @@ pub struct SheetSnapshot {
     /// Pictures, back to front.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pictures: Vec<crate::picture::Picture>,
+    /// Review › Protect Sheet; absent = unprotected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<crate::protection::SheetProtection>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -220,6 +226,7 @@ impl Workbook {
             names,
             persons: self.persons().to_vec(),
             pivot_caches: self.pivot_caches().to_vec(),
+            protection: self.workbook_protection().cloned(),
         }
     }
 
@@ -270,6 +277,7 @@ impl Workbook {
             row_breaks: self.page_breaks(id, crate::outline::Axis::Rows).to_vec(),
             col_breaks: self.page_breaks(id, crate::outline::Axis::Cols).to_vec(),
             pictures: self.pictures(id).to_vec(),
+            protection: self.sheet_protection(id).cloned(),
         }
     }
 
@@ -323,6 +331,7 @@ impl Workbook {
             })?;
         }
         wb.set_pivot_caches(snapshot.pivot_caches.clone());
+        wb.set_workbook_protection(snapshot.protection.clone());
         // Tables before the cells: structured references register edges.
         for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
             if !sheet.tables.is_empty() {
@@ -348,6 +357,7 @@ impl Workbook {
                 wb.set_page_breaks(id, crate::outline::Axis::Rows, sheet.row_breaks.clone())?;
                 wb.set_page_breaks(id, crate::outline::Axis::Cols, sheet.col_breaks.clone())?;
                 wb.set_pictures(id, sheet.pictures.clone())?;
+                wb.set_sheet_protection(id, sheet.protection.clone())?;
                 for col in &sheet.cols {
                     let info = ColInfo {
                         style: map_opt(col.info.style)?,
