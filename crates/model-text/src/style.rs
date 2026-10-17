@@ -675,7 +675,7 @@ impl StyleSheet {
 
     /// The `based_on` chain of `style_id`, root first, ending with the
     /// style itself. Stops at missing parents and at cycles.
-    fn chain(&self, style_id: &str) -> Vec<&Style> {
+    pub(crate) fn chain(&self, style_id: &str) -> Vec<&Style> {
         let mut chain: Vec<&Style> = Vec::new();
         let mut next = self.get(style_id);
         while let Some(style) = next {
@@ -1561,6 +1561,7 @@ pub(crate) fn merge_table_props(base: &TableProperties, over: &TableProperties) 
         alignment: over.alignment.or(base.alignment),
         indent: over.indent.or(base.indent),
         layout: over.layout.or(base.layout),
+        floating: over.floating.or(base.floating),
     }
 }
 

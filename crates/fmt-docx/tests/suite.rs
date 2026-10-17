@@ -342,6 +342,15 @@ fn features_of(doc: &Document, theme: &Theme) -> BTreeSet<String> {
                     if !run.text.is_ascii() {
                         out.insert("text:unicode".into());
                     }
+                    for (c, f) in [
+                        ('\u{2011}', "char:no-break-hyphen"),
+                        ('\u{ad}', "char:soft-hyphen"),
+                        ('\u{a0}', "char:nbsp"),
+                    ] {
+                        if run.text.contains(c) {
+                            out.insert(f.into());
+                        }
+                    }
                     if run
                         .text
                         .chars()
@@ -598,6 +607,9 @@ fn structure_features(doc: &Document, out: &mut BTreeSet<String>) {
         if s.columns.separator {
             out.insert("section:column-separator".into());
         }
+        if s.columns.count > 1 && !s.columns.equal {
+            out.insert("section:columns-unequal".into());
+        }
     }
     let visible = doc.bookmarks().iter().filter(|b| !b.hidden()).count();
     if visible > 0 {
@@ -689,6 +701,15 @@ fn tables_features(blocks: &[Block], in_table: bool, out: &mut BTreeSet<String>)
             .any(|c| c.v_merge == Some(VMerge::Restart))
         {
             out.insert("table:merged=vertical".into());
+        }
+        if t.props.floating.is_some() {
+            out.insert("table:floating".into());
+        }
+        if t.props.layout == Some(model_text::TableLayout::Fixed) {
+            out.insert("table:layout-fixed".into());
+        }
+        if t.props.look.is_some() {
+            out.insert("table:look".into());
         }
         let header = if t.rows.first().is_some_and(|r| r.props.header) {
             ":header"
@@ -920,6 +941,7 @@ fn document_xml_snapshots() {
         ("61", "provisional-61-shapes-text-boxes.docx"),
         ("62", "provisional-62-character-formatting.docx"),
         ("65", "provisional-65-drawings-floating-2.docx"),
+        ("66", "provisional-66-tables-2-columns-symbols.docx"),
     ] {
         let out = fmt_docx::read_with_context(&load(file)).unwrap();
         let bytes = fmt_docx::write_with_context(&out.document, &out.context).unwrap();
@@ -1969,4 +1991,81 @@ fn drawings_round_two() {
         assert!(xml.contains(needle), "{needle} missing");
     }
     assert_same("65", doc, &reread(doc));
+}
+
+#[test]
+fn tables_columns_symbols_round_two() {
+    use model_text::{StyleKind, TableAnchor, TableLayout, TablePosSpec};
+    let out = read_out("provisional-66-tables-2-columns-symbols.docx");
+    assert_no_new_warnings(&out.warnings);
+    let doc = &out.document;
+    let tables: Vec<&model_text::Table> = doc
+        .body
+        .iter()
+        .filter_map(|b| match b {
+            Block::Table(t) => Some(t),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tables.len(), 2);
+    // A header over three grid columns above a column merged over two rows.
+    let t = tables[0];
+    t.check_grid().unwrap();
+    assert_eq!(t.rows[0].cells[0].grid_span, 3);
+    assert_eq!(t.row_span(1, 2), 2);
+    // The floating table: tblpPr, never overlapping, fixed layout, its style's bold header row.
+    let f = tables[1];
+    let pos = f.props.floating.unwrap();
+    assert_eq!(pos.x_spec, Some(TablePosSpec::End));
+    assert_eq!(pos.horz_anchor, Some(TableAnchor::Margin));
+    assert_eq!(pos.vert_anchor, Some(TableAnchor::Text));
+    assert_eq!(pos.left_from_text, Twips(180));
+    assert!(!pos.overlap);
+    assert_eq!(f.props.layout, Some(TableLayout::Fixed));
+    assert!(f.props.look.unwrap().first_row);
+    assert_eq!(doc.styles.get("W5Table").unwrap().kind, StyleKind::Table);
+    let Block::Paragraph(head) = &f.rows[0].cells[0].blocks[0] else {
+        panic!()
+    };
+    let run = head.inlines.iter().find_map(Inline::as_run).unwrap();
+    assert_eq!(
+        doc.resolve_run_props_in_cell(f, 0, 0, head, run).bold,
+        Some(true)
+    );
+    // Tab stops of every kind, unequal columns with a line between, special characters.
+    let kinds: BTreeSet<String> = doc
+        .paragraphs()
+        .flat_map(|p| &p.props.tabs)
+        .map(|t| format!("{:?}", t.kind))
+        .collect();
+    for k in ["Left", "Center", "Decimal", "Right", "Bar"] {
+        assert!(kinds.contains(k), "{k} tab missing: {kinds:?}");
+    }
+    let cols = doc.sections.iter().find(|s| s.columns.count == 2).unwrap();
+    assert!(!cols.columns.equal);
+    assert!(cols.columns.separator);
+    assert_eq!(cols.columns.widths.len(), 2);
+    assert!(cols.columns.widths[1].width.0 > cols.columns.widths[0].width.0 * 3 / 2);
+    let text = doc.plain_text();
+    for c in [
+        '\u{2011}', '\u{ad}', '\u{a0}', '\u{2013}', '\u{2014}', '\u{a9}', '\u{2122}', '\u{2026}',
+    ] {
+        assert!(text.contains(c), "{c:?} missing");
+    }
+    // Written back as Word writes them.
+    let bytes = fmt_docx::write_with_context(doc, &out.context).unwrap();
+    let xml = pretty_document_xml(&bytes);
+    for needle in [
+        r#"<w:tblpPr w:leftFromText="180" w:rightFromText="180" w:vertAnchor="text" w:horzAnchor="margin" w:tblpXSpec="right" w:tblpY="1"/>"#,
+        r#"<w:tblOverlap w:val="never"/>"#,
+        r#"<w:gridSpan w:val="3"/>"#,
+        r#"<w:vMerge w:val="restart"/>"#,
+        r#"<w:tblLayout w:type="fixed"/>"#,
+        "<w:noBreakHyphen/>",
+        "<w:softHyphen/>",
+        r#"w:equalWidth="0""#,
+    ] {
+        assert!(xml.contains(needle), "{needle} missing");
+    }
+    assert_same("66", doc, &reread(doc));
 }

@@ -26,7 +26,7 @@ use crate::drawing::{
 use crate::numbering::{write_numbering, W_NS};
 use crate::props::{
     table_jc_name, write_borders, write_cell_margins, write_margins_as, write_ppr_sect, write_rpr,
-    write_rpr_styled, write_shading, write_tbl_look, write_width,
+    write_rpr_styled, write_shading, write_tbl_look, write_tblp_pr, write_width,
 };
 use crate::sections::{write_sect_pr, HeaderRef};
 use crate::styles::write_styles;
@@ -1588,6 +1588,9 @@ pub(crate) fn write_tbl_pr(
     x.start("w:tblPr", &[]);
     if let Some(s) = &p.style {
         x.val("w:tblStyle", s);
+    }
+    if let Some(f) = &p.floating {
+        write_tblp_pr(x, f);
     }
     if let Some(n) = bands.0 {
         x.val("w:tblStyleRowBandSize", &n.to_string());

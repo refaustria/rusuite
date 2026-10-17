@@ -23,12 +23,14 @@ import type { Spacing } from "../generated/Spacing";
 import { selectedImage, setImageAttrs } from "../features/images";
 import { indentAt, selectedTextblocks, setIndent, setSpacing, spacingAt } from "../features/formatting";
 import {
-  setCellMargins, setRowHeight, splitCellCommand, splitRowsValid, tableContext, tablePropsCommands, tablePropsValues, type TablePropsValues,
+  setCellMargins, setRowHeight, splitCellCommand, splitRowsValid, tableContext,
 } from "../features/tables";
 import {
   bordersShadingCommand, paragraphBorders, paragraphShading, selectedParagraphs, tabsDialogCommand, tabsOf, type BordersShadingValues,
 } from "../features/paragraphFormat";
-import { BordersShadingDialog, CellMarginsDialog, SplitCellsDialog, TablePropsDialog, TabsDialog } from "./formatDialogs";
+import { BordersShadingDialog, CellMarginsDialog, SplitCellsDialog, TabsDialog } from "./formatDialogs";
+import { Tables2Dialogs } from "./tables2Dialogs";
+import { WriteOptionsDialog } from "./optionsDialog";
 import type { WriteUi } from "../features/WriteFeatures";
 import { setAlignment } from "../sync/editorCommands";
 import { nextTempId, type SyncController } from "../sync/SyncPlugin";
@@ -742,12 +744,8 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
   };
   // Captured when the dialog opens (the editor does not change while a modal dialog is up).
   const table = useMemo(
-    () => (editor && (dialog === "rowHeight" || dialog === "splitCells" || dialog === "cellMargins" || dialog === "tableProps") ? tableContext(editor.state) : null),
+    () => (editor && (dialog === "rowHeight" || dialog === "splitCells" || dialog === "cellMargins") ? tableContext(editor.state) : null),
     [editor, dialog],
-  );
-  const tblValues = useMemo<TablePropsValues>(
-    () => (table ? tablePropsValues(table) : { alignment: "left", indent: 0, layout: "autofit", cantSplit: false, header: false }),
-    [table],
   );
   const paras = useMemo(() => (editor && (dialog === "bordersShading" || dialog === "tabs") ? selectedParagraphs(editor.state) : []), [editor, dialog]);
   const bsInitial = useMemo<BordersShadingValues>(
@@ -755,9 +753,6 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
     [paras],
   );
   const tabsInitial = useMemo(() => (paras[0] ? tabsOf(ctl.styles, paras[0]) : []), [paras, ctl]);
-  const runAll = (cmds: Parameters<SyncController["run"]>[0][]) => {
-    if (cmds.length) void ctl.run(cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds });
-  };
   const image = useMemo(() => (editor && dialog === "altText" ? selectedImage(editor.state) : null), [editor, dialog]);
   const drawing = useMemo(() => (editor && dialog === "altText" ? selectedDrawing(editor.state) : null), [editor, dialog]);
   // Font… (Ctrl+D): the formatting at the selection of the editor with the caret (a text box's, else the main one).
@@ -865,15 +860,8 @@ export function WriteDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncContro
           close();
         }}
       />
-      <TablePropsDialog
-        open={dialog === "tableProps" && !!table}
-        initial={tblValues}
-        onClose={close}
-        onSubmit={(v) => {
-          if (table) runAll(tablePropsCommands(table, tblValues, v));
-          close();
-        }}
-      />
+      <Tables2Dialogs ui={ui} ctl={ctl} editor={editor} />
+      <WriteOptionsDialog ui={ui} />
       <BordersShadingDialog
         open={dialog === "bordersShading" && paras.length > 0}
         initial={bsInitial}

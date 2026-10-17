@@ -29,7 +29,7 @@ use crate::drawing::{
 use crate::numbering::read_numbering;
 use crate::props::{
     read_borders, read_cell_margins, read_ppr, read_rpr, read_shading, read_table_jc,
-    read_tbl_look, read_width,
+    read_tbl_look, read_tblp_pr, read_width,
 };
 use crate::sections::{read_sect_pr, HeaderRef};
 use crate::styles::read_styles;
@@ -1758,6 +1758,7 @@ fn drop_grid_widths(t: &mut Table) {
 /// `w:tblPr` (of a table or a table style) → table properties.
 pub(crate) fn read_tbl_pr(pr: &El, ctx: &str, w: &mut Warnings) -> TableProperties {
     let mut p = TableProperties::default();
+    let mut overlap = true;
     for el in pr.elements() {
         match el.name.as_str() {
             "tblW" => p.width = read_width(el),
@@ -1787,6 +1788,8 @@ pub(crate) fn read_tbl_pr(pr: &El, ctx: &str, w: &mut Warnings) -> TableProperti
                     _ => TableLayout::Autofit,
                 })
             }
+            "tblpPr" => p.floating = Some(read_tblp_pr(el)),
+            "tblOverlap" => overlap = el.val() != Some("never"),
             "tblStyleRowBandSize" | "tblStyleColBandSize" | "tblPrChange" => {}
             _ => w.warn(
                 "docx.table.propertyDropped",
@@ -1794,6 +1797,9 @@ pub(crate) fn read_tbl_pr(pr: &El, ctx: &str, w: &mut Warnings) -> TableProperti
                 &[("ctx", &ctx), ("name", &el.qname())],
             ),
         }
+    }
+    if let Some(f) = &mut p.floating {
+        f.overlap = overlap;
     }
     p
 }

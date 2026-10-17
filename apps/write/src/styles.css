@@ -199,6 +199,18 @@ body,
 
 /* Table borders from the model (CSS variables set by the table node); "none" shows as a light gridline on screen. */
 .tiptap-content { --write-gridline: #d0d0d0; }
+/* Table style text formatting (P9-W5, tblStylePr rPr) on the cell paragraphs of the default style (Word's precedence). */
+.tiptap-content td[data-ts-b] p:not([data-style]) { font-weight: var(--ts-b); }
+.tiptap-content td[data-ts-i] p:not([data-style]) { font-style: var(--ts-i); }
+.tiptap-content td[data-ts-c] p:not([data-style]) { color: var(--ts-c); }
+.tiptap-content td[data-ts-sz] p:not([data-style]) { font-size: var(--ts-sz); }
+.tiptap-content td[data-ts-ff] p:not([data-style]) { font-family: var(--ts-ff); }
+.tiptap-content td[data-ts-u] p:not([data-style]) { text-decoration: var(--ts-u); }
+.tiptap-content td[data-ts-caps] p:not([data-style]) { text-transform: var(--ts-caps); }
+/* View › Gridlines off (P9-W5): borderless table edges show nothing. */
+.tiptap-content.hide-gridlines { --write-gridline: transparent; }
+/* Table Design › Border Painter: a pen cursor over the cells. */
+.tiptap-content[data-border-painter] td, .tiptap-content[data-border-painter] th { cursor: crosshair; }
 .tiptap-content table[data-borders] td { border-top: var(--tb-ih); border-bottom: var(--tb-ih); border-left: var(--tb-iv); border-right: var(--tb-iv); }
 .tiptap-content table[data-borders] tr:first-child > td { border-top: var(--tb-top); }
 .tiptap-content table[data-borders] tr:last-child > td { border-bottom: var(--tb-bottom); }

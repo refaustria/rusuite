@@ -776,12 +776,25 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             icon="table"
             size="large"
             menu={(close) => (
-              <RibbonTableSizePicker
-                onPick={(r, c) => {
-                  close();
-                  void insertTable(r, c);
-                }}
-              />
+              <div className="flex flex-col">
+                <RibbonTableSizePicker
+                  onPick={(r, c) => {
+                    close();
+                    void insertTable(r, c);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="min-h-8 rounded border-t border-ui-border px-2 text-left text-xs hover:bg-ui-hover"
+                  data-testid="convert-text-to-table"
+                  onClick={() => {
+                    close();
+                    features.ui.openDialog("textToTable");
+                  }}
+                >
+                  {t("write.w5.textToTableDots")}
+                </button>
+              </div>
             )}
           />
         ),
@@ -1263,6 +1276,10 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                 <input type="checkbox" checked={ui.hiddenText} onChange={() => features.ui.set({ hiddenText: !ui.hiddenText })} />
                 {t("write.hiddenText")}
               </label>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input type="checkbox" checked={ui.gridlines} onChange={() => features.ui.set({ gridlines: !ui.gridlines })} />
+                {t("write.w5.gridlines")}
+              </label>
             </RibbonStack>
           </>
         ),
@@ -1388,7 +1405,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         onExportPdf,
         print,
         onCloseDocument: () => triggerShortcut("Mod+N"),
-        onOptions: () => features.ui.openDialog("userName"),
+        onOptions: () => features.ui.openDialog("writeOptions"),
         infoPage,
       }}
     />

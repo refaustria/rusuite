@@ -166,6 +166,34 @@ below the content) never hides a float that hangs below the text.
 - **Z-order**: `Anchor.z` (`relativeHeight`) orders objects out of the flow (`zIndex`: in front above 3, behind below
   the text); Bring Forward / Send Backward renumber the floating objects with Word's base and step.
 
+## Unequal columns (P9-W5)
+CSS multi-column layout only has equal columns. A section with columns of their own widths (`w:cols w:equalWidth="0"`,
+Layout › Columns › Left / Right / More Columns…) is laid out as **explicit column boxes** (`features/unequalColumns.ts`):
+- The columns box keeps n equal CSS columns *without a gap* (`columnsCss`: `column-count: n; column-gap: 0`), so the
+  browser still decides where content breaks into the next column, and everything that relies on it is unchanged: the
+  measurement (one virtual column per box), the pagination's column filling, balancing on the last page and its
+  `break-before: column` markers, footnotes, print clones.
+- Every child block is moved into the place and width of the column it starts in with a margin pair: CSS column k has
+  its origin at k·T/n (T = the box's width); the model's column k (`columnLayout`: x_k, w_k) is reached with
+  `margin-left = x_k − k·T/n` and `margin-right = T/n − w_k − margin-left` (either may be negative), so the block is
+  exactly w_k wide at x_k and its lines break at that width.
+- The plugin reads after each layout which CSS column every child's first fragment is in (its left edge minus its
+  current margin, divided by T/n) and sets the margins as node decorations (`data-ucol`). Margins change line breaks
+  and heights, so it looks again on the next frame until nothing moves (at most 6 passes per change); the pagination
+  re-measures the changed blocks through its DOM observer as for any other decoration.
+- The measured column geometry (`reg.columns`, from `columnLayout`) is the real one, so the page chrome draws the line
+  between the columns at the real gap (the CSS column rule is off for unequal boxes) and print clips each page column at
+  its real place.
+- Limit: a paragraph that continues in the next column keeps the width of the column it starts in (Word re-wraps the
+  continuation at the next column's width); content is distributed by the equal CSS columns' balancing, so the
+  columns' bottoms may differ by more than a line where Word balances by the real widths.
+
+## Floating tables (P9-W5)
+A table with text wrapping Around (`w:tblpPr`) is a CSS float beside the text in the editor and in print: aligned or
+offset to the right → `float: right`, else `float: left` with its horizontal offset; the distances from the text become
+margins; a centred table is not floated (CSS cannot wrap text on both sides of a float). The pagination measures it as
+a block like any other; positions relative to the page or the margin are approximated relative to the column.
+
 ## Limits (approximations, documented in docs/ui.md)
 - Word's line breaking is not reproduced; lines are the browser's. Floating pictures wrap with CSS floats (one side),
   or on both sides through per-line spacers when there is room (P9-W4, above); a tight/through wrap polygon is drawn as

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use core_model::RunProperties;
 use serde::{Deserialize, Serialize};
 
-use crate::block::{Block, NodeId, Paragraph, TocEntry};
+use crate::block::{Block, NodeId, Paragraph, Table, TocEntry};
 use crate::comment::Comment;
 use crate::inline::{Field, FieldKind, Inline, Run};
 use crate::media::MediaStore;
@@ -308,6 +308,95 @@ impl Document {
             Some(id) => self.styles.resolve_run(id),
             None => self.styles.defaults.run.clone(),
         };
+        if let Some(cs) = &run.style {
+            crate::style::apply_character_style(&mut base, &self.styles.resolve_character(cs));
+        }
+        base.merged_with(&run.props)
+    }
+
+    /// Whether `p`'s effective style is the default paragraph style (or
+    /// none): in a table cell the table style's text formatting then wins
+    /// over it, as in Word (Normal's spacing does not override a table
+    /// style's compact cell paragraphs).
+    fn uses_default_style(&self, p: &Paragraph) -> bool {
+        let style = self.effective_style(p);
+        style.is_none()
+            || style
+                == self
+                    .styles
+                    .default_style(StyleKind::Paragraph)
+                    .map(|s| s.id.as_str())
+    }
+
+    /// Effective paragraph formatting of `p` in cell `cell` of row `row`
+    /// of `table`: like [`resolve_paragraph_props`](Self::resolve_paragraph_props)
+    /// with the table style's paragraph formatting
+    /// ([`table_text_props`](Self::table_text_props)) layered above the
+    /// document defaults and below the paragraph style — above it when
+    /// the paragraph uses the default style (Word's precedence).
+    pub fn resolve_paragraph_props_in_cell(
+        &self,
+        table: &Table,
+        row: usize,
+        cell: usize,
+        p: &Paragraph,
+    ) -> ParagraphProperties {
+        let Some((tp, _)) = self.table_text_props(table, row, cell) else {
+            return self.resolve_paragraph_props(p);
+        };
+        let style = self.effective_style(p);
+        let mut out = self.styles.defaults.paragraph.clone();
+        let over = self.uses_default_style(p);
+        if !over {
+            out.apply(&tp);
+        }
+        if let Some(id) = style {
+            for s in self.styles.chain(id) {
+                out.apply(&s.paragraph);
+            }
+        }
+        if over {
+            out.apply(&tp);
+        }
+        let num = p.props.numbering.or(out.numbering);
+        if let Some(indent) = num.and_then(|n| self.numbering.level(n)?.indent) {
+            out.indent = Some(out.indent.unwrap_or_default().merged_with(&indent));
+        }
+        out.apply(&p.props);
+        out.style = style.map(str::to_owned);
+        out.strip_cleared_tabs();
+        out
+    }
+
+    /// Effective character formatting of `run` in `p` in cell `cell` of
+    /// row `row` of `table`: the table style's run formatting (header row
+    /// bold, banded colours …) layered like
+    /// [`resolve_paragraph_props_in_cell`](Self::resolve_paragraph_props_in_cell),
+    /// then the character style and the direct formatting.
+    pub fn resolve_run_props_in_cell(
+        &self,
+        table: &Table,
+        row: usize,
+        cell: usize,
+        p: &Paragraph,
+        run: &Run,
+    ) -> RunProperties {
+        let Some((_, tr)) = self.table_text_props(table, row, cell) else {
+            return self.resolve_run_props(p, run);
+        };
+        let mut base = self.styles.defaults.run.clone();
+        let over = self.uses_default_style(p);
+        if !over {
+            base.apply(&tr);
+        }
+        if let Some(id) = self.effective_style(p) {
+            for s in self.styles.chain(id) {
+                base.apply(&s.run);
+            }
+        }
+        if over {
+            base.apply(&tr);
+        }
         if let Some(cs) = &run.style {
             crate::style::apply_character_style(&mut base, &self.styles.resolve_character(cs));
         }

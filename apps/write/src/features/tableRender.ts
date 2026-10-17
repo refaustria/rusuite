@@ -13,6 +13,7 @@ import type { StyleSheet } from "../generated/StyleSheet";
 import type { TableProperties } from "../generated/TableProperties";
 import { borderCss, colorCss, TWIPS_PER_PX } from "../sync/schema";
 import { resolveCell, tableStyleFor, type ResolvedCell } from "./tableStyles";
+import { fontCss } from "./styleCss";
 
 export const tableRenderKey = new PluginKey<DecorationSet>("rusuiteTableRender");
 
@@ -33,7 +34,38 @@ export function cellCss(r: ResolvedCell): string {
   if (color) css.push(`color: ${color}`);
   if (r.run.bold === true) css.push("font-weight: 700");
   if (r.run.italic === true) css.push("font-style: italic");
+  for (const [k, v] of Object.entries(tableTextVars(r))) css.push(`--ts-${k}: ${v}`);
   return css.join("; ");
+}
+
+/**
+ * The table style's text formatting as CSS variables (P9-W5): `styles.css` applies them to the cell's paragraphs that
+ * use the default paragraph style, so the header row's bold or a banded colour wins over Normal's own values, as in
+ * Word (a paragraph with another style keeps its style's formatting). Keys: b, i, c, sz, ff, u, caps.
+ */
+export function tableTextVars(r: ResolvedCell): Record<string, string> {
+  const out: Record<string, string> = {};
+  const run = r.run;
+  if (run.bold != null) out.b = run.bold ? "700" : "400";
+  if (run.italic != null) out.i = run.italic ? "italic" : "normal";
+  const color = run.color && run.color.kind !== "auto" ? colorCss(run.color) : undefined;
+  if (color) out.c = color;
+  if (run.size != null) out.sz = `${run.size / 100}pt`;
+  const font = fontCss(run.font);
+  if (font) out.ff = font;
+  if (run.underline != null || run.strike != null) {
+    const deco = [run.underline && run.underline !== "none" ? "underline" : "", run.strike ? "line-through" : ""].filter(Boolean);
+    out.u = deco.length ? deco.join(" ") : "none";
+  }
+  if (run.allCaps != null) out.caps = run.allCaps ? "uppercase" : "none";
+  return out;
+}
+
+/** The attributes of a styled cell's decoration: the style and one `data-ts-<key>` per table-style text property. */
+export function cellAttrs(r: ResolvedCell): Record<string, string> {
+  const attrs: Record<string, string> = { style: cellCss(r), "data-styled": "" };
+  for (const k of Object.keys(tableTextVars(r))) attrs[`data-ts-${k}`] = "";
+  return attrs;
 }
 
 /** The direct cell properties of a PM cell node (as `tableFromPM` builds them). */
@@ -41,10 +73,15 @@ const cellProps = (cell: PMNode): CellProperties => ({ ...((cell.attrs.extra as 
 
 /** `[offset in the table, style]` of every cell of a table node. */
 export function tableCellStyles(table: PMNode, styles: StyleSheet | null): [number, string][] {
+  return tableCellAttrs(table, styles).map(([off, a]) => [off, a.style!]);
+}
+
+/** `[offset in the table, decoration attributes]` of every cell of a table node. */
+export function tableCellAttrs(table: PMNode, styles: StyleSheet | null): [number, Record<string, string>][] {
   const map = TableMap.get(table);
   const props = (table.attrs.props as TableProperties | null) ?? {};
   const style = styles ? tableStyleFor(styles.styles, props.style) : null;
-  const out: [number, string][] = [];
+  const out: [number, Record<string, string>][] = [];
   const seen = new Set<number>();
   for (const off of map.map) {
     if (seen.has(off)) continue;
@@ -53,24 +90,24 @@ export function tableCellStyles(table: PMNode, styles: StyleSheet | null): [numb
     if (!cell) continue;
     const r = map.findCell(off);
     const rect = { row0: r.top, row1: r.bottom - 1, col0: r.left, col1: r.right - 1 };
-    out.push([off, cellCss(resolveCell(style, props, cellProps(cell), rect, map.height, map.width))]);
+    out.push([off, cellAttrs(resolveCell(style, props, cellProps(cell), rect, map.height, map.width))]);
   }
   return out;
 }
 
 /** Decorations for every table of `doc` (cached per table node while the styles stay the same). */
-function build(doc: PMNode, styles: StyleSheet | null, cache: WeakMap<PMNode, [number, string][]>): DecorationSet {
+function build(doc: PMNode, styles: StyleSheet | null, cache: WeakMap<PMNode, [number, Record<string, string>][]>): DecorationSet {
   const decos: Decoration[] = [];
   doc.descendants((node, pos) => {
     if (node.type.name === "table") {
       let cells = cache.get(node);
       if (!cells) {
-        cells = tableCellStyles(node, styles);
+        cells = tableCellAttrs(node, styles);
         cache.set(node, cells);
       }
-      for (const [off, style] of cells) {
+      for (const [off, attrs] of cells) {
         const cell = node.nodeAt(off);
-        if (cell) decos.push(Decoration.node(pos + 1 + off, pos + 1 + off + cell.nodeSize, { style, "data-styled": "" }));
+        if (cell) decos.push(Decoration.node(pos + 1 + off, pos + 1 + off + cell.nodeSize, attrs));
       }
       return true;
     }
@@ -81,7 +118,7 @@ function build(doc: PMNode, styles: StyleSheet | null, cache: WeakMap<PMNode, [n
 
 /** The plugin; `styles` returns the document's current style sheet. */
 export function tableRenderPlugin(styles: () => StyleSheet | null): Plugin<DecorationSet> {
-  let cache = new WeakMap<PMNode, [number, string][]>();
+  let cache = new WeakMap<PMNode, [number, Record<string, string>][]>();
   let last: StyleSheet | null | undefined;
   const current = (doc: PMNode) => {
     const s = styles();

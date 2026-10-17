@@ -19,6 +19,7 @@ import type { ParagraphBorders } from "../generated/ParagraphBorders";
 import type { RowProperties } from "../generated/RowProperties";
 import type { Spacing } from "../generated/Spacing";
 import type { TableProperties } from "../generated/TableProperties";
+import type { TablePosition } from "../generated/TablePosition";
 import { imageNodeView } from "../features/imageView";
 import { drawingNodeView } from "../features/drawings/drawingView";
 import type { Block } from "../generated/Block";
@@ -438,13 +439,22 @@ export const ColumnsNode = Node.create({
   },
   renderHTML({ node }) {
     const c = node.attrs.columns as Columns | null;
-    return ["div", { class: "section-columns", "data-columns": String(c?.count ?? 1), style: columnsCss(c) }, 0];
+    const unequal = isUnequal(c);
+    return ["div", { class: "section-columns", "data-columns": String(c?.count ?? 1), ...(unequal ? { "data-unequal": "" } : {}), style: columnsCss(c) }, 0];
   },
 });
 
-/** CSS of a multi-column section box: column count, gap, separator line. */
+/** Whether `c` has columns of their own widths (More Columns… without "Equal column width"). */
+export const isUnequal = (c: Columns | null | undefined): boolean => !!c && c.count > 1 && c.equal === false && (c.widths?.length ?? 0) === c.count;
+
+/**
+ * CSS of a multi-column section box: column count, gap, separator line. Unequal columns (P9-W5) are laid out as
+ * explicit column boxes: equal CSS columns without a gap, every child moved into its own column's place and width by
+ * `features/unequalColumns.ts`; the separator is drawn by the page chrome at the real gaps.
+ */
 export function columnsCss(c: Columns | null | undefined): string {
   if (!c || c.count <= 1) return "";
+  if (isUnequal(c)) return [`column-count: ${c.count}`, "column-gap: 0", "column-fill: balance"].join("; ");
   const gap = (c.spacing ?? 720) / TWIPS_PER_PX;
   const css = [`column-count: ${c.count}`, `column-gap: ${gap.toFixed(1)}px`, "column-fill: balance"];
   if (c.separator) css.push("column-rule: 1px solid currentColor");
@@ -867,6 +877,18 @@ interface PMNodeLike {
   forEach: (f: (child: PMNodeLike) => void) => void;
 }
 
+/** CSS for a floating table in the editor: a float to the side of its horizontal position with the distances from the text. */
+export function floatingTableCss(f: TablePosition | null | undefined): string[] {
+  if (!f) return [];
+  const px = (tw: number) => `${(tw / TWIPS_PER_PX).toFixed(1)}px`;
+  const right = f.xSpec === "end" || f.xSpec === "outside";
+  if (f.xSpec === "center") return ["margin-left: auto", "margin-right: auto", `margin-top: ${px(f.topFromText)}`, `margin-bottom: ${px(f.bottomFromText)}`];
+  const out = [`float: ${right ? "right" : "left"}`, `margin-top: ${px(f.topFromText + (f.ySpec ? 0 : Math.max(0, f.y - 1)))}`, `margin-bottom: ${px(f.bottomFromText)}`];
+  if (right) out.push(`margin-left: ${px(f.leftFromText)}`, "margin-right: 0");
+  else out.push(`margin-right: ${px(f.rightFromText)}`, `margin-left: ${px(f.xSpec ? 0 : Math.max(0, f.x))}`);
+  return out;
+}
+
 /** Table geometry as CSS: width from the grid, alignment and indent (`w:jc`, `w:tblInd`). */
 export function tablePlacementCss(props: TableProperties | null | undefined, cols: number): string {
   const css: string[] = [];
@@ -876,6 +898,8 @@ export function tablePlacementCss(props: TableProperties | null | undefined, col
   else if (props?.alignment === "right") css.push("margin-left: auto", "margin-right: 0");
   else if (props?.indent) css.push(`margin-left: ${(props.indent / TWIPS_PER_PX).toFixed(1)}px`);
   if (props?.layout === "autofit" && !w.length) css.push("table-layout: auto");
+  // Text wrapping › Around (P9-W5): a float beside the text (later margins win over the alignment's).
+  css.push(...floatingTableCss(props?.floating));
   return css.join("; ");
 }
 
