@@ -58,9 +58,31 @@ pub fn write_with_context(wb: &Workbook, ctx: &XlsxContext) -> Result<Vec<u8>> {
         workbook_xml(wb, &sheets, active, &[], &Default::default()),
     );
     let mut rels = Relationships::new();
+    let mut worksheet_no = 0;
+    let mut chartsheet_no = 0;
     for (i, (id, _)) in sheets.iter().enumerate() {
         let id = *id;
-        let target = format!("worksheets/sheet{}.xml", i + 1);
+        if wb.is_chart_sheet(id) {
+            chartsheet_no += 1;
+            let target = format!("chartsheets/sheet{chartsheet_no}.xml");
+            let part = pn(&format!("/xl/{target}"))?;
+            let mut sheet_rels = Relationships::new();
+            let drawing = if wb.charts(id).is_empty() {
+                None
+            } else {
+                let d = drawings.write(&mut pkg, wb, id)?;
+                Some(sheet_rels.add(rel::DRAWING, d).id.clone())
+            };
+            let xml = crate::chartsheet::chartsheet_xml(i == active, drawing.as_deref());
+            pkg.insert_part(part.clone(), crate::chartsheet::CHARTSHEET_CT, xml);
+            rels.add(crate::chartsheet::CHARTSHEET_REL, target);
+            if !sheet_rels.is_empty() {
+                pkg.set_relationships(part, sheet_rels);
+            }
+            continue;
+        }
+        worksheet_no += 1;
+        let target = format!("worksheets/sheet{worksheet_no}.xml");
         let part = pn(&format!("/xl/{target}"))?;
         // Relationships first: the sheet XML names their ids.
         let mut sheet_rels = Relationships::new();
@@ -572,11 +594,14 @@ fn sheet_xml(
     }
     crate::tables::table_parts_xml(&mut x, &rel_ids.tables);
     // `<extLst>`: Excel 2010 conditional formatting and data validation,
-    // then the slicer lists (Excel's order of the `<ext>`s).
+    // the sparkline groups, then the slicer lists (Excel's order of the
+    // `<ext>`s).
     let rules_ext = crate::condfmt::has_sheet_ext(wb, id);
-    if rules_ext || crate::slicer::has_sheet_ext(&rel_ids.slicers) {
+    let sparklines = crate::sparkline::has_sheet_ext(wb, id);
+    if rules_ext || sparklines || crate::slicer::has_sheet_ext(&rel_ids.slicers) {
         x.start("extLst", &[]);
         crate::condfmt::sheet_ext_xml(&mut x, wb, id);
+        crate::sparkline::sheet_ext_xml(&mut x, wb, id);
         crate::slicer::sheet_ext_xml(&mut x, &rel_ids.slicers);
         x.end("extLst");
     }

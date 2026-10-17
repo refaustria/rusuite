@@ -130,6 +130,9 @@ pub enum Request {
     SheetRules { sheet: u32 },
     /// The charts of `sheet`, back to front → `charts`.
     SheetCharts { sheet: u32 },
+    /// The sparkline groups of `sheet` with the data of every sparkline
+    /// → `sparklines`.
+    SheetSparklines { sheet: u32 },
     /// The data of chart `id` on `sheet` as the renderer draws it →
     /// `chartData`.
     ChartData { sheet: u32, id: u32 },
@@ -364,10 +367,19 @@ pub enum ResponseBody {
         #[ts(as = "Vec<crate::wire_chart::ChartObject>")]
         charts: Vec<model_sheet::ChartObject>,
     },
+    /// The reply to `sheetSparklines`.
+    Sparklines {
+        groups: Vec<crate::sparklines::SparklineGroupView>,
+    },
     /// The reply to `chartData` and `previewChartData`.
     ChartData {
         #[ts(as = "crate::wire_chart::ResolvedChart")]
         data: core_model::chart::ResolvedChart,
+        /// Per series: custom error bar amounts and "Value From Cells"
+        /// texts (absent when no series has any).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<crate::wire_chart::SeriesExtras>>")]
+        extras: Vec<model_sheet::SeriesExtras>,
     },
     /// The reply to `recommendedChart`.
     RecommendedChart {
@@ -584,12 +596,17 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         Request::SheetCharts { sheet } => ResponseBody::Charts {
             charts: host.doc().sheet_charts(sheet)?,
         },
-        Request::ChartData { sheet, id } => ResponseBody::ChartData {
-            data: host.doc().chart_data(sheet, id)?,
+        Request::SheetSparklines { sheet } => ResponseBody::Sparklines {
+            groups: host.doc().sheet_sparklines(sheet)?,
         },
-        Request::PreviewChartData { sheet, chart } => ResponseBody::ChartData {
-            data: host.doc().preview_chart_data(sheet, &chart)?,
-        },
+        Request::ChartData { sheet, id } => {
+            let (data, extras) = host.doc().chart_data(sheet, id)?;
+            ResponseBody::ChartData { data, extras }
+        }
+        Request::PreviewChartData { sheet, chart } => {
+            let (data, extras) = host.doc().preview_chart_data(sheet, &chart)?;
+            ResponseBody::ChartData { data, extras }
+        }
         Request::RecommendedChart {
             sheet,
             r0,

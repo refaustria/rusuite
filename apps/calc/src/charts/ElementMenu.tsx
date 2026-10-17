@@ -7,9 +7,10 @@ import type { Chart } from "../generated/Chart";
 import { useT } from "../i18n";
 import type { CalcStore } from "../state/store";
 import { horizontalBars } from "./elements";
+import { applyDataTable, applyErrorBars, applyLineExtras, canHaveDataTable, canHaveLineExtras, errorBarChoice, type ErrorBarChoice } from "./extras";
 import { applyElement, elementState, labelPositions, type ElementOp } from "./presets";
 
-type Sub = "axes" | "axisTitles" | "title" | "labels" | "grid" | "legend" | "trend";
+type Sub = "axes" | "axisTitles" | "title" | "labels" | "table" | "errors" | "grid" | "legend" | "lines" | "trend" | "upDown";
 
 const ITEM = "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-ui-fg hover:bg-ui-hover focus-visible:bg-ui-hover focus-visible:outline-none aria-expanded:bg-ui-active disabled:opacity-40";
 
@@ -72,6 +73,20 @@ export function AddElementMenu({ store, chart, close }: { store: CalcStore; char
     void store.charts.edit((c) => applyElement(c, op));
     store.focusGrid();
   };
+  const runFn = (fn: (c: Chart) => Chart) => () => {
+    close();
+    void store.charts.edit(fn);
+    store.focusGrid();
+  };
+  const errSeries = selSeries && (selSeries.type === "series" || selSeries.type === "errorBars") ? selSeries.series : undefined;
+  const errNow = errorBarChoice(chart);
+  const fnItem = (label: string, fn: (c: Chart) => Chart, checked: boolean) => (
+    <button key={label} type="button" role="menuitemradio" aria-checked={checked} data-ce-item="" className={`${ITEM} aria-checked:font-semibold`} onClick={runFn(fn)}>
+      <span className="w-3 text-xs">{checked ? "✓" : ""}</span>
+      {label}
+    </button>
+  );
+  const lineOk = canHaveLineExtras(chart);
   const closeSub = () => {
     const s = sub;
     setSub(null);
@@ -146,6 +161,20 @@ export function AddElementMenu({ store, chart, close }: { store: CalcStore; char
           {labelPositions(chart.kind).map((p) => item(t(LABEL_KEYS[p] ?? p), { el: "dataLabels", position: p }, st.labels === p))}
         </>
       ))}
+      {subItem("table", t("calc.chart.ae.dataTable"), () => (
+        <>
+          {fnItem(t("calc.chart.none"), (c) => applyDataTable(c, "none"), !chart.dataTable)}
+          {fnItem(t("calc.chart.ae.tableKeys"), (c) => applyDataTable(c, "keys"), !!chart.dataTable?.keys)}
+          {fnItem(t("calc.chart.ae.tableNoKeys"), (c) => applyDataTable(c, "noKeys"), !!chart.dataTable && !chart.dataTable.keys)}
+        </>
+      ), !canHaveDataTable(chart))}
+      {subItem("errors", t("calc.chart.ae.errorBars"), () => (
+        <>
+          {(["none", "stdErr", "percentage", "stdDev"] as ErrorBarChoice[]).map((k) =>
+            fnItem(t(k === "none" ? "calc.chart.none" : `calc.chart.err.${k}`), (c) => applyErrorBars(c, k, errSeries), errNow === k),
+          )}
+        </>
+      ), pie || chart.series.length === 0)}
       {subItem("grid", t("calc.chart.ae.gridlines"), () => (
         <>
           {item(t("calc.chart.ae.majorHorizontal"), { el: "gridlines", axis: vAxis, minor: false, on: !st.grid[`${vAxis}Major`] }, st.grid[`${vAxis}Major`])}
@@ -160,6 +189,12 @@ export function AddElementMenu({ store, chart, close }: { store: CalcStore; char
           {(["right", "top", "left", "bottom"] as const).map((p) => item(t(`calc.chart.pos.${p}`), { el: "legend", position: p }, st.legend === p))}
         </>
       ))}
+      {subItem("lines", t("calc.chart.ae.lines"), () => (
+        <>
+          {fnItem(t("calc.chart.none"), (c) => applyLineExtras(c, { highLow: false }), !chart.highLowLines)}
+          {fnItem(t("calc.chart.ae.highLow"), (c) => applyLineExtras(c, { highLow: true }), !!chart.highLowLines)}
+        </>
+      ), !lineOk)}
       {subItem("trend", t("calc.chart.ae.trendline"), () => (
         <>
           {item(t("calc.chart.none"), { el: "trendline", kind: "none", series: trendSeries }, false)}
@@ -168,6 +203,12 @@ export function AddElementMenu({ store, chart, close }: { store: CalcStore; char
           {item(t("calc.chart.trend.movingAverage"), { el: "trendline", kind: "movingAverage", series: trendSeries }, false)}
         </>
       ), pie || chart.series.length === 0)}
+      {subItem("upDown", t("calc.chart.ae.upDownBars"), () => (
+        <>
+          {fnItem(t("calc.chart.none"), (c) => applyLineExtras(c, { upDown: false }), !chart.upDownBars)}
+          {fnItem(t("calc.chart.ae.upDownBars"), (c) => applyLineExtras(c, { upDown: true }), !!chart.upDownBars)}
+        </>
+      ), !lineOk || chart.series.length < 2)}
     </div>
   );
 }

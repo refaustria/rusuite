@@ -29,10 +29,26 @@ impl CalcDocument {
             | C::SetChartAnchor { sheet, .. }
             | C::SetChartSeries { sheet, .. }
             | C::RemoveChart { sheet, .. }
-            | C::RestoreCharts { sheet, .. } => *sheet,
+            | C::RestoreCharts { sheet, .. }
+            | C::SetChartSheet { sheet, .. } => *sheet,
             _ => unreachable!("not a chart command: {cmd:?}"),
         };
         let s = self.sheet(sheet)?;
+        if let &C::SetChartSheet { chart_sheet, .. } = cmd {
+            let old = self.workbook().is_chart_sheet(s);
+            self.workbook_mut().set_chart_sheet(s, chart_sheet)?;
+            return Ok(Applied {
+                patch: CalcPatch {
+                    sheets: Some(self.sheet_infos()),
+                    chart_sheets: vec![sheet],
+                    ..Default::default()
+                },
+                inverse: Some(C::SetChartSheet {
+                    sheet,
+                    chart_sheet: old,
+                }),
+            });
+        }
         let before = self.workbook().charts(s).to_vec();
         // Unsupported charts only come from files (and are read-only).
         let unsupported = |c: &Chart| matches!(c.kind, ChartKind::Unsupported { .. });
@@ -236,14 +252,28 @@ impl CalcDocument {
 
     /// The `chartData` request: the data of chart `id` as the renderer
     /// draws it.
-    pub fn chart_data(&self, sheet: u32, id: u32) -> Result<ResolvedChart> {
-        Ok(self.workbook().chart_data(self.sheet(sheet)?, id)?)
+    pub fn chart_data(
+        &self,
+        sheet: u32,
+        id: u32,
+    ) -> Result<(ResolvedChart, Vec<model_sheet::SeriesExtras>)> {
+        let s = self.sheet(sheet)?;
+        let wb = self.workbook();
+        let data = wb.chart_data(s, id)?;
+        let chart = &wb.chart(s, id).expect("resolved above").chart;
+        Ok((data, wb.chart_extras(chart, s)))
     }
 
     /// The `previewChartData` request: the data of a chart that is not
     /// (yet) on the sheet (the insert/edit dialogs' preview).
-    pub fn preview_chart_data(&self, sheet: u32, chart: &Chart) -> Result<ResolvedChart> {
-        Ok(self.workbook().resolve_chart(chart, self.sheet(sheet)?))
+    pub fn preview_chart_data(
+        &self,
+        sheet: u32,
+        chart: &Chart,
+    ) -> Result<(ResolvedChart, Vec<model_sheet::SeriesExtras>)> {
+        let s = self.sheet(sheet)?;
+        let wb = self.workbook();
+        Ok((wb.resolve_chart(chart, s), wb.chart_extras(chart, s)))
     }
 
     /// The `recommendedChart` request: Excel's default chart for the

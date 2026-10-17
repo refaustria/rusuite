@@ -7,7 +7,8 @@
 //! number formats ([`numfmt`]), column/row dimensions, sheet defaults,
 //! sheet views (frozen panes, zoom), hidden sheets, merged cells, sorting
 //! and AutoFilter ([`sortfilter`]), conditional formatting ([`condfmt`])
-//! data validation ([`validation`]), charts ([`chart`]), defined names
+//! data validation ([`validation`]), charts ([`chart`]), sparklines
+//! ([`sparkline`]), defined names
 //! ([`names`]), notes, threaded comments and hyperlinks
 //! ([`annotations`]), pivot tables ([`pivot`]) and sheet / workbook
 //! protection ([`protection`]).
@@ -30,6 +31,7 @@ pub mod sheet;
 pub mod slicer;
 pub mod snapshot;
 pub mod sortfilter;
+pub mod sparkline;
 mod spill;
 pub mod style;
 pub mod table_styles;
@@ -42,13 +44,20 @@ pub use annotations::{
     guid, initials_of, Hyperlink, LinkTarget, Note, NoteBounds, NoteRun, Person, Reply, Thread,
 };
 pub use calc::{CalcMode, CalcSettings};
-pub use chart::{CellOffset, ChartAnchor, ChartObject, ResolvedRef};
+pub use chart::{
+    CellOffset, ChartAnchor, ChartObject, ResolvedErrorBars, ResolvedRef, SeriesExtras,
+    CHART_SHEET_SIZE,
+};
 pub use condfmt::{
     CfKind, CfResult, CfRule, CfValue, ColorPoint, CompareOp, DataBarAxis, DataBarDirection,
     DataBarDraw, DxfStyle, IconSetKind, TimePeriod, NEGATIVE_BAR_COLOR,
 };
 pub use consolidate::{ConsolidateFunction, ConsolidateSpec};
 pub use engine_formula::CellRect;
+pub use sparkline::{
+    sparkline_style, Sparkline, SparklineAxis, SparklineColors, SparklineData, SparklineEmpty,
+    SparklineGroup, SparklineKind,
+};
 
 pub use engine_formula::{CellContent, CellCoord, EngineError, NameScope, Recalc, SheetId};
 pub use names::{BuiltinName, DefinedName};

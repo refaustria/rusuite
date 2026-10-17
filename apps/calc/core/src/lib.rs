@@ -39,6 +39,7 @@ mod patch;
 mod pivots;
 mod protection;
 mod slicers;
+mod sparklines;
 mod tables;
 pub mod wire;
 pub mod wire_annot;
@@ -46,6 +47,7 @@ pub mod wire_cf;
 pub mod wire_chart;
 pub mod wire_data;
 pub mod wire_pivot;
+pub mod wire_sparkline;
 pub mod wire_tables;
 
 pub use annotations::{CellAnnotations, FormulaLink, SheetAnnotations, SheetThreads};
@@ -71,3 +73,4 @@ pub use pivots::{
     PivotPatch, PivotRecommendation, PivotSourceSpec, PivotSummary, PivotTarget, SheetPivots,
 };
 pub use slicers::{SheetSlicers, SlicerPivot, SlicerView};
+pub use sparklines::SparklineGroupView;

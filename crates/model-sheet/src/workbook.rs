@@ -159,6 +159,7 @@ impl Workbook {
         let rewritten = self.engine.rename_sheet(id, new_name)?;
         if let Some(old) = old.filter(|o| o != new_name) {
             self.rename_chart_refs(None, &old, new_name);
+            self.rename_sparkline_refs(None, &old, new_name);
             self.rename_pivot_sources(&old, new_name);
             self.rename_rule_refs(&old, new_name);
         }
@@ -177,6 +178,8 @@ impl Workbook {
         {
             return Err(Error::LastVisibleSheet);
         }
+        self.break_chart_refs(id);
+        self.break_sparkline_refs(id);
         let recalc = self.engine.remove_sheet(id)?;
         if let Some(data) = self.sheets.get_mut(id.0 as usize) {
             *data = SheetData::default();
@@ -225,6 +228,7 @@ impl Workbook {
         *self.sheet_data_mut(new)? = data;
         if let Some(source) = source {
             self.rename_chart_refs(Some(new), &source, name);
+            self.rename_sparkline_refs(Some(new), &source, name);
         }
         self.sync_name_meta(Some((id, new)));
         self.renew_thread_ids(new);
@@ -832,6 +836,7 @@ impl Workbook {
             .collect();
         self.shift_rules(sheet, shift);
         self.shift_charts(sheet, shift);
+        self.shift_sparklines(sheet, shift);
         self.shift_annotations(sheet, shift);
         self.shift_pivot_sources(sheet, shift);
         Ok(recalc)
@@ -972,6 +977,7 @@ impl Workbook {
         });
         self.shift_rules(sheet, op.into());
         self.shift_charts(sheet, op.into());
+        self.shift_sparklines(sheet, op.into());
         self.shift_annotations(sheet, op.into());
         self.shift_pivots(sheet, op);
         self.shift_page_breaks(sheet, op);

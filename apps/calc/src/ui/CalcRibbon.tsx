@@ -23,6 +23,7 @@ import { linksInsertGroup, reviewTab } from "../comments/ReviewRibbon";
 import { pivotAnalyzeTab, pivotDesignTab, pivotInsertGroup } from "../pivot/PivotRibbon";
 import { tableDesignTab, tableInsertButton } from "../tables/TableRibbon";
 import { slicerInsertGroup, slicerTab } from "../slicers/SlicerRibbon";
+import { sparklineInsertGroup, sparklineTab } from "../sparklines/SparklineRibbon";
 import { dataTabGroups, getDataGroup, pageLayoutTab, pasteMenu, PicturesButton, workbookViewsGroup } from "../datatools/DataRibbon";
 import { NumberGroup } from "./NumberGroup";
 import { bordersMenu } from "./bordersMenu";
@@ -340,6 +341,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       chartsInsertGroup(store, t, off),
+      sparklineInsertGroup(store, t, off),
       slicerInsertGroup(store, t, off),
       linksInsertGroup(store, t, off),
     ],
@@ -356,8 +358,10 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
   const tableTabs = chartTabs.length || pivotTabs.length
     ? []
     : contextualTabs([tableDesignTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.table.tools"), CONTEXT_COLORS.table);
-  const contextual = [...slicerTabs, ...chartTabs, ...pivotTabs, ...tableTabs];
-  const contextualTab = tab !== undefined && ["slicer", "chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign", "tableDesign"].includes(tab);
+  // Sparkline while the active cell holds a sparkline (P9-C6).
+  const sparkTabs = slicerTabs.length || chartTabs.length ? [] : contextualTabs([sparklineTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.spark.tools"), CONTEXT_COLORS.chart);
+  const contextual = [...slicerTabs, ...chartTabs, ...pivotTabs, ...tableTabs, ...sparkTabs];
+  const contextualTab = tab !== undefined && ["slicer", "chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign", "tableDesign", "sparkline"].includes(tab);
   const available = contextual.some((x) => x.id === tab);
   // A new pivot table's tab is requested before its sheet and field list have arrived.
   const pending = tab !== undefined && store.pivots.pendingTab === tab;

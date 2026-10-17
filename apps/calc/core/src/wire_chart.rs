@@ -68,6 +68,217 @@ mirror! {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(optional, as = "Option<bool>")]
         pub overlay: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub text_format: Option<TextFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub layout: Option<ManualLayout>,
+    }
+
+    /// Mirror of `core_model::chart::TextFormat`: font, size (pt), bold,
+    /// italic, colour and rotation (degrees, −90..=90); absent = the
+    /// chart style's.
+    #[serde(rename_all = "camelCase")]
+    pub struct TextFormat {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub font: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub size: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub bold: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub italic: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub color: Option<Color>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub rotation: Option<i32>,
+    }
+
+    /// Mirror of `core_model::chart::ManualLayout`: fractions of the chart
+    /// area from its top-left corner.
+    #[serde(rename_all = "camelCase")]
+    pub struct ManualLayout {
+        pub x: f64,
+        pub y: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub w: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub h: Option<f64>,
+    }
+
+    /// Mirror of `core_model::chart::GradientStop` (`pos` 0..=1).
+    #[serde(rename_all = "camelCase")]
+    pub struct GradientStop {
+        pub pos: f64,
+        pub color: Color,
+    }
+
+    /// Mirror of `core_model::chart::AreaFill`.
+    #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+    pub enum AreaFill {
+        None,
+        Solid {
+            color: Color,
+        },
+        Gradient {
+            stops: Vec<GradientStop>,
+            #[serde(default)]
+            #[ts(optional, as = "Option<f64>")]
+            angle: f64,
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            #[ts(optional, as = "Option<bool>")]
+            radial: bool,
+        },
+        Picture {
+            media: crate::wire_tables::Media,
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            #[ts(optional, as = "Option<bool>")]
+            tile: bool,
+        },
+    }
+
+    /// Mirror of `core_model::chart::ShapeFormat`.
+    #[serde(rename_all = "camelCase")]
+    pub struct ShapeFormat {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub fill: Option<AreaFill>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub line: Option<LineFormat>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub shadow: bool,
+    }
+
+    /// Mirror of `core_model::chart::ErrorBarDirection`.
+    #[serde(rename_all = "camelCase")]
+    pub enum ErrorBarDirection {
+        X,
+        Y,
+    }
+
+    /// Mirror of `core_model::chart::ErrorBarType`.
+    #[serde(rename_all = "camelCase")]
+    pub enum ErrorBarType {
+        Both,
+        Plus,
+        Minus,
+    }
+
+    /// Mirror of `core_model::chart::ErrorAmount`.
+    #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+    pub enum ErrorAmount {
+        Fixed { value: f64 },
+        Percentage { value: f64 },
+        StdDev { value: f64 },
+        StdErr,
+        Custom {
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            plus: Option<DataRef>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            #[ts(optional)]
+            minus: Option<DataRef>,
+        },
+    }
+
+    /// Mirror of `core_model::chart::ErrorBars`; absent direction = `y`,
+    /// absent type = `both`.
+    #[serde(rename_all = "camelCase")]
+    pub struct ErrorBars {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub direction: Option<ErrorBarDirection>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub bar_type: Option<ErrorBarType>,
+        pub amount: ErrorAmount,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub no_end_cap: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub line: Option<LineFormat>,
+    }
+
+    /// Mirror of `core_model::chart::DataTable`; absent borders = shown.
+    #[serde(rename_all = "camelCase")]
+    pub struct DataTable {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub horizontal: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub vertical: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub outline: Option<bool>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub keys: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub text_format: Option<TextFormat>,
+    }
+
+    /// Mirror of `core_model::chart::UpDownBars`.
+    #[serde(rename_all = "camelCase")]
+    pub struct UpDownBars {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub gap_width: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub up: Option<ShapeFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub down: Option<ShapeFormat>,
+    }
+
+    /// Mirror of `core_model::chart::PointLabel`.
+    #[serde(rename_all = "camelCase")]
+    pub struct PointLabel {
+        pub idx: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub delete: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub show_value: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub show_percent: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub show_category: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub show_series: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub show_range: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub position: Option<LabelPosition>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub number_format: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub text_format: Option<TextFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub layout: Option<ManualLayout>,
     }
 
     /// Mirror of `core_model::chart::BarDirection`.
@@ -257,6 +468,21 @@ mirror! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub number_format: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub range: Option<DataRef>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub show_range: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub leader_lines: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub text_format: Option<TextFormat>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<PointLabel>>")]
+        pub points: Vec<PointLabel>,
     }
 
     /// Mirror of `core_model::chart::TrendlineKind`.
@@ -326,6 +552,9 @@ mirror! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub smooth: Option<bool>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<ErrorBars>>")]
+        pub error_bars: Vec<ErrorBars>,
     }
 
     /// Mirror of `core_model::chart::Crosses`.
@@ -390,6 +619,12 @@ mirror! {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(optional, as = "Option<bool>")]
         pub delete: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub text_format: Option<TextFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub line: Option<LineFormat>,
     }
 
     /// Mirror of `core_model::chart::Axes`.
@@ -475,6 +710,36 @@ mirror! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         pub first_slice_angle: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub chart_area: Option<ShapeFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub plot_area: Option<ShapeFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub plot_layout: Option<ManualLayout>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub text_format: Option<TextFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub legend_text_format: Option<TextFormat>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub legend_layout: Option<ManualLayout>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub rounded_corners: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub data_table: Option<DataTable>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub up_down_bars: Option<UpDownBars>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub high_low_lines: Option<LineFormat>,
     }
 
     /// Mirror of `model_sheet::CellOffset`: a cell corner plus an offset
@@ -544,6 +809,30 @@ mirror! {
         pub category_format_code: Option<String>,
     }
 
+    /// Mirror of `model_sheet::ResolvedErrorBars`.
+    #[serde(rename_all = "camelCase")]
+    pub struct ResolvedErrorBars {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub plus: Option<Vec<Option<f64>>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub minus: Option<Vec<Option<f64>>>,
+    }
+
+    /// Mirror of `model_sheet::SeriesExtras`: custom error bar amounts
+    /// and "Value From Cells" texts of a series (Calc merges them into the
+    /// resolved series for the renderer).
+    #[serde(rename_all = "camelCase")]
+    pub struct SeriesExtras {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<ResolvedErrorBars>>")]
+        pub error_bars: Vec<ResolvedErrorBars>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub label_texts: Option<Vec<String>>,
+    }
+
     /// Mirror of `core_model::chart::ResolvedChart`: the data of a chart,
     /// one entry per series.
     #[serde(rename_all = "camelCase")]
@@ -592,6 +881,32 @@ mod tests {
             }),
             line: Some(cm::LineFormat::hidden()),
         };
+        let tf = cm::TextFormat {
+            font: Some("Arial".into()),
+            size: Some(9.5),
+            bold: Some(true),
+            italic: Some(false),
+            color: Some(red),
+            rotation: Some(-45),
+        };
+        let layout = cm::ManualLayout {
+            x: 0.1,
+            y: 0.2,
+            w: Some(0.5),
+            h: None,
+        };
+        let shape = cm::ShapeFormat {
+            fill: Some(cm::AreaFill::Gradient {
+                stops: vec![cm::GradientStop {
+                    pos: 0.5,
+                    color: red,
+                }],
+                angle: 45.0,
+                radial: true,
+            }),
+            line: Some(line),
+            shadow: true,
+        };
         let labels = cm::DataLabels {
             show_value: true,
             show_percent: true,
@@ -600,6 +915,30 @@ mod tests {
             show_legend_key: true,
             position: Some(cm::LabelPosition::InsideBase),
             number_format: Some("0%".into()),
+            range: Some(cm::DataRef::reference("S!$D$2:$D$4")),
+            show_range: true,
+            leader_lines: true,
+            text_format: Some(tf.clone()),
+            points: vec![
+                cm::PointLabel {
+                    idx: 1,
+                    delete: true,
+                    ..cm::PointLabel::default()
+                },
+                cm::PointLabel {
+                    idx: 2,
+                    show_value: true,
+                    show_percent: true,
+                    show_category: true,
+                    show_series: true,
+                    show_range: true,
+                    position: Some(cm::LabelPosition::Top),
+                    number_format: Some("0".into()),
+                    text_format: Some(tf.clone()),
+                    layout: Some(layout),
+                    delete: false,
+                },
+            ],
         };
         let axis = cm::Axis {
             title: Some(cm::ChartTitle {
@@ -608,6 +947,8 @@ mod tests {
                     cache: Some("t".into()),
                 }),
                 overlay: true,
+                text_format: Some(tf.clone()),
+                layout: Some(layout),
             }),
             min: Some(0.0),
             max: Some(10.0),
@@ -621,6 +962,8 @@ mod tests {
             minor_gridlines: true,
             tick_labels: cm::TickLabels::High,
             delete: true,
+            text_format: Some(tf.clone()),
+            line: Some(line),
         };
         let kinds = [
             cm::ChartKind::column(),
@@ -689,6 +1032,31 @@ mod tests {
                     line: Some(line),
                 }),
                 smooth: Some(true),
+                error_bars: vec![
+                    cm::ErrorBars {
+                        direction: cm::ErrorBarDirection::X,
+                        bar_type: cm::ErrorBarType::Minus,
+                        amount: cm::ErrorAmount::Custom {
+                            plus: Some(cm::DataRef::reference("S!$E$2:$E$4")),
+                            minus: None,
+                        },
+                        no_end_cap: true,
+                        line: Some(line),
+                    },
+                    cm::ErrorBars {
+                        direction: cm::ErrorBarDirection::Y,
+                        bar_type: cm::ErrorBarType::Both,
+                        amount: [
+                            cm::ErrorAmount::Fixed { value: 1.0 },
+                            cm::ErrorAmount::Percentage { value: 5.0 },
+                            cm::ErrorAmount::StdDev { value: 2.0 },
+                            cm::ErrorAmount::StdErr,
+                        ][i % 4]
+                            .clone(),
+                        no_end_cap: false,
+                        line: None,
+                    },
+                ],
                 ..cm::Series::new(cm::DataRef::reference("S!$C$2:$C$4"))
             });
             chart.axes = cm::Axes {
@@ -709,6 +1077,39 @@ mod tests {
             chart.overlap = Some(-20);
             chart.hole_size = Some(40);
             chart.first_slice_angle = Some(30);
+            chart.chart_area = Some(shape.clone());
+            chart.plot_area = Some(cm::ShapeFormat {
+                fill: Some(if i % 2 == 0 {
+                    cm::AreaFill::Picture {
+                        media: core_model::Media {
+                            content_type: "image/png".into(),
+                            data: vec![1, 2, 3],
+                        },
+                        tile: true,
+                    }
+                } else {
+                    cm::AreaFill::Solid { color: red }
+                }),
+                ..cm::ShapeFormat::default()
+            });
+            chart.plot_layout = Some(layout);
+            chart.text_format = Some(tf.clone());
+            chart.legend_text_format = Some(tf.clone());
+            chart.legend_layout = Some(layout);
+            chart.rounded_corners = true;
+            chart.data_table = Some(cm::DataTable {
+                horizontal: false,
+                vertical: true,
+                outline: false,
+                keys: true,
+                text_format: Some(tf.clone()),
+            });
+            chart.up_down_bars = Some(cm::UpDownBars {
+                gap_width: Some(80),
+                up: Some(shape.clone()),
+                down: None,
+            });
+            chart.high_low_lines = Some(line);
             same_shape::<_, Chart>(&chart);
             same_shape::<_, Chart>(&cm::Chart::new(kind));
         }
@@ -754,5 +1155,15 @@ mod tests {
             title: Some("t".into()),
         });
         same_shape::<_, ResolvedChart>(&cm::ResolvedChart::default());
+        same_shape::<_, SeriesExtras>(&ms::SeriesExtras {
+            error_bars: vec![
+                ms::ResolvedErrorBars {
+                    plus: Some(vec![Some(1.0), None]),
+                    minus: None,
+                },
+                ms::ResolvedErrorBars::default(),
+            ],
+            label_texts: Some(vec!["a".into()]),
+        });
     }
 }

@@ -64,6 +64,13 @@ cfSheets?: Array<number>,
  */
 chartSheets?: Array<number>, 
 /**
+ * Sheets whose sparklines may have changed: a sparkline command, a
+ * cell change their data reads, or a structural, sheet list or
+ * row/column visibility change on a workbook with sparklines. The UI
+ * refetches `sheetSparklines`; absent = none.
+ */
+sparklineSheets?: Array<number>, 
+/**
  * The full list of defined names, when it changed (a name command,
  * or a structural edit / sheet rename or delete that rewrote a
  * definition); absent = unchanged.

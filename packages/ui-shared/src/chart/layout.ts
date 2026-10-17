@@ -5,11 +5,12 @@
 
 import { basicFormat } from "./format";
 import type {
-  Axis, Chart, ChartKind, DataLabels, LabelPosition, LegendPosition, LineDash, Marker, MarkerSymbol, ResolvedChart, ResolvedSeries, Series, TextSource,
+  AreaFill, Axis, Chart, ChartKind, DataLabels, DataRef, LabelPosition, LegendPosition, LineDash, LineFormat, ManualLayout, Marker, MarkerSymbol, ResolvedChart, ResolvedSeries, Series,
+  ShapeFormat, TextFormat, TextSource,
 } from "./model";
 import { fillColor, paletteColor, resolveColor, type ChartTheme } from "./palette";
 import { labelStep, minorTicks, scaleFraction, valueScale, type ScaleOptions, type ValueScale } from "./scale";
-import type { AxisId, Box, ChartElement, ChartScene, HitShape, SceneAxis, SceneHit, SceneItem } from "./scene";
+import type { AxisId, Box, ChartElement, ChartScene, HitShape, PaintExtras, SceneAxis, SceneHit, SceneItem } from "./scene";
 import { fitTrend, movingAverage, rSquaredLabel, trendEquation } from "./trend";
 
 /** Texts the renderer shows (the host translates them). `{kind}`, `{name}`, `{period}` are placeholders. */
@@ -55,6 +56,10 @@ export interface ChartLayoutOptions {
   area?: { fill: string | null; border: string | null };
   /** Colour of titles, labels and the legend (default `#595959`, Office's tx1 +35 %). */
   textColor?: string;
+  /** Excel's automatic value axis bounds (5 % beyond the data, docs/charts.md); default: the P8-20 approximation. */
+  excelScale?: boolean;
+  /** Category labels turn −45° (then −90°) when they would overlap, like Excel's; default: thinned. */
+  autoRotateLabels?: boolean;
 }
 
 // --- constants (docs/charts.md, 100 % zoom, CSS px) --------------------------------------------
@@ -117,9 +122,14 @@ class Builder {
   hit(el: ChartElement, shape: HitShape): void {
     this.hits.push({ el, shape });
   }
-  rect(x: number, y: number, w: number, h: number, style: { fill?: string; stroke?: string; lineWidth?: number; dash?: number[] }, el?: ChartElement): void {
+  rect(x: number, y: number, w: number, h: number, style: { fill?: string; stroke?: string; lineWidth?: number; dash?: number[] } & PaintExtras, el?: ChartElement): void {
     const item: SceneItem = { t: "rect", x: r2(x), y: r2(y), w: r2(w), h: r2(h) };
     if (style.fill) item.fill = style.fill;
+    if (style.gradient) item.gradient = style.gradient;
+    if (style.image) item.image = style.image;
+    if (style.tile) item.tile = true;
+    if (style.shadow) item.shadow = true;
+    if (style.radius) item.radius = style.radius;
     if (style.stroke) {
       item.stroke = style.stroke;
       item.lineWidth = style.lineWidth ?? 1;
@@ -145,7 +155,7 @@ class Builder {
   }
   text(
     text: string, x: number, y: number,
-    o: { size: number; bold?: boolean; align?: "left" | "center" | "right"; baseline?: "top" | "middle" | "bottom"; rotate?: number; color?: string },
+    o: { size: number; bold?: boolean; italic?: boolean; font?: string; align?: "left" | "center" | "right"; baseline?: "top" | "middle" | "bottom"; rotate?: number; color?: string },
     el?: ChartElement,
   ): void {
     if (!text) return;
@@ -153,6 +163,8 @@ class Builder {
       t: "text", x: r2(x), y: r2(y), text, size: r2(o.size), color: o.color ?? this.textColor, align: o.align ?? "left", baseline: o.baseline ?? "top",
     };
     if (o.bold) item.bold = true;
+    if (o.italic) item.italic = true;
+    if (o.font) item.font = o.font;
     if (o.rotate) item.rotate = o.rotate;
     if (el) item.el = el;
     this.items.push(item);
@@ -315,7 +327,7 @@ function seriesInfos(chart: Chart, data: ResolvedChart, theme: ChartTheme): Seri
   });
 }
 
-const labelsShown = (d: DataLabels | undefined) => !!d && !!(d.showValue || d.showPercent || d.showCategory || d.showSeries);
+const labelsShown = (d: DataLabels | undefined) => !!d && !!(d.showValue || d.showPercent || d.showCategory || d.showSeries || d.showRange);
 
 // --- the layout ----------------------------------------------------------------------------------
 
@@ -330,6 +342,89 @@ interface Ctx {
   thumb: boolean;
   series: SeriesInfo[];
   axes: Partial<Record<AxisId, SceneAxis>>;
+  /** The chart box (manual layouts are fractions of it). */
+  W: number;
+  H: number;
+  excelScale: boolean;
+  autoRotate: boolean;
+}
+
+/** A text's size (px), weight, slant, colour and font. */
+export interface TextStyle {
+  size: number;
+  bold?: boolean;
+  italic?: boolean;
+  color?: string;
+  font?: string;
+}
+
+/**
+ * The style of a chart text: the element's default size (`sizePx`) and weight, then the chart's
+ * `textFormat` (its size scales every default by size / 9 pt), then the element's own formats in order.
+ */
+function textStyle(ctx: Ctx, sizePx: number, bold: boolean, ...formats: (TextFormat | undefined)[]): TextStyle {
+  const st: TextStyle = { size: sizePx };
+  if (bold) st.bold = true;
+  const base = ctx.chart.textFormat;
+  if (base?.size) st.size = (base.size * PT * sizePx) / LABEL_PX;
+  for (const f of [base, ...formats]) {
+    if (!f) continue;
+    if (f !== base && f.size) st.size = f.size * PT;
+    if (f.bold !== undefined) st.bold = f.bold || undefined;
+    if (f.italic !== undefined) st.italic = f.italic || undefined;
+    if (f.color) st.color = resolveColor(f.color, ctx.theme);
+    if (f.font) st.font = f.font;
+  }
+  return st;
+}
+
+/** Stroke of a modelled line (`none` = no line; absent fields = the defaults). */
+function strokeOf(ctx: Ctx, l: LineFormat | undefined, color: string | null, width = 1): { stroke?: string; lineWidth?: number; dash?: number[] } {
+  if (l?.none) return {};
+  const stroke = l?.color ? resolveColor(l.color, ctx.theme) : color;
+  if (!stroke) return {};
+  const lineWidth = l?.width ? l.width / EMU_PER_PX : width;
+  const dash = dashPattern(l?.dash, lineWidth);
+  return { stroke, lineWidth, ...(dash ? { dash } : {}) };
+}
+
+/** The paint of an area fill over `box` (`null`: no fill; `undefined`: the default). */
+function areaPaint(ctx: Ctx, f: AreaFill | undefined, box: Box): ({ fill?: string } & PaintExtras) | null | undefined {
+  if (!f) return undefined;
+  switch (f.type) {
+    case "none":
+      return null;
+    case "solid":
+      return { fill: resolveColor(f.color, ctx.theme) };
+    case "gradient": {
+      const stops = f.stops.map((st) => ({ pos: st.pos, color: resolveColor(st.color, ctx.theme) }));
+      if (!stops.length) return null;
+      const cx = box.x + box.w / 2;
+      const cy = box.y + box.h / 2;
+      if (f.radial) return { fill: stops[0]!.color, gradient: { x0: r2(cx), y0: r2(cy), x1: r2(cx), y1: r2(cy), radial: true, r: r2(Math.hypot(box.w, box.h) / 2), stops } };
+      const a = (((f.angle ?? 0) % 360) * Math.PI) / 180;
+      const half = (Math.abs(box.w * Math.cos(a)) + Math.abs(box.h * Math.sin(a))) / 2;
+      const dx = Math.cos(a) * half;
+      const dy = Math.sin(a) * half;
+      return { fill: stops[0]!.color, gradient: { x0: r2(cx - dx), y0: r2(cy - dy), x1: r2(cx + dx), y1: r2(cy + dy), stops } };
+    }
+    case "picture":
+      return f.media.data ? { image: `data:${f.media.contentType || "image/png"};base64,${f.media.data}`, ...(f.tile ? { tile: true } : {}) } : null;
+  }
+}
+
+/** A manual layout as a box in px (`w`/`h` absent: `fallback`'s size). */
+function layoutBox(ctx: Ctx, l: ManualLayout, fallback: { w: number; h: number }): Box {
+  return { x: l.x * ctx.W, y: l.y * ctx.H, w: l.w !== undefined ? l.w * ctx.W : fallback.w, h: l.h !== undefined ? l.h * ctx.H : fallback.h };
+}
+
+/** The plot area's own fill and border (`c:plotArea/c:spPr`), drawn behind the gridlines. */
+function drawPlotArea(ctx: Ctx, plot: Box, shape: ShapeFormat | undefined): void {
+  if (!shape) return;
+  const paint = areaPaint(ctx, shape.fill, plot);
+  const stroke = shape.line ? strokeOf(ctx, shape.line, BORDER_COLOR) : {};
+  if (!paint && !stroke.stroke && !shape.shadow) return;
+  ctx.b.rect(plot.x, plot.y, plot.w, plot.h, { ...(paint ?? {}), ...stroke, ...(shape.shadow ? { shadow: true } : {}) }, { type: "plotArea" });
 }
 
 const fill = (s: string, vars: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
@@ -346,12 +441,24 @@ export function layoutChart(chart: Chart, data: ResolvedChart, width: number, he
     thumb: !!options.thumbnail,
     series: [],
     axes: {},
+    W: Math.max(1, width),
+    H: Math.max(1, height),
+    excelScale: !!options.excelScale,
+    autoRotate: !!options.autoRotateLabels,
   };
   const w = Math.max(1, width);
   const h = Math.max(1, height);
   if (options.textColor) b.textColor = options.textColor;
   const area = options.area ?? { fill: "#FFFFFF", border: ctx.thumb ? null : BORDER_COLOR };
-  b.rect(0.5, 0.5, w - 1, h - 1, { fill: area.fill ?? undefined, stroke: area.border ?? undefined, lineWidth: 1 }, { type: "chartArea" });
+  const own = chart.chartArea;
+  const areaBox: Box = { x: 0.5, y: 0.5, w: w - 1, h: h - 1 };
+  const paint = areaPaint(ctx, own?.fill, areaBox);
+  const areaFill = paint === undefined ? (area.fill ? { fill: area.fill } : {}) : (paint ?? {});
+  const areaStroke = own?.line ? strokeOf(ctx, own.line, area.border ?? BORDER_COLOR) : area.border ? { stroke: area.border, lineWidth: 1 } : {};
+  const extras: PaintExtras = {};
+  if (own?.shadow) extras.shadow = true;
+  if (chart.roundedCorners && !ctx.thumb) extras.radius = 8;
+  b.rect(areaBox.x, areaBox.y, areaBox.w, areaBox.h, { ...areaFill, ...(areaStroke.stroke ? areaStroke : {}), ...extras }, { type: "chartArea" });
   b.hit({ type: "chartArea" }, { kind: "rect", x: 0, y: 0, w, h });
   const scene = (plot: Box, titleText?: string): ChartScene => ({
     width: w, height: h, items: b.items, hits: b.hits, plot: { x: r2(plot.x), y: r2(plot.y), w: r2(plot.w), h: r2(plot.h) }, axes: ctx.axes,
@@ -370,11 +477,19 @@ export function layoutChart(chart: Chart, data: ResolvedChart, width: number, he
   if (chart.title && !ctx.thumb) {
     titleText = data.title ?? textOf(chart.title.text) ?? (chart.series.length === 1 ? ctx.series[0]?.data.name : undefined);
     if (titleText) {
-      const th = TITLE_PX * LINE;
-      const tw = ctx.measure(titleText, TITLE_PX, false);
-      b.text(titleText, w / 2, box.y, { size: TITLE_PX, align: "center", baseline: "top" }, { type: "title" });
-      b.hit({ type: "title" }, { kind: "rect", x: w / 2 - tw / 2 - 4, y: box.y - 2, w: tw + 8, h: th + 4 });
-      if (!chart.title.overlay) box = { ...box, y: box.y + th + 6, h: box.h - th - 6 };
+      const st = textStyle(ctx, TITLE_PX, false, chart.title.textFormat);
+      const th = st.size * LINE;
+      const tw = ctx.measure(titleText, st.size, !!st.bold);
+      const manual = chart.title.layout;
+      if (manual) {
+        const at = layoutBox(ctx, manual, { w: tw, h: th });
+        b.text(titleText, at.x + 4, at.y + 2, { ...st, align: "left", baseline: "top" }, { type: "title" });
+        b.hit({ type: "title" }, { kind: "rect", x: at.x, y: at.y, w: tw + 8, h: th + 4 });
+      } else {
+        b.text(titleText, w / 2, box.y, { ...st, align: "center", baseline: "top" }, { type: "title" });
+        b.hit({ type: "title" }, { kind: "rect", x: w / 2 - tw / 2 - 4, y: box.y - 2, w: tw + 8, h: th + 4 });
+        if (!chart.title.overlay) box = { ...box, y: box.y + th + 6, h: box.h - th - 6 };
+      }
     }
   }
 
@@ -455,9 +570,10 @@ function layoutLegend(ctx: Ctx, box: Box, position: LegendPosition, overlay: boo
   const entries = legendEntries(ctx, position);
   if (entries.length === 0) return box;
   const b = ctx.b;
-  const rowH = LABEL_PX * LINE;
+  const st = textStyle(ctx, LABEL_PX, false, ctx.chart.legendTextFormat);
+  const rowH = st.size * LINE;
   const keyW = (e: LegendEntry) => (e.box ? KEY : LINE_KEY);
-  const entryW = entries.map((e) => keyW(e) + 4 + ctx.measure(e.text, LABEL_PX, false));
+  const entryW = entries.map((e) => keyW(e) + 4 + ctx.measure(e.text, st.size, !!st.bold));
   const vertical = position === "left" || position === "right" || position === "topRight";
   type Placed = { e: LegendEntry; x: number; y: number; w: number };
   const placed: Placed[] = [];
@@ -492,7 +608,14 @@ function layoutLegend(ctx: Ctx, box: Box, position: LegendPosition, overlay: boo
   let lx: number;
   let ly: number;
   let rest = box;
-  switch (position) {
+  const manual = ctx.chart.legendLayout;
+  if (manual) {
+    // Placed by hand: takes no space from the plot area.
+    const at = layoutBox(ctx, manual, { w: lw, h: lh });
+    [lx, ly] = [at.x, at.y];
+    lw = Math.max(lw, at.w);
+    lh = Math.max(lh, at.h);
+  } else switch (position) {
     case "top":
       [lx, ly] = [box.x + (box.w - lw) / 2, box.y];
       if (!overlay) rest = { ...box, y: box.y + lh + 4, h: box.h - lh - 4 };
@@ -524,7 +647,7 @@ function layoutLegend(ctx: Ctx, box: Box, position: LegendPosition, overlay: boo
       const m = p.e.marker;
       if (m) drawMarker(b, m, x + LINE_KEY / 2, cy, { type: "legend" }, Math.min(m.size, 7));
     }
-    b.text(p.e.text, x + (p.e.box ? KEY : LINE_KEY) + 4, cy, { size: LABEL_PX, baseline: "middle" }, { type: "legend" });
+    b.text(p.e.text, x + (p.e.box ? KEY : LINE_KEY) + 4, cy, { ...st, baseline: "middle" }, { type: "legend" });
   }
   return rest;
 }
@@ -619,8 +742,10 @@ function stackSeries(ctx: Ctx, list: SeriesInfo[], n: number): StackInfo {
   return { seg, min, max, percent };
 }
 
-function scaleOptions(axis: Axis | undefined, headroom: boolean): ScaleOptions {
-  return { min: axis?.min, max: axis?.max, majorUnit: axis?.majorUnit, minorUnit: axis?.minorUnit, logBase: axis?.logBase, headroom };
+function scaleOptions(axis: Axis | undefined, headroom: boolean, excel = false): ScaleOptions {
+  const o: ScaleOptions = { min: axis?.min, max: axis?.max, majorUnit: axis?.majorUnit, minorUnit: axis?.minorUnit, logBase: axis?.logBase, headroom };
+  if (excel) o.excel = true;
+  return o;
 }
 
 function percentScale(s: ValueScale, info: StackInfo, axis: Axis | undefined, len: number, vertical: boolean): ValueScale {
@@ -683,12 +808,35 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
   const catAxis = chart.axes.cat;
   const valLen = (p: Box) => (horizontal ? p.w : p.h);
   const scaleOf = (plan: ValueAxisPlan, p: Box) => {
-    const s = valueScale(plan.stack.min, plan.stack.max, valLen(p), !horizontal, scaleOptions(plan.spec, headroom));
+    const s = valueScale(plan.stack.min, plan.stack.max, valLen(p), !horizontal, scaleOptions(plan.spec, headroom, ctx.excelScale));
     return percentScale(s, plan.stack, plan.spec, valLen(p), !horizontal);
   };
   const shows = (a: Axis | undefined) => !ctx.thumb && !a?.delete && a?.tickLabels !== "none";
-  const labelH = LABEL_PX * LINE;
+  const catStyle = textStyle(ctx, LABEL_PX, false, catAxis.textFormat);
+  const labelH = catStyle.size * LINE;
   const titleH = AXIS_TITLE_PX * LINE + 4;
+  const catWidths = cats.map((c) => ctx.measure(c, catStyle.size, !!catStyle.bold));
+  const maxCatW = Math.max(0, ...catWidths);
+  // Category label rotation: the axis' own, else (Calc) −45° then −90° when the labels would overlap.
+  const catRotation = (p: Box): number => {
+    const own = catAxis.textFormat?.rotation;
+    if (own !== undefined) return own;
+    if (!ctx.autoRotate || horizontal || n === 0) return 0;
+    const band = p.w / n;
+    if (maxCatW + 4 <= band) return 0;
+    return labelH * Math.SQRT2 <= band ? -45 : -90;
+  };
+  const rotatedHeight = (rot: number) => {
+    const a = (Math.abs(rot) * Math.PI) / 180;
+    return maxCatW * Math.sin(a) + labelH * Math.cos(a);
+  };
+  // Data table (columns, lines, areas): the categories head its columns; one row per series.
+  const table = chart.dataTable && !horizontal && !ctx.thumb ? chart.dataTable : null;
+  const tableStyle = textStyle(ctx, LABEL_PX, false, table?.textFormat);
+  const tableRowH = tableStyle.size * LINE + 4;
+  const tableKeyW = table?.keys ? KEY + 6 : 0;
+  const tableNameW = table ? Math.max(0, ...series.map((s) => ctx.measure(s.data.name, tableStyle.size, !!tableStyle.bold))) + tableKeyW + 10 : 0;
+  const tableH = table ? tableRowH * (series.length + 1) : 0;
   // Which side the category labels and each value axis take.
   const valSide = (plan: ValueAxisPlan, crossAtMax: boolean): "low" | "high" => {
     const tl = plan.spec?.tickLabels;
@@ -705,7 +853,8 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
       const at = valSide(plan, plan.spec?.crosses?.type === "max");
       const where = side(at === "low", !horizontal) as keyof typeof res;
       if (shows(plan.spec)) {
-        const size = horizontal ? labelH + 4 : Math.max(...sc.ticks.map((t) => ctx.measure(ctx.fmt(t, plan.code), LABEL_PX, false))) + 8;
+        const vst = textStyle(ctx, LABEL_PX, false, plan.spec?.textFormat);
+        const size = horizontal ? vst.size * LINE + 4 : Math.max(...sc.ticks.map((t) => ctx.measure(ctx.fmt(t, plan.code), vst.size, !!vst.bold))) + 8;
         res[where] += size;
       }
       if (axisTitleText(ctx, plan.spec) && !plan.spec?.delete) res[where] += titleH;
@@ -718,8 +867,12 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
     const low = tl === "low" || (tl !== "high" && frac <= 1e-9) ? true : tl === "high" || frac >= 1 - 1e-9 ? false : null;
     const flip = !!plans[0]!.spec?.reverse;
     const catWhere = low === null ? null : (side(flip ? !low : low, horizontal) as keyof typeof res);
-    if (shows(catAxis) && catWhere) {
-      res[catWhere] += horizontal ? Math.max(0, ...cats.map((c) => ctx.measure(c, LABEL_PX, false))) + 10 : labelH + TICK + 2;
+    if (table) {
+      res.bottom += tableH;
+      res.left = Math.max(res.left, tableNameW);
+    } else if (shows(catAxis) && catWhere) {
+      const rot = catRotation(p);
+      res[catWhere] += horizontal ? maxCatW + 10 : (rot ? rotatedHeight(rot) : labelH) + TICK + 2;
     }
     if (axisTitleText(ctx, catAxis) && !catAxis.delete) res[catWhere ?? (horizontal ? "left" : "bottom")] += titleH;
     return res;
@@ -733,9 +886,12 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
   let plot = plotFrom(reserve({ ...box }));
   const res = reserve(plot);
   plot = plotFrom(res);
+  // A plot area placed by hand (the inner box).
+  if (chart.plotLayout) plot = layoutBox(ctx, chart.plotLayout, plot);
   const scales = plans.map((p) => scaleOf(p, plot));
   plans.forEach((p, i) => (ctx.axes[p.id] = sceneAxis(scales[i]!)));
   b.hit({ type: "plotArea" }, { kind: "rect", ...plot });
+  drawPlotArea(ctx, plot, chart.plotArea);
 
   // Coordinate helpers.
   const catLen = horizontal ? plot.h : plot.w;
@@ -825,6 +981,11 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
       }
     });
   }
+  // High-low lines and up/down bars of line charts, behind the lines.
+  drawLineExtras(ctx, series, n, band, (i) => catAt(pointT(i)), (s, v) => {
+    const { sc, spec } = scaleFor(s);
+    return valAt(sc, spec, v);
+  }, xy);
   const lines = [...series.filter((s) => s.family === "line"), ...series.filter((s) => s.family === "scatter")];
   for (const s of lines) {
     const { sc, spec, stack } = scaleFor(s);
@@ -837,6 +998,35 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
       else pts.push(xy(catAt(pointT(i)), valAt(sc, spec, stacked(s.grouping) ? sg[1] : raw)));
     }
     drawLineSeries(ctx, s, pts, plot);
+  }
+
+  // Error bars on top of the series (Y only on category charts).
+  for (const s of series) {
+    if (!s.spec.errorBars?.length) continue;
+    const { sc, spec, stack } = scaleFor(s);
+    const segs = stack.seg.get(s.index) ?? [];
+    const centre = (i: number) => {
+      if (s.family !== "bar" || stacked(s.grouping)) return catAt(pointT(i));
+      const list = barSeries.filter((o) => o.secondary === s.secondary);
+      const j = list.indexOf(s);
+      const ov = (chart.overlap ?? 0) / 100;
+      const bw = band / (list.length - (list.length - 1) * ov + gap);
+      const start = i * band + (gap / 2) * bw + j * bw * (1 - ov);
+      return catAt(((start + bw / 2) / catLen) * n);
+    };
+    const values = Array.from({ length: n }, (_, i) => valueAt(ctx, s, i));
+    s.spec.errorBars.forEach((e, k) => {
+      if ((e.direction ?? "y") !== "y") return;
+      const ranges = errorRanges(e, values, s.data.errorBars?.[k]);
+      ranges.forEach((r, i) => {
+        const sg = segs[i];
+        const v = values[i];
+        if (!r || v === null || v === undefined || !sg) return;
+        const at = stacked(s.grouping) ? sg[1] : r.at ?? v;
+        const offset = at - (r.at ?? v);
+        drawErrorBar(ctx, s, e, xy, centre(i), valAt(sc, spec, r.lo + offset), valAt(sc, spec, r.hi + offset), plot);
+      });
+    });
   }
 
   // Axes: category axis line + ticks + labels, value axes.
@@ -856,33 +1046,44 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
       if (edges && t === n) break;
       ticks.push(polyPath([xy(c, crossPx), xy(c, crossPx + tickDir * TICK)]));
     }
-    b.path(`${polyPath([a0, a1])} ${ticks.join(" ")}`, { stroke: AXIS_COLOR, lineWidth: 1 }, { type: "axis", axis: "cat" });
-    if (shows(catAxis)) {
+    const catStroke = catAxis.line ? strokeOf(ctx, catAxis.line, AXIS_COLOR) : { stroke: AXIS_COLOR, lineWidth: 1 };
+    if (catStroke.stroke) b.path(`${polyPath([a0, a1])} ${ticks.join(" ")}`, catStroke, { type: "axis", axis: "cat" });
+    if (table) {
+      drawDataTable(ctx, table, tableStyle, plot, cats, n, tableRowH, tableNameW, tableKeyW, (t) => catAt(t));
+    } else if (shows(catAxis)) {
       const low = catAxis.tickLabels === "low";
       const high = catAxis.tickLabels === "high";
       const labelPos = low ? valAt(scales[0]!, plans[0]!.spec, plans[0]!.spec?.reverse ? scales[0]!.max : scales[0]!.min) : high ? valAt(scales[0]!, plans[0]!.spec, plans[0]!.spec?.reverse ? scales[0]!.min : scales[0]!.max) : crossPx;
       const dir = low ? (horizontal ? -1 : 1) : high ? (horizontal ? 1 : -1) : tickDir;
-      const maxW = Math.max(0, ...cats.map((c) => ctx.measure(c, LABEL_PX, false)));
-      const step = horizontal ? labelStep(n, labelH, catLen, 0) : labelStep(n, maxW, catLen);
+      const maxW = maxCatW;
+      const rot = catRotation(plot);
+      const step = horizontal ? labelStep(n, labelH, catLen, 0) : rot ? labelStep(n, labelH, catLen, 0) : labelStep(n, maxW, catLen);
       let hitBox: Box | null = null;
+      const el: ChartElement = { type: "axis", axis: "cat" };
       for (let i = 0; i < n; i += step) {
         const c = catAt(pointT(i));
         if (horizontal) {
           const x = labelPos + dir * (TICK + 2);
-          b.text(cats[i]!, x, c, { size: LABEL_PX, align: dir < 0 ? "right" : "left", baseline: "middle" }, { type: "axis", axis: "cat" });
+          b.text(cats[i]!, x, c, { ...catStyle, align: dir < 0 ? "right" : "left", baseline: "middle", ...(rot ? { rotate: rot } : {}) }, el);
+        } else if (rot) {
+          // Rotated labels end at their tick (Excel): negative angles read upwards.
+          const y = labelPos + dir * (TICK + 2);
+          const align = (rot < 0) === dir > 0 ? "right" : "left";
+          b.text(cats[i]!, c, y, { ...catStyle, align, baseline: "middle", rotate: rot }, el);
         } else {
           const y = labelPos + dir * (TICK + 2);
-          b.text(cats[i]!, c, y, { size: LABEL_PX, align: "center", baseline: dir > 0 ? "top" : "bottom" }, { type: "axis", axis: "cat" });
+          b.text(cats[i]!, c, y, { ...catStyle, align: "center", baseline: dir > 0 ? "top" : "bottom" }, el);
         }
       }
+      const labelExtent = rot && !horizontal ? rotatedHeight(rot) : labelH;
       if (horizontal) {
         const x = dir < 0 ? labelPos - TICK - 2 - maxW : labelPos;
         hitBox = { x, y: plot.y, w: maxW + TICK + 2, h: plot.h };
       } else {
-        const y = dir > 0 ? labelPos : labelPos - TICK - 2 - labelH;
-        hitBox = { x: plot.x, y, w: plot.w, h: labelH + TICK + 2 };
+        const y = dir > 0 ? labelPos : labelPos - TICK - 2 - labelExtent;
+        hitBox = { x: plot.x, y, w: plot.w, h: labelExtent + TICK + 2 };
       }
-      b.hit({ type: "axis", axis: "cat" }, { kind: "rect", ...hitBox });
+      b.hit(el, { kind: "rect", ...hitBox });
     } else {
       const [x0, y0] = a0;
       const [x1, y1] = a1;
@@ -906,13 +1107,14 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
   for (const s of series) {
     const { sc, spec, stack } = scaleFor(s);
     const segs = stack.seg.get(s.index) ?? [];
-    if (labelsShown(s.labels)) {
+    if (anyLabels(s.labels)) {
       const totals = Array.from({ length: n }, (_, i) => series.filter((o) => o.family === s.family).reduce((sum, o) => sum + Math.abs(valueAt(ctx, o, i) ?? 0), 0));
       for (let i = 0; i < n; i++) {
         const raw = valueAt(ctx, s, i);
         const sg = segs[i];
-        if (raw === null || !sg) continue;
-        const text = labelText(ctx, s, s.labels!, i, raw, totals[i] ? Math.abs(raw) / totals[i]! : 0, cats[i]!);
+        const pl = pointLabels(s, i);
+        if (raw === null || !sg || !pl) continue;
+        const text = labelText(ctx, s, pl, i, raw, totals[i] ? Math.abs(raw) / totals[i]! : 0, cats[i]!);
         const top = valAt(sc, spec, stacked(s.grouping) ? sg[1] : raw, true);
         const base = valAt(sc, spec, stacked(s.grouping) ? sg[0] : catCross, true);
         let c = catAt(pointT(i));
@@ -924,7 +1126,7 @@ function layoutCategory(ctx: Ctx, box: Box): Box {
           const start = i * band + (gap / 2) * bw + j * bw * (1 - ov);
           c = catAt(((start + bw / 2) / catLen) * n);
         }
-        placeValueLabel(ctx, s, text, i, c, top, base, horizontal, raw < 0 !== !!spec?.reverse);
+        placeValueLabel(ctx, s, pl, text, i, c, top, base, horizontal, raw < 0 !== !!spec?.reverse);
       }
     }
     if (s.spec.trendline && n > 1) {
@@ -958,9 +1160,17 @@ function drawValueGridlines(ctx: Ctx, plan: ValueAxisPlan, sc: ValueScale, plot:
 
 function placeAxisTitle(ctx: Ctx, axis: AxisId, text: string, x: number, y: number, rotate: number): void {
   const b = ctx.b;
-  b.text(text, x, y, { size: AXIS_TITLE_PX, bold: true, align: "center", baseline: "middle", rotate }, { type: "axisTitle", axis });
-  const w = ctx.measure(text, AXIS_TITLE_PX, true) + 6;
-  const h = AXIS_TITLE_PX * LINE + 2;
+  const t = ctx.chart.axes[axis]?.title;
+  const st = textStyle(ctx, AXIS_TITLE_PX, true, t?.textFormat);
+  const rot = t?.textFormat?.rotation ?? rotate;
+  if (t?.layout) {
+    const at = layoutBox(ctx, t.layout, { w: 0, h: 0 });
+    [x, y] = [at.x, at.y];
+  }
+  b.text(text, x, y, { ...st, align: "center", baseline: "middle", rotate: rot }, { type: "axisTitle", axis });
+  rotate = rot;
+  const w = ctx.measure(text, st.size, !!st.bold) + 6;
+  const h = st.size * LINE + 2;
   b.hit({ type: "axisTitle", axis }, rotate ? { kind: "rect", x: x - h / 2, y: y - w / 2, w: h, h: w } : { kind: "rect", x: x - w / 2, y: y - h / 2, w, h });
 }
 
@@ -974,17 +1184,21 @@ function drawValueAxis(
   const el: ChartElement = { type: "axis", axis: plan.id };
   const linePos = horizontal ? (atHigh ? plot.y : plot.y + plot.h) : atHigh ? plot.x + plot.w : plot.x;
   const ends: [number, number][] = horizontal ? [[plot.x, linePos], [plot.x + plot.w, linePos]] : [[linePos, plot.y], [linePos, plot.y + plot.h]];
-  if (!spec?.majorGridlines) b.path(polyPath(ends), { stroke: AXIS_COLOR, lineWidth: 1 }, el);
+  if (spec?.line) {
+    const st = strokeOf(ctx, spec.line, AXIS_COLOR);
+    if (st.stroke) b.path(polyPath(ends), st, el);
+  } else if (!spec?.majorGridlines) b.path(polyPath(ends), { stroke: AXIS_COLOR, lineWidth: 1 }, el);
   const labelEdge = horizontal ? (side === "high" ? plot.y : plot.y + plot.h) : side === "high" ? plot.x + plot.w : plot.x;
-  const labelH = LABEL_PX * LINE;
+  const st = textStyle(ctx, LABEL_PX, false, spec?.textFormat);
+  const labelH = st.size * LINE;
   let maxW = 0;
   if (spec?.tickLabels !== "none") {
     for (const t of sc.ticks) {
       const text = ctx.fmt(t, plan.code);
-      maxW = Math.max(maxW, ctx.measure(text, LABEL_PX, false));
+      maxW = Math.max(maxW, ctx.measure(text, st.size, !!st.bold));
       const p = at(t);
-      if (horizontal) b.text(text, p, labelEdge + (side === "high" ? -4 : 4), { size: LABEL_PX, align: "center", baseline: side === "high" ? "bottom" : "top" }, el);
-      else b.text(text, labelEdge + (side === "high" ? 6 : -6), p, { size: LABEL_PX, align: side === "high" ? "left" : "right", baseline: "middle" }, el);
+      if (horizontal) b.text(text, p, labelEdge + (side === "high" ? -4 : 4), { ...st, align: "center", baseline: side === "high" ? "bottom" : "top" }, el);
+      else b.text(text, labelEdge + (side === "high" ? 6 : -6), p, { ...st, align: side === "high" ? "left" : "right", baseline: "middle" }, el);
     }
     const hb: Box = horizontal
       ? { x: plot.x, y: side === "high" ? labelEdge - labelH - 4 : labelEdge, w: plot.w, h: labelH + 4 }
@@ -1035,8 +1249,32 @@ function drawLineSeries(ctx: Ctx, s: SeriesInfo, pts: ([number, number] | null)[
   });
 }
 
-function labelText(ctx: Ctx, s: SeriesInfo, d: DataLabels, _i: number, value: number, percent: number, category: string): string {
+/** Whether a series shows labels on any point. */
+const anyLabels = (d: DataLabels | undefined) => labelsShown(d) || !!d?.points?.some((p) => !p.delete);
+
+/** The labels of point `i`: the series' (or chart's) labels with the point's own label over them (`null`: none). */
+function pointLabels(s: SeriesInfo, i: number): DataLabels | null {
+  const base = s.labels;
+  const p = base?.points?.find((x) => x.idx === i);
+  if (p?.delete) return null;
+  if (p) {
+    const d: DataLabels = {
+      showValue: p.showValue, showPercent: p.showPercent, showCategory: p.showCategory, showSeries: p.showSeries, showRange: p.showRange,
+      position: p.position ?? base?.position, numberFormat: p.numberFormat ?? base?.numberFormat, textFormat: p.textFormat ?? base?.textFormat,
+    };
+    if (p.layout) (d as DataLabels & { layout?: ManualLayout }).layout = p.layout;
+    if (base?.leaderLines) d.leaderLines = true;
+    return labelsShown(d) ? d : null;
+  }
+  return labelsShown(base) ? base! : null;
+}
+
+function labelText(ctx: Ctx, s: SeriesInfo, d: DataLabels, i: number, value: number, percent: number, category: string): string {
   const parts: string[] = [];
+  if (d.showRange) {
+    const t = s.data.labelTexts?.[i];
+    if (t) parts.push(t);
+  }
   if (d.showSeries) parts.push(s.data.name);
   if (d.showCategory) parts.push(category);
   if (d.showValue) parts.push(ctx.fmt(value, d.numberFormat ?? s.data.formatCode ?? "General"));
@@ -1045,14 +1283,27 @@ function labelText(ctx: Ctx, s: SeriesInfo, d: DataLabels, _i: number, value: nu
 }
 
 /** A data label of a bar/line/area point: `top`/`base` are the value-axis px of the point and its bar base. */
-function placeValueLabel(ctx: Ctx, s: SeriesInfo, text: string, i: number, c: number, top: number, base: number, horizontal: boolean, negative: boolean): void {
+function placeValueLabel(
+  ctx: Ctx, s: SeriesInfo, d: DataLabels, text: string, i: number, c: number, top: number, base: number, horizontal: boolean, negative: boolean,
+): void {
   if (!text) return;
   const b = ctx.b;
   const el: ChartElement = { type: "dataLabels", series: s.index, point: i };
   const fallback: LabelPosition = s.family === "bar" ? (stacked(s.grouping) ? "center" : "outsideEnd") : s.family === "area" ? "center" : "right";
-  const pos = s.labels?.position ?? fallback;
-  const w = ctx.measure(text, LABEL_PX, false);
-  const h = LABEL_PX * LINE;
+  const pos = d.position ?? fallback;
+  const st = textStyle(ctx, LABEL_PX, false, d.textFormat);
+  const w = ctx.measure(text, st.size, !!st.bold);
+  const h = st.size * LINE;
+  const manual = (d as DataLabels & { layout?: ManualLayout }).layout;
+  if (manual) {
+    // Moved by hand: centred on the layout point, with a leader line from the data point.
+    const at = layoutBox(ctx, manual, { w, h });
+    const [px0, py0] = horizontal ? [top, c] : [c, top];
+    if (d.leaderLines) b.path(polyPath([[px0, py0], [at.x, at.y]]), { stroke: "#A6A6A6", lineWidth: 1 }, el);
+    b.text(text, at.x, at.y, { ...st, align: "center", baseline: "middle" }, el);
+    b.hit(el, { kind: "rect", x: at.x - w / 2 - 2, y: at.y - h / 2, w: w + 4, h });
+    return;
+  }
   // Direction from the base toward the value, in px along the value axis.
   const dir = horizontal ? (negative ? -1 : 1) : negative ? 1 : -1;
   let along = top;
@@ -1074,7 +1325,7 @@ function placeValueLabel(ctx: Ctx, s: SeriesInfo, text: string, i: number, c: nu
   let [x, y] = horizontal ? [along, across] : [across, along];
   x += dx;
   y += dy;
-  b.text(text, x, y, { size: LABEL_PX, align: "center", baseline: "middle" }, el);
+  b.text(text, x, y, { ...st, align: "center", baseline: "middle" }, el);
   b.hit(el, { kind: "rect", x: x - w / 2 - 2, y: y - h / 2, w: w + 4, h });
 }
 
@@ -1119,6 +1370,167 @@ function drawTrendline(
   }
 }
 
+// --- error bars, up/down bars, high-low lines, data tables (P9-C6) ---------------------------------
+
+/** The error range of every point: `lo..hi` in data units around `at` (absent: the point's value). */
+export function errorRanges(
+  e: NonNullable<Series["errorBars"]>[number], values: (number | null | undefined)[], custom: { plus?: (number | null)[]; minus?: (number | null)[] } | undefined,
+): ({ lo: number; hi: number; at?: number } | null)[] {
+  const ok = values.filter((v): v is number => v !== null && v !== undefined && Number.isFinite(v));
+  const n = ok.length;
+  const mean = n ? ok.reduce((a, v) => a + v, 0) / n : 0;
+  // Excel: sample standard deviation; standard error sqrt(Σ(y − ȳ)² / (n (n − 1))).
+  const ss = ok.reduce((a, v) => a + (v - mean) ** 2, 0);
+  const sd = n > 1 ? Math.sqrt(ss / (n - 1)) : 0;
+  const se = n > 1 ? Math.sqrt(ss / (n * (n - 1))) : 0;
+  const literal = (d: DataRef | undefined) => (d?.type === "literal" ? d.values.map((v) => (typeof v === "number" ? v : null)) : d?.type === "ref" ? d.cache?.map((v) => (typeof v === "number" ? v : null)) : undefined);
+  const plusList = custom?.plus ?? (e.amount.type === "custom" ? literal(e.amount.plus) : undefined);
+  const minusList = custom?.minus ?? (e.amount.type === "custom" ? literal(e.amount.minus) : undefined);
+  const type = e.barType ?? "both";
+  return values.map((v, i) => {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    let plus = 0;
+    let minus = 0;
+    let at: number | undefined;
+    switch (e.amount.type) {
+      case "fixed":
+        plus = minus = Math.abs(e.amount.value);
+        break;
+      case "percentage":
+        plus = minus = (Math.abs(v) * Math.abs(e.amount.value)) / 100;
+        break;
+      case "stdDev":
+        plus = minus = Math.abs(e.amount.value) * sd;
+        at = mean;
+        break;
+      case "stdErr":
+        plus = minus = se;
+        break;
+      case "custom": {
+        // A single value applies to every point (Excel's `={1}`).
+        const pick = (l: (number | null)[] | undefined) => (l ? (l.length === 1 ? l[0] : l[i]) : null) ?? 0;
+        plus = Math.abs(pick(plusList));
+        minus = Math.abs(pick(minusList));
+        break;
+      }
+    }
+    const c = at ?? v;
+    return { lo: type === "plus" ? c : c - minus, hi: type === "minus" ? c : c + plus, ...(at !== undefined ? { at } : {}) };
+  });
+}
+
+const ERROR_COLOR = "#595959";
+
+/** One error bar from value px `v0` to `v1` at category px `c` (`xy` maps (category, value) to x, y). */
+function drawErrorBar(
+  ctx: Ctx, s: SeriesInfo, e: NonNullable<Series["errorBars"]>[number], xy: (c: number, v: number) => [number, number], c: number, v0: number, v1: number, plot: Box,
+): void {
+  const st = strokeOf(ctx, e.line, ERROR_COLOR);
+  if (!st.stroke) return;
+  const el: ChartElement = { type: "errorBars", series: s.index };
+  const cap = 3.5;
+  const parts = [polyPath([xy(c, v0), xy(c, v1)])];
+  if (!e.noEndCap) {
+    const type = e.barType ?? "both";
+    if (type !== "plus") parts.push(polyPath([xy(c - cap, v0), xy(c + cap, v0)]));
+    if (type !== "minus") parts.push(polyPath([xy(c - cap, v1), xy(c + cap, v1)]));
+  }
+  ctx.b.path(parts.join(" "), { ...st, clip: plot }, el);
+  ctx.b.hit(el, { kind: "polyline", points: [...xy(c, v0), ...xy(c, v1)], width: 6 });
+}
+
+/** Line charts: high-low lines (lowest to highest value per category) and up/down bars (first → last series). */
+function drawLineExtras(
+  ctx: Ctx, series: SeriesInfo[], n: number, band: number, catPx: (i: number) => number, valPx: (s: SeriesInfo, v: number) => number,
+  xy: (c: number, v: number) => [number, number],
+): void {
+  const { chart, b } = ctx;
+  const lines = series.filter((s) => s.family === "line" && !s.secondary);
+  if (!lines.length || (!chart.highLowLines && !chart.upDownBars)) return;
+  if (chart.highLowLines) {
+    const st = strokeOf(ctx, chart.highLowLines, "#404040");
+    const el: ChartElement = { type: "highLowLines" };
+    const parts: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const vs = lines.map((s) => valueAt(ctx, s, i)).filter((v): v is number => v !== null);
+      if (vs.length < 2) continue;
+      const c = catPx(i);
+      const p0 = xy(c, valPx(lines[0]!, Math.min(...vs)));
+      const p1 = xy(c, valPx(lines[0]!, Math.max(...vs)));
+      parts.push(polyPath([p0, p1]));
+      b.hit(el, { kind: "polyline", points: [...p0, ...p1], width: 6 });
+    }
+    if (st.stroke && parts.length) b.path(parts.join(" "), st, el);
+  }
+  const ud = chart.upDownBars;
+  if (ud && lines.length >= 2) {
+    const first = lines[0]!;
+    const last = lines[lines.length - 1]!;
+    const bw = band / (1 + (ud.gapWidth ?? 150) / 100);
+    const el: ChartElement = { type: "upDownBars" };
+    for (let i = 0; i < n; i++) {
+      const a = valueAt(ctx, first, i);
+      const z = valueAt(ctx, last, i);
+      if (a === null || z === null || a === z) continue;
+      const up = z > a;
+      const shape = up ? ud.up : ud.down;
+      const paint = areaPaint(ctx, shape?.fill, { x: 0, y: 0, w: 0, h: 0 });
+      const fill = paint === undefined ? (up ? "#FFFFFF" : "#595959") : (paint?.fill ?? undefined);
+      const stroke = strokeOf(ctx, shape?.line, "#595959");
+      const c = catPx(i);
+      const [x0, y0] = xy(c - bw / 2, valPx(first, a));
+      const [x1, y1] = xy(c + bw / 2, valPx(first, z));
+      const box = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+      b.rect(box.x, box.y, box.w, box.h, { ...(fill ? { fill } : {}), ...stroke }, el);
+      b.hit(el, { kind: "rect", ...box });
+    }
+  }
+}
+
+/** The data table under the plot area: categories as column heads, one row per series (legend key, name, values). */
+function drawDataTable(
+  ctx: Ctx, t: NonNullable<Chart["dataTable"]>, st: TextStyle, plot: Box, cats: string[], n: number, rowH: number, nameW: number, keyW: number, catAt: (t: number) => number,
+): void {
+  const { b, series } = ctx;
+  const el: ChartElement = { type: "dataTable" };
+  const top = plot.y + plot.h;
+  const left = plot.x - nameW;
+  const right = plot.x + plot.w;
+  const rows = series.length + 1;
+  const bottom = top + rows * rowH;
+  const lines: string[] = [];
+  const edges = Array.from({ length: n + 1 }, (_, k) => catAt(k)).sort((a, z) => a - z);
+  if (t.horizontal ?? true) for (let r = 1; r < rows; r++) lines.push(polyPath([[left, top + r * rowH], [right, top + r * rowH]]));
+  if (t.vertical ?? true) for (const x of edges.slice(1, -1)) lines.push(polyPath([[x, top], [x, bottom]]));
+  if (t.outline ?? true) {
+    lines.push(polyPath([[plot.x, top], [right, top], [right, bottom], [left, bottom], [left, top + rowH], [plot.x, top + rowH], [plot.x, top]], false));
+    lines.push(polyPath([[plot.x, top + rowH], [plot.x, bottom]]));
+  }
+  if (lines.length) b.path(lines.join(" "), { stroke: AXIS_COLOR, lineWidth: 1 }, el);
+  for (let i = 0; i < n; i++) {
+    const cx = (catAt(i) + catAt(i + 1)) / 2;
+    b.text(cats[i] ?? "", cx, top + rowH / 2, { ...st, align: "center", baseline: "middle" }, el);
+  }
+  series.forEach((s, r) => {
+    const y = top + (r + 1.5) * rowH;
+    let x = left + 4;
+    if (t.keys) {
+      const line = s.family === "line" || s.family === "scatter";
+      if (line && s.stroke) b.path(polyPath([[x, y], [x + KEY, y]]), { stroke: s.stroke, lineWidth: 2 }, el);
+      else b.rect(x, y - KEY / 2, KEY, KEY, { fill: s.fill ?? undefined }, el);
+      x += keyW;
+    }
+    b.text(s.data.name, x, y, { ...st, align: "left", baseline: "middle" }, el);
+    for (let i = 0; i < n; i++) {
+      const v = s.data.values[i];
+      if (v === null || v === undefined) continue;
+      const cx = (catAt(i) + catAt(i + 1)) / 2;
+      b.text(ctx.fmt(v, s.data.formatCode ?? "General"), cx, y, { ...st, align: "center", baseline: "middle" }, el);
+    }
+  });
+  b.hit(el, { kind: "rect", x: left, y: top, w: right - left, h: bottom - top });
+}
+
 // --- scatter -------------------------------------------------------------------------------------
 
 function layoutScatter(ctx: Ctx, box: Box): Box {
@@ -1144,8 +1556,8 @@ function layoutScatter(ctx: Ctx, box: Box): Box {
   const labelH = LABEL_PX * LINE;
   const titleH = AXIS_TITLE_PX * LINE + 4;
   const scales = (p: Box) => ({
-    xs: valueScale(x0, x1, p.w, false, scaleOptions(xAxis, false)),
-    ys: valueScale(y0, y1, p.h, true, scaleOptions(yAxis, false)),
+    xs: valueScale(x0, x1, p.w, false, scaleOptions(xAxis, false, ctx.excelScale)),
+    ys: valueScale(y0, y1, p.h, true, scaleOptions(yAxis, false, ctx.excelScale)),
   });
   const reserve = (p: Box) => {
     const { ys } = scales(p);
@@ -1163,10 +1575,12 @@ function layoutScatter(ctx: Ctx, box: Box): Box {
   });
   let plot = plotFrom(reserve(box));
   plot = plotFrom(reserve(plot));
+  if (chart.plotLayout) plot = layoutBox(ctx, chart.plotLayout, plot);
   const { xs, ys } = scales(plot);
   ctx.axes.cat = sceneAxis(xs);
   ctx.axes.val = sceneAxis(ys);
   b.hit({ type: "plotArea" }, { kind: "rect", ...plot });
+  drawPlotArea(ctx, plot, chart.plotArea);
   const px = (x: number) => {
     let f = scaleFraction(xs, x);
     if (xAxis.reverse) f = 1 - f;
@@ -1184,6 +1598,20 @@ function layoutScatter(ctx: Ctx, box: Box): Box {
   series.forEach((s, i) => {
     const pts = pairs[i]!.map((p) => (p ? ([px(p[0]), py(p[1])] as [number, number]) : null));
     drawLineSeries(ctx, s, pts, plot);
+  });
+  // Error bars: Y bars along the value axis, X bars along the X axis.
+  series.forEach((s, si) => {
+    s.spec.errorBars?.forEach((e, k) => {
+      const xDir = e.direction === "x";
+      const vals = pairs[si]!.map((p) => (p ? p[xDir ? 0 : 1] : null));
+      errorRanges(e, vals, s.data.errorBars?.[k]).forEach((r, i) => {
+        const p = pairs[si]![i];
+        if (!r || !p) return;
+        const off = p[xDir ? 0 : 1] - (r.at ?? p[xDir ? 0 : 1]);
+        if (xDir) drawErrorBar(ctx, s, e, (c, v) => [v, c], py(p[1]), px(r.lo + off), px(r.hi + off), plot);
+        else drawErrorBar(ctx, s, e, (c, v) => [c, v], px(p[0]), py(r.lo + off), py(r.hi + off), plot);
+      });
+    });
   });
   // Axes: X crosses Y at `cat.crosses`, Y crosses X at `val.crosses`.
   const yAt = py(crossValue(ys, xAxis.crosses));
@@ -1218,11 +1646,12 @@ function layoutScatter(ctx: Ctx, box: Box): Box {
     if (yt && !yAxis.delete) placeAxisTitle(ctx, "val", yt, box.x + AXIS_TITLE_PX * 0.6, plot.y + plot.h / 2, -90);
   }
   series.forEach((s, si) => {
-    if (labelsShown(s.labels)) {
+    if (anyLabels(s.labels)) {
       pairs[si]!.forEach((p, i) => {
-        if (!p) return;
-        const text = labelText(ctx, s, s.labels!, i, p[1], 0, ctx.fmt(p[0], xCode));
-        placeValueLabel(ctx, s, text, i, py(p[1]), px(p[0]), px(p[0]), true, false);
+        const pl = pointLabels(s, i);
+        if (!p || !pl) return;
+        const text = labelText(ctx, s, pl, i, p[1], 0, ctx.fmt(p[0], xCode));
+        placeValueLabel(ctx, s, pl, text, i, py(p[1]), px(p[0]), px(p[0]), true, false);
       });
     }
     if (s.spec.trendline) {
@@ -1266,12 +1695,14 @@ function layoutPie(ctx: Ctx, box: Box, doughnut: boolean): Box {
       const stroke = dp?.line?.none ? null : dp?.line?.color ? resolveColor(dp.line.color, ctx.theme) : s.stroke;
       b.path(sectorPath(cx, cy, r0, r1, a, a1), { fill: colors[i] === "none" ? undefined : colors[i], stroke: stroke ?? undefined, lineWidth: 1, join: "round" }, el);
       b.hit(el, { kind: "sector", cx, cy, r0, r1, a0: a, a1 });
-      if (labelsShown(s.labels) && !ctx.thumb) {
-        const text = labelText(ctx, s, s.labels!, i, s.data.values[i]!, v / total, s.data.categories[i] ?? String(i + 1));
+      const pl = anyLabels(s.labels) && !ctx.thumb ? pointLabels(s, i) : null;
+      if (pl) {
+        const text = labelText(ctx, s, pl, i, s.data.values[i]!, v / total, s.data.categories[i] ?? String(i + 1));
         const mid = (a + a1) / 2;
-        const tw = ctx.measure(text, LABEL_PX, false);
-        const th = LABEL_PX * LINE;
-        const pos = s.labels?.position ?? "bestFit";
+        const st = textStyle(ctx, LABEL_PX, false, pl.textFormat);
+        const tw = ctx.measure(text, st.size, !!st.bold);
+        const th = st.size * LINE;
+        const pos = pl.position ?? "bestFit";
         let rr: number;
         if (pos === "outsideEnd") rr = r1 + Math.max(tw, th) / 2 + 6;
         else if (pos === "insideEnd") rr = r1 - Math.max(tw, th) / 2 - 4;
@@ -1281,9 +1712,16 @@ function layoutPie(ctx: Ctx, box: Box, doughnut: boolean): Box {
           const chord = 2 * ((r0 + r1) / 2) * Math.sin(Math.min(Math.PI / 2, (a1 - a) / 2));
           rr = chord >= tw && r1 - r0 >= th ? (r0 + r1) * 0.6 : r1 + Math.max(tw, th) / 2 + 6;
         }
-        const [lx, ly] = polar(cx, cy, rr, mid);
+        let [lx, ly] = polar(cx, cy, rr, mid);
         const lel: ChartElement = { type: "dataLabels", series: s.index, point: i };
-        b.text(text, lx, ly, { size: LABEL_PX, align: "center", baseline: "middle" }, lel);
+        const manual = (pl as DataLabels & { layout?: ManualLayout }).layout;
+        if (manual) {
+          const at = layoutBox(ctx, manual, { w: tw, h: th });
+          const [ex, ey] = polar(cx, cy, r1, mid);
+          if (pl.leaderLines) b.path(polyPath([[ex, ey], [at.x, at.y]]), { stroke: "#A6A6A6", lineWidth: 1 }, lel);
+          [lx, ly] = [at.x, at.y];
+        }
+        b.text(text, lx, ly, { ...st, align: "center", baseline: "middle" }, lel);
         b.hit(lel, { kind: "rect", x: lx - tw / 2 - 2, y: ly - th / 2, w: tw + 4, h: th });
       }
       a = a1;

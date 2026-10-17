@@ -440,6 +440,23 @@ pub enum CalcCommand {
         sheet: u32,
         id: u32,
     },
+    /// Makes `sheet` a chart sheet (its first chart is shown full-size
+    /// instead of cells; Move Chart › New sheet) or a worksheet again. The
+    /// patch carries the sheet list.
+    SetChartSheet {
+        sheet: u32,
+        chart_sheet: bool,
+    },
+    /// Replaces the sparkline groups of `sheet` (Insert › Sparklines and
+    /// every Sparkline tab command: the UI sends the whole new list). A
+    /// location used twice keeps the later sparkline. Fails with
+    /// `invalid_rule` for an empty group or a malformed reference. The
+    /// patch lists the sheet in `sparklineSheets`.
+    SetSparklineGroups {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_sparkline::SparklineGroup>")]
+        groups: Vec<model_sheet::SparklineGroup>,
+    },
     /// Defines a name (`def.sheet` absent = workbook scope). Fails with
     /// `invalid_name`, `duplicate_name` (any case, same scope) or
     /// `invalid_formula`. Formulas using the name recalculate; the patch
