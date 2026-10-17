@@ -14,7 +14,7 @@ Owner question 2026-10-15: "Can we face copyright infringement if we offer pptx/
 4. **UI look.** Our ribbon is our own implementation (React, hand-drawn icons, own layout). Microsoft's 2007 Office UI licensing programme for the ribbon concept is discontinued and the original ribbon patents date from 2005–2007; residual risk is low but non-zero – do not copy Office icon artwork, screenshots or exact gallery contents. Our icons and logos are hand-made SVGs (P6-1, P7-10).
 5. **Preset shape and table style data (P8-32).** Show's preset geometries (outlines, adjust handles,
    connection sites, text rectangles) are ECMA-376 Part 1's `presetShapeDefinitions.xml`, converted
-   to a compact line format (`crates/model-show/src/presets/`, generator `gen.py`); the specification
+   to a compact line format (`crates/core-model/src/geometry/presets/`, generator `gen.py`); the specification
    is freely available and may be used to implement it (Ecma's copyright notice allows copies and
    derivative works that assist in implementing the standard). The 74 built-in table style GUIDs are
    identifiers PowerPoint uses (published by Microsoft); their looks are generated from our own family

@@ -476,7 +476,7 @@ solid colour (idx 2: the accent 27 % lighter; idx 3: the accent); `a:effectRef` 
   at the shape's size when read).
 - Preset geometry (outlines, adjust values and their handles, connection sites, text rectangles)
   comes from ECMA-376's `presetShapeDefinitions.xml` for every supported preset
-  (`crates/model-show/src/presets/`); presets outside the library still read as rectangles.
+  (`crates/core-model/src/geometry/presets/`); presets outside the library still read as rectangles.
 - Connection sites are PowerPoint's (`a:cxnLst`) for every preset, plus the box centre as an
   extra last site; a site `idx` past the list means the centre when rerouting. Rerouting (only when
   the UI moves glued shapes) routes elbows glued at both ends with up to four turns around the two
