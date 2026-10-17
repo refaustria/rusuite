@@ -17,6 +17,15 @@ use crate::xml::{El, Node, XmlOut};
 pub(crate) const URI_WPS: &str =
     "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 pub(crate) const NS_WPS: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+/// `uri` of `a:graphicData` holding a `wpg:wgp` (and its namespace).
+pub(crate) const URI_WPG: &str =
+    "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup";
+pub(crate) const NS_WPG: &str = URI_WPG;
+/// `uri` of `a:graphicData` holding a `wpc:wpc` drawing canvas (and its
+/// namespace).
+pub(crate) const URI_WPC: &str =
+    "http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas";
+pub(crate) const NS_WPC: &str = URI_WPC;
 pub(crate) const NS_WP14: &str =
     "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing";
 pub(crate) const NS_V: &str = "urn:schemas-microsoft-com:vml";

@@ -95,13 +95,18 @@ const lastDrawingCmd = (backend: FakeWriteBackend) =>
   flat(applied(backend)).filter((c): c is Extract<WriteCommand, { type: "setDrawingProps" }> => c.type === "setDrawingProps").pop()!;
 
 describe("Insert › Shapes and Text Box", () => {
-  it("the shapes gallery inserts the preset at the caret (InsertDrawing) and selects it", async () => {
+  it("the shapes gallery arms the drawing tool; Enter inserts the preset at the caret (InsertDrawing) and selects it", async () => {
     const { backend, editor, editorEl } = await mount();
     caret(editor, 1, 5);
     fireEvent.click(tab("Insert"));
     fireEvent.click(screen.getByRole("button", { name: "Shapes" }));
     const lib = await screen.findByTestId("shape-library");
     fireEvent.click(within(lib).getByRole("button", { name: "Rounded rectangle" }));
+    // Word: the pointer becomes a crosshair until a click or drag on the page; Enter inserts at the caret.
+    await waitFor(() => expect(editorEl.dataset.drawTool).toBe("roundRect"));
+    expect(applied(backend).some((c) => c.type === "insertDrawing")).toBe(false);
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(editorEl.dataset.drawTool).toBeUndefined());
     await waitFor(() => expect(applied(backend)).toContainEqual({ type: "insertDrawing", block: 1, offset: 5, kind: "shape", preset: "roundRect", width: 900000, height: 900000 }));
     await waitFor(() => expect(editorEl.querySelector(".drawing-wrap[data-preset='roundRect']")).toBeTruthy());
     await waitFor(() => expect(tab("Shape Format")).toBeTruthy());

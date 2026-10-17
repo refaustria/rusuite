@@ -199,3 +199,19 @@ export const placementStyle = (p: FloatPlacement): string =>
   Object.entries(p.css)
     .map(([k, v]) => `${k}: ${v}`)
     .join("; ");
+
+/** The zoom of an element (CSS `zoom` on an ancestor): rendered width / layout width. */
+export const zoomOf = (el: HTMLElement): number => (el.offsetWidth ? el.getBoundingClientRect().width / el.offsetWidth || 1 : 1);
+
+/**
+ * Where a floating object's wrapper is drawn: px from its paragraph's
+ * column edge (the paragraph's left edge minus its left indent) and top —
+ * the values `movedAnchor` takes — with the zoom.
+ */
+export function renderedOffset(wrap: HTMLElement, indentLeft: number): { x: number; y: number; zoom: number } {
+  const para = wrap.closest("p, h1, h2, h3, h4, h5, h6") as HTMLElement | null;
+  const z = zoomOf(wrap);
+  const r0 = wrap.getBoundingClientRect();
+  const p0 = para?.getBoundingClientRect() ?? r0;
+  return { x: (r0.left - p0.left) / z + indentLeft, y: (r0.top - p0.top) / z, zoom: z };
+}

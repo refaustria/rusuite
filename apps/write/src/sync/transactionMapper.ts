@@ -192,7 +192,9 @@ function drawingCommand(block: number, offset: number, a: Inline | undefined, b:
   const cmds: WriteCommand[] = [];
   const hadText = !!x.text;
   if (stableStringify(drawingShell(x)) !== stableStringify(drawingShell(y))) {
-    cmds.push({ type: "setDrawingProps", block, offset, drawing: drawingShell(y) });
+    // Group members carry their text: new paragraphs' temporary ids become 0 (fresh ids in the core).
+    const shell = drawingShell(y);
+    cmds.push({ type: "setDrawingProps", block, offset, drawing: shell.children?.length ? sanitizeDrawing(shell) : shell });
   }
   const ob = (x.text?.blocks ?? []).map(canonBlock);
   const nb = (y.text?.blocks ?? []).map(canonBlock);
@@ -212,39 +214,44 @@ function drawingCommand(block: number, offset: number, a: Inline | undefined, b:
   return cmds.length ? one(cmds) : null;
 }
 
+/** A drawing with negative (temporary) ids inside → 0 (the core gives them fresh ids). */
+export function sanitizeDrawing(d: DrawingValue): DrawingValue {
+  return {
+    ...d,
+    id: d.id < 0 ? 0 : d.id,
+    ...(d.text ? { text: { ...d.text, blocks: sanitizeNested(d.text.blocks ?? []) } } : {}),
+    ...(d.children?.length ? { children: d.children.map(sanitizeDrawing) } : {}),
+  };
+}
+
+/** Blocks inside drawings: every temporary id → 0. */
+function sanitizeNested(bs: Block[]): Block[] {
+  return bs.map((b) => {
+    if (b.kind === "paragraph") {
+      const v = { ...b.value, id: b.value.id < 0 ? 0 : b.value.id };
+      v.inlines = (v.inlines ?? []).map((i) => (i.kind === "drawing" ? ({ kind: "drawing", value: sanitizeDrawing(i.value) } as Inline) : i));
+      return { kind: "paragraph", value: v } as Block;
+    }
+    if (b.kind === "table") {
+      return {
+        kind: "table",
+        value: {
+          ...b.value,
+          id: Math.max(0, b.value.id),
+          rows: b.value.rows.map((r) => ({ ...r, id: Math.max(0, r.id), cells: r.cells.map((c) => ({ ...c, id: Math.max(0, c.id), blocks: sanitizeNested(c.blocks) })) })),
+        },
+      } as Block;
+    }
+    return b;
+  });
+}
+
 /** Negative (temporary) ids inside drawings → 0 (the core gives them fresh ids). */
 export function sanitizeDrawingIds(blocks: Block[]): Block[] {
-  const fix = (bs: Block[]): Block[] =>
-    bs.map((b) => {
-      if (b.kind === "paragraph") {
-        const v = { ...b.value, id: b.value.id < 0 ? 0 : b.value.id };
-        v.inlines = (v.inlines ?? []).map((i) =>
-          i.kind === "drawing"
-            ? ({ kind: "drawing", value: { ...i.value, id: i.value.id < 0 ? 0 : i.value.id, ...(i.value.text ? { text: { ...i.value.text, blocks: fix(i.value.text.blocks ?? []) } } : {}) } } as Inline)
-            : i,
-        );
-        return { kind: "paragraph", value: v } as Block;
-      }
-      if (b.kind === "table") {
-        return {
-          kind: "table",
-          value: {
-            ...b.value,
-            id: Math.max(0, b.value.id),
-            rows: b.value.rows.map((r) => ({ ...r, id: Math.max(0, r.id), cells: r.cells.map((c) => ({ ...c, id: Math.max(0, c.id), blocks: fix(c.blocks) })) })),
-          },
-        } as Block;
-      }
-      return b;
-    });
   // Top-level ids may be temporary (the core maps them); only those inside drawings are reset.
   return blocks.map((b) => {
     if (b.kind !== "paragraph" || !(b.value.inlines ?? []).some((i) => i.kind === "drawing")) return b;
-    const inlines = (b.value.inlines ?? []).map((i) =>
-      i.kind === "drawing"
-        ? ({ kind: "drawing", value: { ...i.value, id: i.value.id < 0 ? 0 : i.value.id, ...(i.value.text ? { text: { ...i.value.text, blocks: fix(i.value.text.blocks ?? []) } } : {}) } } as Inline)
-        : i,
-    );
+    const inlines = (b.value.inlines ?? []).map((i) => (i.kind === "drawing" ? ({ kind: "drawing", value: sanitizeDrawing(i.value) } as Inline) : i));
     return { kind: "paragraph", value: { ...b.value, inlines } } as Block;
   });
 }

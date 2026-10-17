@@ -19,6 +19,7 @@ import { cursorBlock } from "../../sync/editorCommands";
 import { canonDrawing } from "../../sync/model";
 import { colorCss } from "../../sync/schema";
 import type { SyncController } from "../../sync/SyncPlugin";
+import { memberAt, memberPath, withMember } from "./geometry";
 import { innerEditors } from "./innerEditors";
 
 /** EMU per CSS pixel and per centimetre. */
@@ -94,37 +95,85 @@ export function drawingPosAt(doc: PMNode, block: number, offset: number): number
   return found;
 }
 
+/** The member of a group selected inside it (Word: a second click on a grouped shape), by node ids. */
+let memberSelection: { group: number; member: number } | null = null;
+
+/** Selects member `member` of the group `group` (null: the group itself). */
+export function selectMember(view: EditorView | null, group: number, member: number | null): void {
+  const next = member == null ? null : { group, member };
+  if (JSON.stringify(next) === JSON.stringify(memberSelection)) return;
+  memberSelection = next;
+  // A transaction without changes lets the ribbon follow.
+  if (view) view.dispatch(view.state.tr.setMeta("rusuiteMemberSelection", next));
+}
+
+/** The member selected inside group `group`, if any. */
+export const selectedMemberOf = (group: number): number | null => (memberSelection?.group === group ? memberSelection.member : null);
+
 /**
  * The selected drawing node and its position — the drawing selected as an
  * object, or the one whose text has the caret (its nested editor) — or null.
+ * Inside a group, `value` is the selected member and `path` its place.
  */
-export function selectedDrawing(state: EditorState): { node: PMNode; pos: number; value: Drawing } | null {
+export function selectedDrawing(state: EditorState): { node: PMNode; pos: number; value: Drawing; path?: number[] } | null {
   const sel = state.selection;
-  if (sel instanceof NodeSelection && sel.node.type.name === "drawing" && sel.node.attrs.value) {
-    return { node: sel.node, pos: sel.from, value: sel.node.attrs.value as Drawing };
-  }
+  const withPath = (node: PMNode, pos: number, member: number | null | undefined) => {
+    const group = node.attrs.value as Drawing;
+    const path = member != null ? memberPath(group, member) : null;
+    const m = path ? memberAt(group, path) : null;
+    return m && path ? { node, pos, value: m, path } : { node, pos, value: group };
+  };
   const inner = innerEditors.active();
+  const innerFirst = !!inner && innerEditors.newerThanMain();
+  if (!innerFirst && sel instanceof NodeSelection && sel.node.type.name === "drawing" && sel.node.attrs.value) {
+    return withPath(sel.node, sel.from, selectedMemberOf((sel.node.attrs.value as Drawing).id));
+  }
   const pos = inner ? innerEditors.hostPos(inner) : undefined;
   const node = pos !== undefined && pos <= state.doc.content.size ? state.doc.nodeAt(pos) : null;
-  if (pos !== undefined && node?.type.name === "drawing" && node.attrs.value) return { node, pos, value: node.attrs.value as Drawing };
+  if (pos !== undefined && node?.type.name === "drawing" && node.attrs.value) return withPath(node, pos, inner ? innerEditors.memberOf(inner) : null);
   return null;
 }
 
-/** Replaces the drawing at `pos` by `value` (kept selected unless its text is being edited; the mapper sends `SetDrawingProps` / text commands). */
-export function setDrawingValue(view: EditorView, pos: number, value: Drawing, keepSelection = true): boolean {
+/** Replaces the drawing at `pos` by `value` (kept selected unless its text is being edited; the mapper sends `SetDrawingProps` / text commands). With `path`, `value` is that member of the group at `pos`. */
+export function setDrawingValue(view: EditorView, pos: number, value: Drawing, keepSelection = true, path?: number[]): boolean {
   const node = view.state.doc.nodeAt(pos);
   if (!node || node.type.name !== "drawing") return false;
-  const tr = view.state.tr.setNodeMarkup(pos, undefined, { value: canonDrawing(value) });
+  const whole = path?.length ? withMember(node.attrs.value as Drawing, path, value) : value;
+  const tr = view.state.tr.setNodeMarkup(pos, undefined, { value: canonDrawing(whole) });
   if (keepSelection && !innerEditors.active()) tr.setSelection(NodeSelection.create(tr.doc, pos));
   view.dispatch(tr);
   return true;
 }
 
-/** Changes the selected drawing with `f`. */
+/** A group with fill, outline and text colour changes passed on to its shapes (Word formats every member). */
+export function propagateToMembers(before: Drawing, after: Drawing): Drawing {
+  if (after.kind !== "group" || !after.children?.length) return after;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const fill = !same(before.fill, after.fill);
+  const line = !same(before.line, after.line);
+  const text = !same(before.textColor, after.textColor);
+  if (!fill && !line && !text) return after;
+  const apply = (m: Drawing): Drawing => {
+    if (m.kind === "group") return { ...m, children: (m.children ?? []).map(apply) };
+    if (m.kind === "picture") return m;
+    const out = { ...m };
+    if (fill) out.fill = after.fill ?? { kind: "none" };
+    if (line && after.line) out.line = after.line;
+    if (text) {
+      if (after.textColor) out.textColor = after.textColor;
+      else delete out.textColor;
+    }
+    return out;
+  };
+  return { ...after, children: after.children.map(apply) };
+}
+
+/** Changes the selected drawing (or group member) with `f`. */
 export function editSelectedDrawing(editor: Editor, f: (d: Drawing) => Drawing): boolean {
   const sel = selectedDrawing(editor.state);
   if (!sel) return false;
-  return setDrawingValue(editor.view, sel.pos, f(structuredClone(sel.value)));
+  const next = propagateToMembers(sel.value, f(structuredClone(sel.value)));
+  return setDrawingValue(editor.view, sel.pos, next, true, sel.path);
 }
 
 // ----- paint -------------------------------------------------------------------------

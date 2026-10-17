@@ -20,9 +20,12 @@ import type { ShapeLine } from "../generated/ShapeLine";
 import type { TextCase } from "../generated/TextCase";
 import type { VAlignPos } from "../generated/VAlignPos";
 import {
-  DEFAULT_LINE, EMU_PER_CM, EMU_PER_PT, LINE_DASHES, LINE_WEIGHTS, SHAPE_GROUPS, SHAPE_STYLES, editSelectedDrawing, flipped, insertDrawing, rotated, withShapeStyle,
-  type ShapeStyle,
+  DEFAULT_LINE, EMU_PER_CM, EMU_PER_PT, LINE_DASHES, LINE_WEIGHTS, SHAPE_GROUPS, SHAPE_STYLES, editSelectedDrawing, flipped, insertDrawing, rotated, selectedDrawing,
+  withShapeStyle, type ShapeStyle,
 } from "../features/drawings/drawings";
+import { breakLinkAt, hasNext, startLinkMode } from "../features/drawings/chainCommands";
+import { armDrawTool } from "../features/drawings/drawTool";
+import { canGroup, canRegroup, groupSelected, regroup, ungroupSelected } from "../features/drawings/objects";
 import { pathQuery, rectOutline, shapePaths } from "../features/drawings/paths";
 import { changeCaseCommand, TEXT_CASES } from "../features/changeCase";
 import { newAnchor, POSITION_PRESETS, presetAnchor, presetOf, withWrap, WRAP_CHOICES, wrapOf } from "../features/floating";
@@ -83,7 +86,7 @@ export function ShapeLibrary({ onPick, presetsOnly }: { onPick: (id: string) => 
   );
 }
 
-/** Insert › Illustrations: Shapes ▾ and Text Box ▾. */
+/** Insert › Illustrations: Shapes ▾ (arms the drawing tool: click or drag on the page) and Text Box ▾. */
 export function insertDrawingButtons(editor: Editor, ctl: SyncController): ReactNode {
   const run = (id: string, anchor?: Anchor | null) => void insertDrawing(editor, ctl, id, anchor ? { anchor } : {}).catch((e) => ctl.pushError(e));
   return (
@@ -92,11 +95,12 @@ export function insertDrawingButtons(editor: Editor, ctl: SyncController): React
         label={t("write.shapes")}
         icon="shapes"
         size="large"
+        tooltip={t("write.shapes.drawTip")}
         menu={(close) => (
           <ShapeLibrary
             onPick={(id) => {
               close();
-              run(id);
+              armDrawTool(editor, ctl, id);
             }}
           />
         )}
@@ -108,11 +112,55 @@ export function insertDrawingButtons(editor: Editor, ctl: SyncController): React
         menu={[
           { id: "simple", label: t("write.textBox.simple"), icon: "textBox", onSelect: () => run("textBox") },
           { id: "draw", label: t("write.textBox.draw"), icon: WRAP_ICONS.square, onSelect: () => run("textBox", newAnchor("square")) },
+          { id: "drawBox", label: t("write.textBox.drawBox"), icon: "textBox", onSelect: () => armDrawTool(editor, ctl, "textBox") },
         ]}
       />
     </>
   );
 }
+
+/** Arrange › Group ▾: Group, Ungroup, Regroup (floating objects). */
+export function groupMenu(editor: Editor): ReactNode {
+  const view = editor.view;
+  const sel = editor.state.selection;
+  const isGroup = sel instanceof NodeSelection && sel.node.type.name === "drawing" && (sel.node.attrs.value as Drawing | null)?.kind === "group";
+  return (
+    <RibbonMenuButton
+      label={t("write.group")}
+      icon={GROUP_ICON}
+      size="large"
+      menu={[
+        { id: "group", label: t("write.group.group"), disabled: !canGroup(editor.state), onSelect: () => groupSelected(view) },
+        { id: "ungroup", label: t("write.group.ungroup"), disabled: !isGroup, onSelect: () => ungroupSelected(view) },
+        { id: "regroup", label: t("write.group.regroup"), disabled: !canRegroup(editor.state), onSelect: () => regroup(view) },
+      ]}
+    />
+  );
+}
+
+const GROUP_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="2.5" y="2.5" width="8" height="7" />
+    <circle cx="13" cy="13" r="4.5" />
+    <path d="M1 1h2M17 1h2M1 19h2M17 19h2" strokeWidth="1" />
+  </svg>
+);
+
+const UNLINK_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="1.5" y="3" width="7" height="6" />
+    <rect x="11.5" y="11" width="7" height="6" />
+    <path d="M8.5 6h2M14 9.5V11M11 7.5l3 3" />
+  </svg>
+);
+
+const LINK_ICON = (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <rect x="1.5" y="3" width="7" height="6" />
+    <rect x="11.5" y="11" width="7" height="6" />
+    <path d="M8.5 6h3.5v8" />
+  </svg>
+);
 
 // ----- Shape Format -------------------------------------------------------------------
 
@@ -321,30 +369,57 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
       {
         label: t("write.text"),
         items: (
-          <RibbonStack>
-            <RibbonMenuButton
-              label={t("write.alignText")}
-              icon={VALIGN_ICON(text?.verticalAlign ?? "top")}
-              showLabel
-              disabled={!text}
-              menu={(["top", "center", "bottom"] as VAlignPos[]).map((v) => ({
-                id: v,
-                label: t(`write.valign.${v}`),
-                icon: VALIGN_ICON(v),
-                checked: (text?.verticalAlign ?? "top") === v,
-                onSelect: () => edit((x) => (x.text ? { ...x, text: { ...x.text, verticalAlign: v } } : x)),
-              }))}
-            />
-            <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
-              <input
-                type="checkbox"
+          <>
+            <RibbonStack>
+              <RibbonMenuButton
+                label={t("write.alignText")}
+                icon={VALIGN_ICON(text?.verticalAlign ?? "top")}
+                showLabel
                 disabled={!text}
-                checked={text?.autofit === "resize"}
-                onChange={(e) => edit((x) => (x.text ? { ...x, text: { ...x.text, autofit: e.target.checked ? "resize" : "none" } } : x))}
+                menu={(["top", "center", "bottom"] as VAlignPos[]).map((v) => ({
+                  id: v,
+                  label: t(`write.valign.${v}`),
+                  icon: VALIGN_ICON(v),
+                  checked: (text?.verticalAlign ?? "top") === v,
+                  onSelect: () => edit((x) => (x.text ? { ...x, text: { ...x.text, verticalAlign: v } } : x)),
+                }))}
               />
-              {t("write.resizeToFit")}
-            </label>
-          </RibbonStack>
+              <label className="flex min-h-6 items-center gap-1 text-[11px] text-ui-fg">
+                <input
+                  type="checkbox"
+                  disabled={!text}
+                  checked={text?.autofit === "resize"}
+                  onChange={(e) => edit((x) => (x.text ? { ...x, text: { ...x.text, autofit: e.target.checked ? "resize" : "none" } } : x))}
+                />
+                {t("write.resizeToFit")}
+              </label>
+            </RibbonStack>
+            {d.kind === "textBox" && (
+              <RibbonStack>
+                <RibbonButton
+                  label={t("write.createLink")}
+                  icon={LINK_ICON}
+                  showLabel
+                  tooltip={t("write.createLinkTip")}
+                  disabled={hasNext(editor.state.doc, d)}
+                  onClick={() => {
+                    const sel = selectedDrawing(editor.state);
+                    if (sel) startLinkMode(editor, sel.pos, (e) => ctl.pushError(new Error(t(`write.linkError.${e}`))));
+                  }}
+                />
+                <RibbonButton
+                  label={t("write.breakLink")}
+                  icon={UNLINK_ICON}
+                  showLabel
+                  disabled={!d.chain}
+                  onClick={() => {
+                    const sel = selectedDrawing(editor.state);
+                    if (sel) breakLinkAt(editor.view, sel.pos);
+                  }}
+                />
+              </RibbonStack>
+            )}
+          </>
         ),
       },
       {
@@ -356,6 +431,7 @@ export function shapeFormatTab(editor: Editor, ctl: SyncController, d: Drawing, 
         items: (
           <>
             {arrangeMenus((d.anchor as Anchor | undefined) ?? null, (make) => setDrawingAnchor(editor, make))}
+            {groupMenu(editor)}
             <RibbonMenuButton
               label={t("write.alignObjects")}
               icon={presetIcon("top-left")}

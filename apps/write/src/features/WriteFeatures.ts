@@ -15,6 +15,7 @@ import { paginationPlugin, relayoutPages, remeasurePages, type PageLayout } from
 import type { FlowProps } from "./layout/measure";
 import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
 import { linksPlugin } from "./links";
+import { objectsPlugin } from "./drawings/objects";
 import { plainTextSlice } from "./plainPaste";
 import { selectsAll, updateFieldsCommand as updateSelectedFields } from "./references";
 import { paragraphStyleId, resolveParagraph } from "./styleCss";
@@ -389,6 +390,7 @@ export class WriteFeatures {
         return [
           findPlugin(),
           linksPlugin(),
+          objectsPlugin(),
           wordsUnderlinePlugin(),
           tableRenderPlugin(() => ctl.styles),
           paragraphBoxPlugin(),

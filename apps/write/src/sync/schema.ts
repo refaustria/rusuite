@@ -618,6 +618,8 @@ export interface DrawingNodeOptions {
   page: (() => { width: number; marginLeft: number; columnWidth: number } | null) | null;
   /** The nested editor of a drawing's text (null: no node view text editing). */
   inner: ((element: HTMLElement, blocks: Block[]) => import("@tiptap/core").Editor) | null;
+  /** Object URL of a media item (pictures in groups). */
+  resolveMedia?: ((id: number) => Promise<string>) | null;
 }
 
 /**
@@ -633,7 +635,7 @@ export const DrawingNode = Node.create<DrawingNodeOptions>({
   selectable: true,
   draggable: false,
   addOptions() {
-    return { page: null, inner: null };
+    return { page: null, inner: null, resolveMedia: null };
   },
   addAttributes() {
     return { value: { default: null, parseHTML: () => null, renderHTML: () => ({}) } };
@@ -649,8 +651,8 @@ export const DrawingNode = Node.create<DrawingNodeOptions>({
     return ["span", { class: "drawing-wrap", "data-preset": d?.preset ?? "", contenteditable: "false", style: `width: ${w}px; height: ${h}px` }];
   },
   addNodeView() {
-    const { page, inner } = this.options;
-    return ({ node, view, getPos }) => drawingNodeView(node, view, getPos, { page, inner });
+    const { page, inner, resolveMedia } = this.options;
+    return ({ node, view, getPos }) => drawingNodeView(node, view, getPos, { page, inner, resolve: resolveMedia ?? null });
   },
 });
 
@@ -964,7 +966,7 @@ export function writeExtensions(options: WriteExtensionsOptions = {}): Extension
     Title,
     PageBreak,
     InlineImageNode.configure({ resolveMedia: options.resolveMedia ?? null, page: options.page ?? null }),
-    DrawingNode.configure({ page: options.page ?? null, inner: options.innerEditor ?? null }),
+    DrawingNode.configure({ page: options.page ?? null, inner: options.innerEditor ?? null, resolveMedia: options.resolveMedia ?? null }),
     Superscript,
     Subscript,
     TextStyle,

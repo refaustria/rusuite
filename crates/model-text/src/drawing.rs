@@ -16,6 +16,15 @@
 //! outlines are computed by the shared preset path code (Show's
 //! `model_show::geometry`, asked through write-core). A custom geometry
 //! (`a:custGeom`) is kept as XML and drawn as its bounding box.
+//!
+//! Groups (`wpg:wgp`, [`DrawingKind::Group`]) hold their members in
+//! [`Drawing::children`]: shapes, text boxes, pictures
+//! ([`DrawingKind::Picture`]) and nested groups, each placed by
+//! [`Drawing::x`]/[`Drawing::y`] in the group's own frame (EMU from its
+//! top-left corner, the group's `chOff`/`chExt` resolved on read). Linked
+//! text boxes ([`TextChain`]) keep the whole story in the first box of the
+//! chain (`seq` 0, `wps:txbx id`); the others (`wps:linkedTxbx id seq`)
+//! show what overflows.
 
 use std::collections::BTreeMap;
 
@@ -164,6 +173,53 @@ pub enum DrawingKind {
     Shape,
     /// A text box.
     TextBox,
+    /// A group of drawings (`wpg:wgp`; members in [`Drawing::children`]).
+    Group,
+    /// A picture inside a group (`pic:pic`; [`Drawing::picture`]).
+    Picture,
+}
+
+impl DrawingKind {
+    /// Whether the drawing holds members ([`Drawing::children`]).
+    pub fn is_container(self) -> bool {
+        matches!(self, DrawingKind::Group)
+    }
+}
+
+/// Membership of a text box in a chain of linked text boxes (Shape Format ›
+/// Create Link): `id` names the chain (`wps:txbx/@id` of its first box,
+/// `wps:linkedTxbx/@id` of the others), `seq` the order (0 = the first
+/// box, which holds the text).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct TextChain {
+    /// Chain id.
+    pub id: u32,
+    /// Position in the chain (0 = first).
+    pub seq: u32,
+}
+
+/// The picture of a [`DrawingKind::Picture`] group member.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct DrawingPicture {
+    /// The image data in the document's [`crate::MediaStore`].
+    #[cfg_attr(feature = "ts", ts(as = "crate::media::MediaIdTs"))]
+    pub media: crate::media::MediaId,
+    /// Crop, border and effects.
+    #[serde(default, skip_serializing_if = "PictureFormat::is_default")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<PictureFormat>"))]
+    pub format: PictureFormat,
 }
 
 /// How the text box fits its text (`wps:bodyPr` children).
@@ -335,6 +391,30 @@ pub struct Drawing {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub text: Option<DrawingText>,
+    /// The linked text box chain this text box belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub chain: Option<TextChain>,
+    /// Members of a group, in z-order (first = bottom).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<Drawing>>"))]
+    pub children: Vec<Drawing>,
+    /// Left edge inside the parent group (EMU; 0 outside groups).
+    #[serde(default, skip_serializing_if = "is_zero_emu")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
+    pub x: Emu,
+    /// Top edge inside the parent group (EMU; 0 outside groups).
+    #[serde(default, skip_serializing_if = "is_zero_emu")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
+    pub y: Emu,
+    /// The picture of a [`DrawingKind::Picture`] member.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub picture: Option<DrawingPicture>,
+}
+
+fn is_zero_emu(v: &Emu) -> bool {
+    v.0 == 0
 }
 
 fn is_zero(v: &f64) -> bool {
@@ -369,7 +449,83 @@ impl Drawing {
             ),
             text_color: Some(Color::theme(core_model::ThemeColorSlot::Light1)),
             text: None,
+            chain: None,
+            children: Vec::new(),
+            x: Emu(0),
+            y: Emu(0),
+            picture: None,
         }
+    }
+
+    /// A group of `children` (placed in a `width` × `height` frame).
+    pub fn group(id: NodeId, width: Emu, height: Emu, children: Vec<Drawing>) -> Self {
+        Drawing {
+            kind: DrawingKind::Group,
+            fill: ShapeFill::None,
+            line: ShapeLine::default(),
+            text_color: None,
+            children,
+            ..Drawing::shape(id, "rect", width, height)
+        }
+    }
+
+    /// A picture member of a group.
+    pub fn picture(id: NodeId, media: crate::media::MediaId, width: Emu, height: Emu) -> Self {
+        Drawing {
+            kind: DrawingKind::Picture,
+            fill: ShapeFill::None,
+            line: ShapeLine::default(),
+            text_color: None,
+            picture: Some(DrawingPicture {
+                media,
+                format: PictureFormat::default(),
+            }),
+            ..Drawing::shape(id, "rect", width, height)
+        }
+    }
+
+    /// This drawing and all its members (depth first, the drawing first).
+    pub fn walk(&self) -> Vec<&Drawing> {
+        let mut out = vec![self];
+        for c in &self.children {
+            out.extend(c.walk());
+        }
+        out
+    }
+
+    /// Calls `f` on this drawing and every member (depth first).
+    pub fn walk_mut(&mut self, f: &mut dyn FnMut(&mut Drawing)) {
+        f(self);
+        for c in &mut self.children {
+            c.walk_mut(f);
+        }
+    }
+
+    /// Scales the members' frames to a new group size (Word: resizing a
+    /// group resizes and moves its members proportionally).
+    pub fn scale_children(&mut self, width: Emu, height: Emu) {
+        let sx = width.0 as f64 / self.width.0.max(1) as f64;
+        let sy = height.0 as f64 / self.height.0.max(1) as f64;
+        fn scale(d: &mut Drawing, sx: f64, sy: f64) {
+            d.x = Emu((d.x.0 as f64 * sx).round() as i64);
+            d.y = Emu((d.y.0 as f64 * sy).round() as i64);
+            let (w, h) = (
+                Emu(((d.width.0 as f64 * sx).round() as i64).max(1)),
+                Emu(((d.height.0 as f64 * sy).round() as i64).max(1)),
+            );
+            let (ox, oy) = (d.width.0 as f64, d.height.0 as f64);
+            d.width = w;
+            d.height = h;
+            let (csx, csy) = (w.0 as f64 / ox.max(1.0), h.0 as f64 / oy.max(1.0));
+            for c in &mut d.children {
+                scale(c, csx, csy);
+            }
+        }
+        for c in &mut self.children {
+            scale(c, sx, sy);
+        }
+        self.width = width;
+        self.height = height;
     }
 
     /// Word's Simple Text Box: white fill, black 0.75 pt outline, `blocks`
@@ -498,9 +654,175 @@ impl PictureFormat {
     }
 }
 
+/// Calls `f` on every drawing in `blocks` (cells included, group members
+/// included).
+pub fn for_each_drawing_mut(blocks: &mut [Block], f: &mut dyn FnMut(&mut Drawing)) {
+    for b in blocks {
+        match b {
+            Block::Paragraph(p) => {
+                for d in p.drawings_mut() {
+                    d.walk_mut(f);
+                }
+            }
+            Block::Table(t) => {
+                for cell in t.rows.iter_mut().flat_map(|r| &mut r.cells) {
+                    for_each_drawing_mut(&mut cell.blocks, f);
+                }
+            }
+            Block::Toc(_) => {}
+        }
+    }
+}
+
+impl crate::Document {
+    /// Restores the invariants of linked text boxes: chains only on text
+    /// boxes, every chain has one first box (`seq` 0) and at least one
+    /// other box (else the chain is dropped), and the other boxes hold no
+    /// text of their own (one empty paragraph). Returns whether anything
+    /// changed.
+    pub fn fix_text_chains(&mut self) -> bool {
+        let mut members: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        let mut changed = false;
+        for c in self.containers_mut() {
+            for_each_drawing_mut(c, &mut |d| {
+                if d.chain.is_some() && d.kind != DrawingKind::TextBox {
+                    d.chain = None;
+                    changed = true;
+                }
+                if let Some(ch) = d.chain {
+                    members.entry(ch.id).or_default().push(ch.seq);
+                }
+            });
+        }
+        let valid: std::collections::BTreeSet<u32> = members
+            .iter()
+            .filter(|(_, seqs)| seqs.iter().filter(|s| **s == 0).count() == 1 && seqs.len() > 1)
+            .map(|(id, _)| *id)
+            .collect();
+        for c in self.containers_mut() {
+            for_each_drawing_mut(c, &mut |d| {
+                let Some(ch) = d.chain else { return };
+                if !valid.contains(&ch.id) {
+                    d.chain = None;
+                    changed = true;
+                    return;
+                }
+                if ch.seq == 0 {
+                    return;
+                }
+                if let Some(t) = d.text.as_mut() {
+                    let empty = matches!(t.blocks.as_slice(), [Block::Paragraph(p)] if p.inlines.is_empty());
+                    if !empty {
+                        let first = t.blocks.iter().find_map(|b| match b {
+                            Block::Paragraph(p) => Some(p.id),
+                            _ => None,
+                        });
+                        t.blocks = first
+                            .map(|id| vec![Block::Paragraph(crate::Paragraph::new(id))])
+                            .unwrap_or_default();
+                        changed = true;
+                    }
+                }
+            });
+        }
+        changed
+    }
+
+    /// The text boxes of chain `id` in `seq` order, as (seq, drawing id).
+    pub fn text_chain(&self, id: u32) -> Vec<(u32, NodeId)> {
+        let mut out = Vec::new();
+        for c in self.containers() {
+            for p in crate::document::paragraphs_in(c) {
+                for d in p.drawings().flat_map(|d| d.walk()) {
+                    if let Some(ch) = d.chain.filter(|ch| ch.id == id) {
+                        out.push((ch.seq, d.id));
+                    }
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn group_scaling_moves_and_resizes_members() {
+        let mut a = Drawing::shape(NodeId(2), "rect", Emu(100), Emu(50));
+        a.x = Emu(100);
+        let mut inner = Drawing::group(
+            NodeId(4),
+            Emu(100),
+            Emu(100),
+            vec![Drawing::shape(NodeId(5), "ellipse", Emu(50), Emu(100))],
+        );
+        inner.y = Emu(50);
+        let mut g = Drawing::group(NodeId(1), Emu(200), Emu(150), vec![a, inner]);
+        g.scale_children(Emu(400), Emu(300));
+        assert_eq!((g.width, g.height), (Emu(400), Emu(300)));
+        let c = &g.children;
+        assert_eq!(
+            (c[0].x, c[0].width, c[0].height),
+            (Emu(200), Emu(200), Emu(100))
+        );
+        assert_eq!(
+            (c[1].y, c[1].width, c[1].height),
+            (Emu(100), Emu(200), Emu(200))
+        );
+        assert_eq!(c[1].children[0].width, Emu(100));
+        assert_eq!(c[1].children[0].height, Emu(200));
+        assert_eq!(g.walk().len(), 4);
+        let json = serde_json::to_value(&g).unwrap();
+        assert_eq!(json["kind"], "group");
+        assert_eq!(json["children"][0]["x"], 200);
+        assert!(json["children"][1].get("x").is_none());
+        let back: Drawing = serde_json::from_value(json).unwrap();
+        assert_eq!(back, g);
+        let mut tb = Drawing::text_box(NodeId(9), Emu(1), Emu(1), Vec::new());
+        tb.chain = Some(TextChain { id: 3, seq: 1 });
+        let json = serde_json::to_value(&tb).unwrap();
+        assert_eq!(json["chain"], serde_json::json!({"id": 3, "seq": 1}));
+    }
+
+    #[test]
+    fn text_chains_are_repaired() {
+        use crate::{Inline, Paragraph, Run};
+        let mut doc = crate::Document::new();
+        let text = |id: u64, s: &str| {
+            let mut p = Paragraph::new(NodeId(id));
+            if !s.is_empty() {
+                p.inlines.push(Inline::Run(Run::new(s)));
+            }
+            vec![Block::Paragraph(p)]
+        };
+        let mut head = Drawing::text_box(NodeId(100), Emu(10), Emu(10), text(101, "story"));
+        head.chain = Some(TextChain { id: 1, seq: 0 });
+        let mut next = Drawing::text_box(NodeId(102), Emu(10), Emu(10), text(103, "own text"));
+        next.chain = Some(TextChain { id: 1, seq: 1 });
+        let mut lonely = Drawing::text_box(NodeId(104), Emu(10), Emu(10), text(105, "x"));
+        lonely.chain = Some(TextChain { id: 2, seq: 0 });
+        let mut shape = Drawing::shape(NodeId(106), "rect", Emu(10), Emu(10));
+        shape.chain = Some(TextChain { id: 1, seq: 2 });
+        let mut p = Paragraph::new(NodeId(99));
+        for d in [head, next, lonely, shape] {
+            p.inlines.push(Inline::Drawing(Box::new(d)));
+        }
+        doc.body = vec![Block::Paragraph(p)];
+        assert!(doc.fix_text_chains());
+        let ds: Vec<&Drawing> = doc.body[0].as_paragraph().unwrap().drawings().collect();
+        assert_eq!(ds[0].chain, Some(TextChain { id: 1, seq: 0 }));
+        assert_eq!(ds[1].chain, Some(TextChain { id: 1, seq: 1 }));
+        assert!(
+            matches!(ds[1].blocks(), [Block::Paragraph(p)] if p.inlines.is_empty() && p.id == NodeId(103))
+        );
+        assert_eq!(ds[2].chain, None);
+        assert_eq!(ds[3].chain, None);
+        assert_eq!(doc.text_chain(1), vec![(0, NodeId(100)), (1, NodeId(102))]);
+        assert!(!doc.fix_text_chains());
+    }
 
     #[test]
     fn json_defaults_are_omitted() {

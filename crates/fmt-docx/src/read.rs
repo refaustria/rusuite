@@ -11,7 +11,9 @@ use model_text::{
     Anchor, HAlign, HPos, HRelative, Insets, Placement, VAlignPos, VPos, VRelative, WrapKind,
     WrapSide,
 };
-use model_text::{Autofit, Drawing, DrawingKind, DrawingText, LineDash, ShapeFill, ShapeLine};
+use model_text::{
+    Autofit, Drawing, DrawingKind, DrawingText, LineDash, ShapeFill, ShapeLine, TextChain,
+};
 use model_text::{
     Block, BreakKind, CellProperties, Document, Field, FieldKind, HeightRule, Inline, InlineImage,
     MediaId, Note, NoteKind, NoteRef, PageSetup, Paragraph, RowHeight, RowProperties, Run, Section,
@@ -1131,13 +1133,10 @@ impl BodyReader<'_> {
                 .read_shape(shape, wsp, floating)
                 .map(|d| Inline::Drawing(Box::new(d)));
         }
-        if data.and_then(|g| g.child("wgp")).is_some() {
-            self.w.warn(
-                "docx.drawing.groups",
-                "grouped drawing objects dropped",
-                &[],
-            );
-            return None;
+        if let Some(wgp) = data.and_then(|g| g.child("wgp")) {
+            return self
+                .read_group_frame(shape, wgp, floating)
+                .map(|d| Inline::Drawing(Box::new(d)));
         }
         let blip = data.and_then(|g| g.find("blip"));
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
@@ -1156,40 +1155,7 @@ impl BodyReader<'_> {
             }
             return None;
         };
-        let target = self
-            .pkg
-            .relationships(&self.part)
-            .and_then(|r| r.get(rid))
-            .filter(|r| r.target_mode == TargetMode::Internal)
-            .and_then(|r| self.part.resolve(&r.target).ok());
-        let Some(part_name) = target else {
-            self.w.warn(
-                "docx.image.danglingRelationship",
-                "image with dangling relationship {rid} dropped",
-                &[("rid", &rid)],
-            );
-            return None;
-        };
-        let media = match self.media.get(&part_name) {
-            Some(id) => *id,
-            None => {
-                let Some(part) = self.pkg.part(&part_name) else {
-                    self.w.warn(
-                        "docx.image.partMissing",
-                        "image part {part} missing; dropped",
-                        &[("part", &part_name)],
-                    );
-                    return None;
-                };
-                let id = self
-                    .doc
-                    .media
-                    .insert(part.content_type.clone(), part.data.clone());
-                self.consumed.insert(part_name.clone());
-                self.media.insert(part_name, id);
-                id
-            }
-        };
+        let media = self.media_of(rid)?;
         let extent = shape.child("extent");
         let emu = |a: &str| {
             extent
@@ -1223,6 +1189,43 @@ impl BodyReader<'_> {
         }))
     }
 
+    /// The media id of the image part behind relationship `rid` (read
+    /// once per part), or `None` with a warning.
+    fn media_of(&mut self, rid: &str) -> Option<MediaId> {
+        let target = self
+            .pkg
+            .relationships(&self.part)
+            .and_then(|r| r.get(rid))
+            .filter(|r| r.target_mode == TargetMode::Internal)
+            .and_then(|r| self.part.resolve(&r.target).ok());
+        let Some(part_name) = target else {
+            self.w.warn(
+                "docx.image.danglingRelationship",
+                "image with dangling relationship {rid} dropped",
+                &[("rid", &rid)],
+            );
+            return None;
+        };
+        if let Some(id) = self.media.get(&part_name) {
+            return Some(*id);
+        }
+        let Some(part) = self.pkg.part(&part_name) else {
+            self.w.warn(
+                "docx.image.partMissing",
+                "image part {part} missing; dropped",
+                &[("part", &part_name)],
+            );
+            return None;
+        };
+        let id = self
+            .doc
+            .media
+            .insert(part.content_type.clone(), part.data.clone());
+        self.consumed.insert(part_name.clone());
+        self.media.insert(part_name, id);
+        Some(id)
+    }
+
     /// The link of an `a:hlinkClick` (its relationship; `#name` targets are
     /// bookmarks).
     fn drawing_link(&mut self, h: &El) -> Option<Hyperlink> {
@@ -1242,8 +1245,9 @@ impl BodyReader<'_> {
         Some(Hyperlink { target, tooltip })
     }
 
-    /// A `wps:wsp` (shape or text box) in `wp:inline` / `wp:anchor` `frame`.
-    fn read_shape(&mut self, frame: &El, wsp: &El, floating: bool) -> Option<Drawing> {
+    /// Size, name, alternative text and placement of a drawing from its
+    /// `wp:inline` / `wp:anchor` `frame`.
+    fn frame_props(&mut self, frame: &El, d: &mut Drawing, floating: bool) {
         let extent = frame.child("extent");
         let emu = |a: &str| {
             extent
@@ -1251,6 +1255,8 @@ impl BodyReader<'_> {
                 .and_then(|v| v.trim().parse::<i64>().ok())
                 .map_or(Emu(0), Emu)
         };
+        d.width = emu("cx");
+        d.height = emu("cy");
         let doc_pr = frame.child("docPr");
         let attr = |a: &str| {
             doc_pr
@@ -1258,21 +1264,143 @@ impl BodyReader<'_> {
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned)
         };
+        d.name = attr("name");
+        d.alt = attr("descr");
+        d.anchor = floating.then(|| read_anchor(frame, self.w));
+    }
+
+    /// A `wps:wsp` (shape or text box) in `wp:inline` / `wp:anchor` `frame`.
+    fn read_shape(&mut self, frame: &El, wsp: &El, floating: bool) -> Option<Drawing> {
+        let mut d = self.read_wsp(wsp);
+        self.frame_props(frame, &mut d, floating);
+        Some(d)
+    }
+
+    /// A `wpg:wgp` group in `wp:inline` / `wp:anchor` `frame`.
+    fn read_group_frame(&mut self, frame: &El, wgp: &El, floating: bool) -> Option<Drawing> {
+        let id = self.doc.alloc_id();
+        let mut g = Drawing::group(id, Emu(0), Emu(0), Vec::new());
+        self.frame_props(frame, &mut g, floating);
+        g.children = self.read_group_members(wgp, g.width.0 as f64, g.height.0 as f64);
+        if g.children.is_empty() {
+            self.w.warn(
+                "docx.drawing.groups",
+                "grouped drawing objects dropped",
+                &[],
+            );
+            return None;
+        }
+        Some(g)
+    }
+
+    /// The members of a group element (`wpg:wgp`, `wpg:grpSp`) whose frame
+    /// is `w` × `h` EMU: the group's child coordinates (`a:chOff`,
+    /// `a:chExt`) mapped into that frame.
+    fn read_group_members(&mut self, grp: &El, w: f64, h: f64) -> Vec<Drawing> {
+        let xfrm = grp.child("grpSpPr").and_then(|p| p.child("xfrm"));
+        let ext = xfrm_box(xfrm);
+        let ch_off = xfrm
+            .and_then(|x| x.child("chOff"))
+            .map_or((ext.0, ext.1), |o| (num(o, "x"), num(o, "y")));
+        let ch_ext = xfrm
+            .and_then(|x| x.child("chExt"))
+            .map_or((ext.2, ext.3), |e| (num(e, "cx"), num(e, "cy")));
+        let sx = if ch_ext.0 > 0.0 { w / ch_ext.0 } else { 1.0 };
+        let sy = if ch_ext.1 > 0.0 { h / ch_ext.1 } else { 1.0 };
+        let map = |b: (f64, f64, f64, f64)| {
+            (
+                Emu(((b.0 - ch_off.0) * sx).round() as i64),
+                Emu(((b.1 - ch_off.1) * sy).round() as i64),
+                Emu(((b.2 * sx).round() as i64).max(1)),
+                Emu(((b.3 * sy).round() as i64).max(1)),
+            )
+        };
+        let mut out = Vec::new();
+        for el in grp.elements() {
+            let member = match el.name.as_str() {
+                "wsp" => {
+                    let b = xfrm_box(el.child("spPr").and_then(|p| p.child("xfrm")));
+                    let mut d = self.read_wsp(el);
+                    (d.x, d.y, d.width, d.height) = map(b);
+                    let c_nv = el.child("cNvPr");
+                    d.name = c_nv
+                        .and_then(|c| c.attr("name"))
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned);
+                    d.alt = c_nv
+                        .and_then(|c| c.attr("descr"))
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned);
+                    Some(d)
+                }
+                "pic" => {
+                    let b = xfrm_box(el.child("spPr").and_then(|p| p.child("xfrm")));
+                    let rid = el.find("blip").and_then(|b| b.attr("embed"));
+                    match rid.and_then(|r| self.media_of(r)) {
+                        Some(media) => {
+                            let (x, y, cw, ch) = map(b);
+                            let mut d = Drawing::picture(self.doc.alloc_id(), media, cw, ch);
+                            (d.x, d.y) = (x, y);
+                            if let Some(p) = d.picture.as_mut() {
+                                p.format = read_picture_format(el);
+                            }
+                            let c_nv = el.child("nvPicPr").and_then(|n| n.child("cNvPr"));
+                            d.name = c_nv
+                                .and_then(|c| c.attr("name"))
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_owned);
+                            d.alt = c_nv
+                                .and_then(|c| c.attr("descr"))
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_owned);
+                            Some(d)
+                        }
+                        None => None,
+                    }
+                }
+                "grpSp" => {
+                    let b = xfrm_box(el.child("grpSpPr").and_then(|p| p.child("xfrm")));
+                    let (x, y, gw, gh) = map(b);
+                    let children = self.read_group_members(el, gw.0 as f64, gh.0 as f64);
+                    let mut g = Drawing::group(self.doc.alloc_id(), gw, gh, children);
+                    (g.x, g.y) = (x, y);
+                    let c_nv = el.child("cNvPr");
+                    g.name = c_nv
+                        .and_then(|c| c.attr("name"))
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned);
+                    (!g.children.is_empty()).then_some(g)
+                }
+                "cNvPr" | "cNvGrpSpPr" | "grpSpPr" | "bodyPr" | "extLst" => None,
+                _ => {
+                    self.w.warn(
+                        "docx.drawing.otherObjects",
+                        "drawing objects other than pictures dropped",
+                        &[],
+                    );
+                    None
+                }
+            };
+            out.extend(member);
+        }
+        out
+    }
+
+    /// The shape of a `wps:wsp` (geometry, colours, text and its layout,
+    /// linked text box chain); size and placement come from its frame.
+    fn read_wsp(&mut self, wsp: &El) -> Drawing {
         let text_box = wsp
             .child("cNvSpPr")
             .and_then(|c| c.attr("txBox"))
             .and_then(parse_bool)
             .unwrap_or(false);
         let id = self.doc.alloc_id();
-        let mut d = Drawing::shape(id, "rect", emu("cx"), emu("cy"));
+        let mut d = Drawing::shape(id, "rect", Emu(0), Emu(0));
         d.kind = if text_box {
             DrawingKind::TextBox
         } else {
             DrawingKind::Shape
         };
-        d.name = attr("name");
-        d.alt = attr("descr");
-        d.anchor = floating.then(|| read_anchor(frame, self.w));
         let style = wsp.child("style");
         let sp = wsp.child("spPr");
         if let Some(x) = sp.and_then(|s| s.child("xfrm")) {
@@ -1322,9 +1450,26 @@ impl BodyReader<'_> {
         };
         d.text_color = style_ref(style, "fontRef").and_then(|(_, c)| c);
         let body = wsp.child("bodyPr");
-        let content = wsp.child("txbx").and_then(|t| t.child("txbxContent"));
-        if let Some(c) = content {
-            let blocks = self.read_nested_blocks(c);
+        let txbx = wsp.child("txbx");
+        let linked = wsp.child("linkedTxbx");
+        let content = txbx.and_then(|t| t.child("txbxContent"));
+        if let Some(t) = txbx {
+            if let Some(cid) = t.attr("id").and_then(parse_u32) {
+                d.chain = Some(TextChain { id: cid, seq: 0 });
+            }
+        }
+        if let Some(l) = linked {
+            if let (Some(cid), Some(seq)) = (
+                l.attr("id").and_then(parse_u32),
+                l.attr("seq").and_then(parse_u32),
+            ) {
+                d.chain = Some(TextChain { id: cid, seq });
+            }
+        }
+        if content.is_some() || linked.is_some() || text_box {
+            let blocks = content
+                .map(|c| self.read_nested_blocks(c))
+                .unwrap_or_default();
             let mut t = DrawingText::new(blocks);
             if let Some(b) = body {
                 let ins = |a: &str, def: i64| {
@@ -1347,10 +1492,8 @@ impl BodyReader<'_> {
                 }
             }
             d.text = Some(t);
-        } else if text_box {
-            d.text = Some(DrawingText::new(Vec::new()));
         }
-        Some(d)
+        d
     }
 
     /// The blocks of a text box (`w:txbxContent`): read like a nested
@@ -1761,6 +1904,28 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
         );
     }
     anchor
+}
+
+/// A number attribute (EMU) of `el` as `f64` (0 when absent).
+fn num(el: &El, a: &str) -> f64 {
+    el.attr(a)
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .unwrap_or(0) as f64
+}
+
+/// `a:xfrm` → (x, y, cx, cy) in EMU (zeros when absent).
+fn xfrm_box(xfrm: Option<&El>) -> (f64, f64, f64, f64) {
+    let Some(x) = xfrm else {
+        return (0.0, 0.0, 0.0, 0.0);
+    };
+    let off = x.child("off");
+    let ext = x.child("ext");
+    (
+        off.map_or(0.0, |o| num(o, "x")),
+        off.map_or(0.0, |o| num(o, "y")),
+        ext.map_or(0.0, |e| num(e, "cx")),
+        ext.map_or(0.0, |e| num(e, "cy")),
+    )
 }
 
 /// Warning for fields that are not modelled.

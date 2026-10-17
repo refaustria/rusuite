@@ -33,7 +33,7 @@ import { ListGalleries } from "./listGalleries";
 import { paragraphBorderState, selectedParagraphs } from "../features/paragraphFormat";
 import { paragraphBordersMenu, paragraphShadingPicker } from "./paragraphControls";
 import { pictureArrangeItems } from "./pictureControls";
-import { fontExtras, insertDrawingButtons, pictureCropButton, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
+import { fontExtras, groupMenu, insertDrawingButtons, pictureCropButton, pictureFormatGroups, shapeFormatTab } from "./drawingTabs";
 import { selectedDrawing } from "../features/drawings/drawings";
 import { formatTarget } from "../features/runFormat";
 import { innerEditors } from "../features/drawings/innerEditors";
@@ -1295,6 +1295,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
             items: (
               <>
                 {pictureArrangeItems(editor, img.anchor)}
+                {groupMenu(editor)}
                 <RibbonStack>
                   <RibbonRow>
                     {alignBtn("left", t("write.picAlignLeft"), <Icon name="alignLeft" />, "Mod+L")}

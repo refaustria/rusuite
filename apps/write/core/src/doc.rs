@@ -285,10 +285,12 @@ impl Ids {
         }
         for inline in inlines {
             if let Inline::Drawing(d) = inline {
-                d.id = self.keep_or_alloc(doc, d.id);
-                if let Some(blocks) = d.blocks_mut() {
-                    walk(self, doc, blocks);
-                }
+                d.walk_mut(&mut |d| {
+                    d.id = self.keep_or_alloc(doc, d.id);
+                    if let Some(blocks) = d.blocks_mut() {
+                        walk(self, doc, blocks);
+                    }
+                });
             }
         }
     }

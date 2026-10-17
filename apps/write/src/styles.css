@@ -134,6 +134,28 @@ body,
 .drawing-adjust { display: none; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #ffd500; border: 1px solid #7a6000; box-sizing: border-box; cursor: pointer; z-index: 2; touch-action: none; }
 .drawing-wrap.selected .drawing-adjust { display: block; }
 .drawing-wrap.floating.selected { cursor: move; touch-action: none; }
+/* P9-W4: handles in a frame that rotates with the shape; group members; linked text boxes. */
+.drawing-wrap .drawing-frame { position: absolute; inset: 0; pointer-events: none; }
+.drawing-wrap .drawing-frame > * { pointer-events: auto; }
+.drawing-wrap .drawing-members { position: absolute; inset: 0; display: block; }
+.drawing-wrap .drawing-members[hidden] { display: none; }
+.drawing-member { position: absolute; display: block; box-sizing: border-box; }
+.drawing-member .drawing-shape { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.drawing-member .drawing-text { position: absolute; inset: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; user-select: text; cursor: text; }
+.drawing-member .drawing-text .ProseMirror { outline: none; min-height: 1em; white-space: pre-wrap; }
+.drawing-member .picture-frame { display: block; overflow: hidden; line-height: 0; }
+.drawing-member .picture-frame img.inline-image { display: block; max-width: none; }
+.drawing-wrap.selected .drawing-member.member-selected { outline: 1px dashed #4472c4; outline-offset: 1px; }
+.drawing-wrap[data-kind="group"].selected .drawing-box { outline-style: dotted; }
+.drawing-wrap .chain-host { position: relative; overflow: hidden; height: 100%; }
+.drawing-wrap .chain-host .chain-copy { pointer-events: none; user-select: none; }
+.drawing-wrap .chain-caret { position: absolute; width: 1px; background: currentColor; animation: chain-blink 1.06s steps(1) infinite; }
+@keyframes chain-blink { 50% { opacity: 0; } }
+.drawing-wrap[data-chain="follower"] .drawing-text { cursor: text; }
+.tiptap-content.drawing-tool, .write-page.drawing-tool, .drawing-tool .ProseMirror { cursor: crosshair; }
+.draw-band { position: fixed; z-index: 50; border: 1px solid #4472c4; background: rgba(68, 114, 196, 0.12); pointer-events: none; }
+.drawing-wrap.multi-selected .drawing-box, .inline-image-wrap.multi-selected img { outline: 1px solid #4472c4; outline-offset: 1px; }
+.drawing-wrap[data-snapped="1"] .drawing-box { outline-color: #c00000; }
 /* Touch-sized hit areas around the small handles (docs/mobile-plan.md guardrails: ≥ 32 px). */
 /* They grow outwards only, so the text next to the box edge stays clickable. */
 .drawing-handle::before, .drawing-rotate::before, .drawing-adjust::before { content: ""; position: absolute; inset: -12px; }

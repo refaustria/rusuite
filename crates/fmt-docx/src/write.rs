@@ -19,7 +19,8 @@ use model_text::{Comment, CommentId, Drawing, DrawingKind, Hyperlink, LinkTarget
 
 use crate::drawing::{
     emu_pt, vml_color, write_blip_effects, write_fill, write_line, write_preset, write_shadow,
-    write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPS, URI_WPS,
+    write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPC, NS_WPG, NS_WPS, URI_WPG,
+    URI_WPS,
 };
 
 use crate::numbering::{write_numbering, W_NS};
@@ -426,6 +427,8 @@ impl<'a> PartWriter<'a> {
                 ("xmlns:w", W_NS),
                 ("xmlns:w14", NS_W14),
                 ("xmlns:wps", NS_WPS),
+                ("xmlns:wpg", NS_WPG),
+                ("xmlns:wpc", NS_WPC),
                 ("xmlns:a", NS_A),
                 ("xmlns:pic", NS_PIC),
                 ("mc:Ignorable", "w14 wp14"),
@@ -1068,38 +1071,16 @@ impl<'a> PartWriter<'a> {
         );
         x.empty("pic:cNvPicPr", &[]);
         x.end("pic:nvPicPr");
-        x.start("pic:blipFill", &[]);
         let f = &img.format;
-        let effects =
-            f.recolor != model_text::Recolor::None || f.brightness != 0 || f.contrast != 0;
-        if effects {
-            x.start("a:blip", &[("r:embed", &rid)]);
-            write_blip_effects(x, f);
-            x.end("a:blip");
-        } else {
-            x.empty("a:blip", &[("r:embed", &rid)]);
-        }
-        write_src_rect(x, &f.crop);
-        x.start("a:stretch", &[]);
-        x.empty("a:fillRect", &[]);
-        x.end("a:stretch");
-        x.end("pic:blipFill");
+        self.pic_blip_fill(&rid, f);
+        let x = &mut self.x;
         x.start("pic:spPr", &[]);
         x.start("a:xfrm", &[]);
         x.empty("a:off", &[("x", "0"), ("y", "0")]);
         x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
         x.end("a:xfrm");
-        write_preset(
-            x,
-            f.geometry.as_deref().unwrap_or("rect"),
-            &std::collections::BTreeMap::new(),
-        );
-        if let Some(b) = &f.border {
-            write_line(x, b);
-        }
-        if f.shadow {
-            write_shadow(x);
-        }
+        self.pic_sp_pr_rest(f);
+        let x = &mut self.x;
         x.end("pic:spPr");
         x.end("pic:pic");
         x.end("a:graphicData");
@@ -1125,17 +1106,21 @@ impl<'a> PartWriter<'a> {
         (rid, l.tooltip.clone())
     }
 
-    /// A shape or text box: `mc:AlternateContent` with the DrawingML shape
-    /// (`wps:wsp`) as the choice and a minimal VML shape as the fallback
-    /// for Word 2007.
+    /// A shape, text box or group: `mc:AlternateContent` with the
+    /// DrawingML shape (`wps:wsp`) or group (`wpg:wgp`) as the choice and a
+    /// minimal VML shape as the fallback for Word 2007 (none for groups).
     fn drawing(&mut self, d: &Drawing) -> Result<()> {
         let n = self.shared.next_docpr;
         let id = n.to_string();
         self.shared.next_docpr += 1;
         let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
+        let group = d.kind.is_container();
         self.x.start("w:r", &[]);
         self.x.start("mc:AlternateContent", &[]);
-        self.x.start("mc:Choice", &[("Requires", "wps")]);
+        self.x.start(
+            "mc:Choice",
+            &[("Requires", if group { "wpg" } else { "wps" })],
+        );
         self.x.start("w:drawing", &[]);
         let frame = if d.anchor.is_some() {
             "wp:anchor"
@@ -1166,7 +1151,8 @@ impl<'a> PartWriter<'a> {
         }
         let default_name = match d.kind {
             DrawingKind::TextBox => format!("Text Box {n}"),
-            DrawingKind::Shape => format!("Shape {n}"),
+            DrawingKind::Group => format!("Group {n}"),
+            _ => format!("Shape {n}"),
         };
         let name = d.name.clone().unwrap_or(default_name);
         let mut doc_pr = vec![("id", id.as_str()), ("name", name.as_str())];
@@ -1176,14 +1162,36 @@ impl<'a> PartWriter<'a> {
         self.x.empty("wp:docPr", &doc_pr);
         self.x.empty("wp:cNvGraphicFramePr", &[]);
         self.x.start("a:graphic", &[]);
-        self.x.start("a:graphicData", &[("uri", URI_WPS)]);
-        self.x.start("wps:wsp", &[]);
-        if d.kind == DrawingKind::TextBox {
-            self.x.empty("wps:cNvSpPr", &[("txBox", "1")]);
+        if group {
+            self.x.start("a:graphicData", &[("uri", URI_WPG)]);
+            self.x.start("wpg:wgp", &[]);
+            self.x.empty("wpg:cNvGrpSpPr", &[]);
+            self.group_sp_pr("wpg:grpSpPr", d, false);
+            self.group_members(&d.children)?;
+            self.x.empty("wpg:bodyPr", &[]);
+            self.x.end("wpg:wgp");
         } else {
-            self.x.empty("wps:cNvSpPr", &[]);
+            self.x.start("a:graphicData", &[("uri", URI_WPS)]);
+            self.wsp(d, None)?;
         }
-        self.x.start("wps:spPr", &[]);
+        self.x.end("a:graphicData");
+        self.x.end("a:graphic");
+        self.x.end(frame);
+        self.x.end("w:drawing");
+        self.x.end("mc:Choice");
+        self.x.start("mc:Fallback", &[]);
+        if !group {
+            self.vml_fallback(d, n)?;
+        }
+        self.x.end("mc:Fallback");
+        self.x.end("mc:AlternateContent");
+        self.x.end("w:r");
+        Ok(())
+    }
+
+    /// `a:xfrm` of a drawing: rotation and flips, `off` = its place in its
+    /// group (`in_group`) or 0, `ext` = its size.
+    fn xfrm(&mut self, d: &Drawing, in_group: bool) {
         let rot = ((d.rotation * 60_000.0).round() as i64).rem_euclid(21_600_000);
         let rot_s = rot.to_string();
         let mut xfrm: Vec<(&str, &str)> = Vec::new();
@@ -1196,10 +1204,143 @@ impl<'a> PartWriter<'a> {
         if d.flip_v {
             xfrm.push(("flipV", "1"));
         }
+        let (ox, oy) = if in_group {
+            (d.x.0.to_string(), d.y.0.to_string())
+        } else {
+            ("0".to_owned(), "0".to_owned())
+        };
+        let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
         self.x.start("a:xfrm", &xfrm);
-        self.x.empty("a:off", &[("x", "0"), ("y", "0")]);
+        self.x.empty("a:off", &[("x", &ox), ("y", &oy)]);
         self.x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
         self.x.end("a:xfrm");
+    }
+
+    /// The group shape properties of a group: its child coordinates are its
+    /// own frame (`chOff` 0, `chExt` = its size).
+    fn group_sp_pr(&mut self, el: &str, d: &Drawing, in_group: bool) {
+        let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
+        let (ox, oy) = if in_group {
+            (d.x.0.to_string(), d.y.0.to_string())
+        } else {
+            ("0".to_owned(), "0".to_owned())
+        };
+        self.x.start(el, &[]);
+        self.x.start("a:xfrm", &[]);
+        self.x.empty("a:off", &[("x", &ox), ("y", &oy)]);
+        self.x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
+        self.x.empty("a:chOff", &[("x", "0"), ("y", "0")]);
+        self.x.empty("a:chExt", &[("cx", &cx), ("cy", &cy)]);
+        self.x.end("a:xfrm");
+        self.x.end(el);
+    }
+
+    /// The members of a group: shapes (`wps:wsp`), pictures (`pic:pic`)
+    /// and nested groups (`wpg:grpSp`).
+    fn group_members(&mut self, children: &[Drawing]) -> Result<()> {
+        for c in children {
+            let n = self.shared.next_docpr;
+            self.shared.next_docpr += 1;
+            let id = n.to_string();
+            match c.kind {
+                DrawingKind::Group => {
+                    self.x.start("wpg:grpSp", &[]);
+                    let name = c.name.clone().unwrap_or_else(|| format!("Group {n}"));
+                    self.x
+                        .empty("wpg:cNvPr", &[("id", id.as_str()), ("name", name.as_str())]);
+                    self.x.empty("wpg:cNvGrpSpPr", &[]);
+                    self.group_sp_pr("wpg:grpSpPr", c, true);
+                    self.group_members(&c.children)?;
+                    self.x.end("wpg:grpSp");
+                }
+                DrawingKind::Picture => {
+                    let Some(pic) = &c.picture else { continue };
+                    let rid = self.media_rel(pic.media)?;
+                    let name = c.name.clone().unwrap_or_else(|| format!("Picture {n}"));
+                    let x = &mut self.x;
+                    x.start("pic:pic", &[]);
+                    x.start("pic:nvPicPr", &[]);
+                    let mut c_nv = vec![("id", id.as_str()), ("name", name.as_str())];
+                    if let Some(a) = &c.alt {
+                        c_nv.push(("descr", a));
+                    }
+                    x.empty("pic:cNvPr", &c_nv);
+                    x.empty("pic:cNvPicPr", &[]);
+                    x.end("pic:nvPicPr");
+                    self.pic_blip_fill(&rid, &pic.format);
+                    self.x.start("pic:spPr", &[]);
+                    self.xfrm(c, true);
+                    self.pic_sp_pr_rest(&pic.format);
+                    self.x.end("pic:spPr");
+                    self.x.end("pic:pic");
+                }
+                _ => self.wsp(c, Some(n))?,
+            }
+        }
+        Ok(())
+    }
+
+    /// `pic:blipFill` of a picture (effects in the blip, crop, stretch).
+    fn pic_blip_fill(&mut self, rid: &str, f: &model_text::PictureFormat) {
+        let x = &mut self.x;
+        x.start("pic:blipFill", &[]);
+        let effects =
+            f.recolor != model_text::Recolor::None || f.brightness != 0 || f.contrast != 0;
+        if effects {
+            x.start("a:blip", &[("r:embed", rid)]);
+            write_blip_effects(x, f);
+            x.end("a:blip");
+        } else {
+            x.empty("a:blip", &[("r:embed", rid)]);
+        }
+        write_src_rect(x, &f.crop);
+        x.start("a:stretch", &[]);
+        x.empty("a:fillRect", &[]);
+        x.end("a:stretch");
+        x.end("pic:blipFill");
+    }
+
+    /// `pic:spPr` after `a:xfrm`: outline shape, border, effects.
+    fn pic_sp_pr_rest(&mut self, f: &model_text::PictureFormat) {
+        let x = &mut self.x;
+        write_preset(
+            x,
+            f.geometry.as_deref().unwrap_or("rect"),
+            &std::collections::BTreeMap::new(),
+        );
+        if let Some(b) = &f.border {
+            write_line(x, b);
+        }
+        if f.shadow {
+            write_shadow(x);
+        }
+    }
+
+    /// A `wps:wsp`: geometry, colours, the text (or the link to the chain
+    /// that holds it) and its layout. Group members (`in_group`: their
+    /// `cNvPr` id) carry their own name and place.
+    fn wsp(&mut self, d: &Drawing, in_group: Option<u32>) -> Result<()> {
+        self.x.start("wps:wsp", &[]);
+        if let Some(n) = in_group {
+            let id = n.to_string();
+            let default_name = match d.kind {
+                DrawingKind::TextBox => format!("Text Box {n}"),
+                _ => format!("Shape {n}"),
+            };
+            let name = d.name.clone().unwrap_or(default_name);
+            let mut c_nv = vec![("id", id.as_str()), ("name", name.as_str())];
+            if let Some(a) = &d.alt {
+                c_nv.push(("descr", a));
+            }
+            self.x.empty("wps:cNvPr", &c_nv);
+        }
+        if d.kind == DrawingKind::TextBox {
+            self.x.empty("wps:cNvSpPr", &[("txBox", "1")]);
+        } else {
+            self.x.empty("wps:cNvSpPr", &[]);
+        }
+        self.x.start("wps:spPr", &[]);
+        self.xfrm(d, in_group.is_some());
         match &d.custom_geometry {
             Some(xml) => self.x.raw(xml.as_bytes()),
             None => write_preset(&mut self.x, &d.preset, &d.adjust),
@@ -1210,12 +1351,23 @@ impl<'a> PartWriter<'a> {
         if let Some(c) = &d.text_color {
             write_style(&mut self.x, c);
         }
-        if let Some(t) = &d.text {
-            self.x.start("wps:txbx", &[]);
-            self.x.start("w:txbxContent", &[]);
-            self.blocks(&t.blocks, true)?;
-            self.x.end("w:txbxContent");
-            self.x.end("wps:txbx");
+        match (&d.text, d.chain) {
+            (Some(_), Some(ch)) if ch.seq > 0 => {
+                let (cid, seq) = (ch.id.to_string(), ch.seq.to_string());
+                self.x
+                    .empty("wps:linkedTxbx", &[("id", &cid), ("seq", &seq)]);
+            }
+            (Some(t), chain) => {
+                let cid = chain.map(|c| c.id.to_string());
+                let attrs: Vec<(&str, &str)> =
+                    cid.as_deref().map(|c| ("id", c)).into_iter().collect();
+                self.x.start("wps:txbx", &attrs);
+                self.x.start("w:txbxContent", &[]);
+                self.blocks(&t.blocks, true)?;
+                self.x.end("w:txbxContent");
+                self.x.end("wps:txbx");
+            }
+            (None, _) => {}
         }
         let ins = d
             .text
@@ -1257,16 +1409,6 @@ impl<'a> PartWriter<'a> {
         }
         self.x.end("wps:bodyPr");
         self.x.end("wps:wsp");
-        self.x.end("a:graphicData");
-        self.x.end("a:graphic");
-        self.x.end(frame);
-        self.x.end("w:drawing");
-        self.x.end("mc:Choice");
-        self.x.start("mc:Fallback", &[]);
-        self.vml_fallback(d, n)?;
-        self.x.end("mc:Fallback");
-        self.x.end("mc:AlternateContent");
-        self.x.end("w:r");
         Ok(())
     }
 
