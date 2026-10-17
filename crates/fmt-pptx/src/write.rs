@@ -15,7 +15,7 @@ use model_show::{
     Slide, Table,
 };
 
-use crate::anim::{write_timing, write_transition, MediaTarget, Target};
+use crate::anim::{write_timing, MediaTarget, Target};
 use crate::chart::{workbook_xlsx, TableData, CHART_URI, PACKAGE_REL, XLSX_CT};
 use crate::drawing::{
     deg_to_rot, write_color, write_color_with_alpha, write_fill, write_line, write_line_with_ends,
@@ -30,6 +30,7 @@ use crate::media::{AUDIO_REL, MEDIA_EXT_URI, MEDIA_REL, PLACEHOLDER_POSTER, VIDE
 use crate::parts::{self, sp_tree_start, ROOT_NS};
 use crate::table::{write_table, TABLE_URI};
 use crate::theme::{read_theme, theme_xml};
+use crate::transition::write_transition;
 use crate::xml::XmlOut;
 use crate::{Error, PptxContext, Result};
 
@@ -588,7 +589,14 @@ fn write_slide(
     w.x.empty("a:masterClrMapping", &[]);
     w.x.end("p:clrMapOvr");
     if let Some(t) = &slide.transition {
-        write_transition(&mut w.x, t);
+        let rid = match t.sound {
+            Some(model_show::TransitionSound::Play { media, .. }) => {
+                let file = w.media.part_of(p, media, true)?;
+                Some(w.rels.add(AUDIO_REL, format!("../{file}")).id.clone())
+            }
+            _ => None,
+        };
+        write_transition(&mut w.x, t, rid.as_deref());
     }
     let clips = std::mem::take(&mut w.clips);
     let media_targets: Vec<MediaTarget<'_>> = clips
@@ -617,8 +625,7 @@ impl SlideWriter<'_> {
             s.id,
             Target {
                 spid: self.next_shape_id - 1,
-                text: false,
-                placeholder: false,
+                ..Target::default()
             },
         );
         let mut attrs = vec![("id", id.as_str()), ("name", name.as_str())];
@@ -773,6 +780,17 @@ impl SlideWriter<'_> {
             if let Some(t) = self.targets.get_mut(&s.id) {
                 t.text = true;
                 t.placeholder = s.placeholder.is_some();
+                t.paragraphs = body
+                    .paragraphs
+                    .iter()
+                    .map(|p| {
+                        let empty = p
+                            .runs
+                            .iter()
+                            .all(|r| r.text.is_empty() && r.field.is_none());
+                        (!empty).then_some(p.props.level)
+                    })
+                    .collect();
             }
         }
         self.x.end("p:sp");
@@ -991,10 +1009,50 @@ impl SlideWriter<'_> {
         x.empty(file_el, &[("r:link", &link)]);
         x.start("p:extLst", &[]);
         x.start("p:ext", &[("uri", MEDIA_EXT_URI)]);
-        x.empty(
-            "p14:media",
-            &[("xmlns:p14", crate::parts::NS_P14), ("r:embed", &embed)],
-        );
+        let media_attrs = [
+            ("xmlns:p14", crate::parts::NS_P14),
+            ("r:embed", embed.as_str()),
+        ];
+        let trimmed = clip.trim_start_ms > 0 || clip.trim_end_ms > 0;
+        let faded = clip.fade_in_ms > 0 || clip.fade_out_ms > 0;
+        if trimmed || faded || !clip.bookmarks.is_empty() {
+            x.start("p14:media", &media_attrs);
+            if trimmed {
+                let (st, end) = (clip.trim_start_ms.to_string(), clip.trim_end_ms.to_string());
+                let mut a = Vec::new();
+                if clip.trim_start_ms > 0 {
+                    a.push(("st", st.as_str()));
+                }
+                if clip.trim_end_ms > 0 {
+                    a.push(("end", end.as_str()));
+                }
+                x.empty("p14:trim", &a);
+            }
+            if faded {
+                let (fi, fo) = (clip.fade_in_ms.to_string(), clip.fade_out_ms.to_string());
+                let mut a = Vec::new();
+                if clip.fade_in_ms > 0 {
+                    a.push(("in", fi.as_str()));
+                }
+                if clip.fade_out_ms > 0 {
+                    a.push(("out", fo.as_str()));
+                }
+                x.empty("p14:fade", &a);
+            }
+            if !clip.bookmarks.is_empty() {
+                x.start("p14:bmkLst", &[]);
+                for b in &clip.bookmarks {
+                    x.empty(
+                        "p14:bmk",
+                        &[("name", b.name.as_str()), ("time", &b.time_ms.to_string())],
+                    );
+                }
+                x.end("p14:bmkLst");
+            }
+            x.end("p14:media");
+        } else {
+            x.empty("p14:media", &media_attrs);
+        }
         x.end("p:ext");
         x.end("p:extLst");
         x.end("p:nvPr");

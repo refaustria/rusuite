@@ -11,7 +11,7 @@ import { resetImageSize, selectedImage } from "../features/images";
 import { deleteCols, deleteRows, deleteTable, insertCol, insertRow, mergeCellsCommand, tableContext } from "../features/tables";
 import type { WriteFeatures } from "../features/WriteFeatures";
 import { numberedParagraphAtCaret } from "../features/listGallery";
-import { followLink, linkAt, removeLinkCommand } from "../features/links";
+import { followLink, linkAt, objectLink, removeLinkCommand } from "../features/links";
 import type { SyncController } from "../sync/SyncPlugin";
 import { t, useT } from "../i18n";
 
@@ -72,8 +72,18 @@ export function contextItems(editor: Editor, ctl: SyncController, features: Writ
       { id: "table-props", label: t("write.tablePropertiesDots"), onSelect: () => features.ui.openDialog("tableProps") },
     );
   }
-  const link = linkAt(editor.state, editor.state.selection.from);
-  if (link) {
+  // A picture or shape with a link: Edit / Open / Remove Link (the object stays).
+  const obj = objectLink(editor.state);
+  const link = obj ? null : linkAt(editor.state, editor.state.selection.from);
+  if (obj?.link) {
+    const objLink = obj.link;
+    items.push(
+      sep,
+      { id: "edit-link", label: t("write.link.edit"), onSelect: () => features.ui.openDialog("link") },
+      { id: "open-link", label: t("write.link.open"), onSelect: () => void followLink(editor.view, objLink) },
+      { id: "remove-link", label: t("write.link.remove"), onSelect: () => void ctl.run(obj.set(null)) },
+    );
+  } else if (link) {
     const remove = removeLinkCommand(editor.state);
     items.push(
       sep,
@@ -118,11 +128,11 @@ export function EditorContextMenu({ editor, ctl, features }: { editor: Editor | 
       const view = editor.view;
       const target = e.target as HTMLElement;
       // A right-click on a picture selects it; elsewhere outside the selection moves the caret.
-      const img = target.closest?.(".inline-image-wrap");
-      if (img) {
+      const img = target.closest?.(".inline-image-wrap, .drawing-wrap");
+      if (img && !target.closest(".drawing-text .ProseMirror")) {
         const pos = view.posAtDOM(img, 0);
         const node = view.state.doc.nodeAt(pos);
-        if (node?.type.name === "image") view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+        if (node?.type.name === "image" || node?.type.name === "drawing") view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
       } else {
         let hit: { pos: number } | null = null;
         try {

@@ -61,7 +61,8 @@ import {
   type FormatValues, type InsertKind,
 } from "./commands";
 import type { ShortcutAction } from "./shortcuts";
-import { changeTransition, effectPatch, newAnimation, type TransitionChange } from "../anim/effects";
+import { changeTransition, effectPatch, moveOrder, newAnimation, paintedAnimations, type TransitionChange } from "../anim/effects";
+import type { StartOn } from "../generated/StartOn";
 import type { Alignment as Align } from "../generated/Alignment";
 import type { Anchor } from "../generated/Anchor";
 import type { ArrowKind } from "../generated/ArrowKind";
@@ -164,6 +165,10 @@ export interface ShowState {
   animSelection: NodeId | null;
   /** A Preview playing on the editor stage (`seq` restarts it). */
   preview: { kind: "transition" | "animations"; seq: number } | null;
+  /** Animation Painter: the shape whose animations the next clicked shape gets (`sticky`: double-click, until Esc). */
+  animPainter: { source: NodeId; sticky: boolean } | null;
+  /** Add Animation › Custom Path: the next drag on the stage draws a motion path for the selected shape. */
+  pathDraw: boolean;
   /** Insert › Shapes: the gallery item being drawn on the slide (click or drag; Esc cancels). */
   drawMode: string | null;
   /** Recently used gallery items, newest first. */
@@ -248,7 +253,9 @@ export type ShowDialog =
   | { kind: "action" }
   | { kind: "gridGuides" }
   | { kind: "setUpShow" }
-  | { kind: "customShows" };
+  | { kind: "customShows" }
+  | { kind: "animTiming"; tab: "timing" | "effect" | "text" }
+  | { kind: "trimMedia" };
 
 /** The internal clipboard: shapes (with the slide they came from) or slide ids. */
 type Clip = { kind: "shapes"; shapes: Shape[]; slide: NodeId | null; pastes: number } | { kind: "slides"; ids: NodeId[] };
@@ -308,6 +315,8 @@ export class ShowStore {
     animPane: false,
     animSelection: null,
     preview: null,
+    animPainter: null,
+    pathDraw: false,
     drawMode: null,
     recentShapes: loadRecent(),
     cellSel: null,
@@ -508,6 +517,10 @@ export class ShowStore {
       if (b?.kind === "picture") want.add(b.value.media);
     };
     slides.forEach((s) => bg(s.background));
+    // transition sounds (P9-S4)
+    slides.forEach((s) => {
+      if (s.transition?.sound?.kind === "play") want.add(s.transition.sound.value.media);
+    });
     bg(design?.master?.background);
     design?.layouts?.forEach((l) => bg(l.background));
     const walk = (shapes: Shape[]) => {
@@ -757,6 +770,12 @@ export class ShowStore {
       }
     }
     if (this.state.editing && !next.includes(this.state.editing.shape)) void this.commitEdit();
+    // Animation Painter: the clicked shape gets the source's animations
+    const painter = this.state.animPainter;
+    if (painter && mode === "replace" && ids.length && !ids.includes(painter.source)) {
+      void this.paintAnimations(painter.source, ids);
+      if (!painter.sticky) this.set({ animPainter: null });
+    }
     const a = this.animation(this.state.animSelection);
     const keep = a && next.includes(this.topOf(a.shape));
     const cs = this.state.cellSel;
@@ -919,11 +938,106 @@ export class ShowStore {
     await this.run({ type: "reorderAnimation", id, index });
   }
 
-  /** Move Earlier (`-1`) / Move Later (`1`) of the selected animation. */
+  /** Move Earlier (`-1`) / Move Later (`1`) of the selected animation, with PowerPoint's click-step semantics (`moveOrder`). */
   async moveAnimation(delta: -1 | 1): Promise<void> {
     const id = this.state.animSelection;
-    const from = this.animations().findIndex((a) => a.id === id);
-    if (id !== null && from >= 0) await this.reorderAnimation(id, from + delta);
+    const slide = this.currentSlide();
+    if (id === null || !slide) return;
+    const order = moveOrder(this.animations(), id, delta);
+    if (order) await this.run({ type: "setAnimationOrder", slide: slide.id, order });
+  }
+
+  /** Whether Move Earlier / Later can move the selected animation. */
+  canMoveAnimation(delta: -1 | 1): boolean {
+    const id = this.state.animSelection;
+    return id !== null && moveOrder(this.animations(), id, delta) !== null;
+  }
+
+  /** Timing › Trigger of the target animations (`null`: back into the click sequence). */
+  async setStartOn(startOn: StartOn | null): Promise<void> {
+    await this.updateAnimations({ startOn });
+  }
+
+  /** Animation Painter: arms with the selected shape (`sticky`: until Esc / clicked again); toggles off when armed. */
+  toggleAnimationPainter(sticky = false): void {
+    if (this.state.animPainter) {
+      this.set({ animPainter: null });
+      return;
+    }
+    const source = this.state.selection[0];
+    if (source === undefined || !this.animations().some((a) => this.topOf(a.shape) === source)) return;
+    this.set({ animPainter: { source, sticky } });
+  }
+
+  /** Copies the animations of `source` onto `targets`, replacing theirs (one undo step). */
+  async paintAnimations(source: NodeId, targets: NodeId[]): Promise<void> {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const commands: ShowCommand[] = [];
+    let list = this.animations();
+    // the source's own animations: of the shape itself (or its grouped children's first)
+    const src = list.find((a) => a.shape === source)?.shape ?? list.find((a) => this.topOf(a.shape) === source)?.shape;
+    if (src === undefined) return;
+    for (const target of targets) {
+      const shape = findShape(slide.shapes, target)?.shape;
+      const hasText = shape?.kind.kind === "auto" && !!shape.kind.value.text;
+      const plan = paintedAnimations(list, src, target, hasText);
+      for (const id of plan.remove) commands.push({ type: "removeAnimation", id });
+      for (const animation of plan.add) commands.push({ type: "addAnimation", slide: slide.id, animation, newId: this.temp() });
+      list = list.filter((a) => !plan.remove.includes(a.id));
+    }
+    await this.run(compound(commands));
+  }
+
+  /** Add Animation › Custom Path: the next drag on the stage draws the path (Esc cancels). */
+  armCustomPath(on = true): void {
+    if (on && !this.state.selection.length) return;
+    this.set({ pathDraw: on });
+  }
+
+  /** The drawn Custom Path (slide fractions from the shape) for the selected shapes; selects the new animation. */
+  async finishCustomPath(path: string): Promise<void> {
+    this.set({ pathDraw: false });
+    const slide = this.currentSlide();
+    if (!slide || !this.state.selection.length) return;
+    const temps = this.state.selection.map(() => this.temp());
+    const res = await this.run(
+      compound(this.state.selection.map((shape, i) => ({ type: "addAnimation", slide: slide.id, animation: { ...newAnimation(shape, "path", "pathCustom"), path }, newId: temps[i]! }))),
+    );
+    const id = res?.idMap.get(temps[temps.length - 1]!);
+    if (id !== undefined) this.selectAnimation(id);
+  }
+
+  /** Edit Points of a motion path: the whole new path of animation `id`. */
+  async setAnimationPath(id: NodeId, path: string): Promise<void> {
+    await this.run({ type: "updateAnimation", id, patch: { path } });
+  }
+
+  /** Transitions › Sound: a file, Stop Previous Sound, or none (`null`) for the Transitions tab's slides. */
+  async setTransitionSound(choice: { file?: { contentType: string; bytesBase64: string }; stop?: boolean } | null): Promise<void> {
+    const slides = this.transitionSlides().map((s) => s.id);
+    if (!slides.length) return;
+    const sound = this.transitionSlides()[0]?.transition?.sound;
+    const loop = sound?.kind === "play" && !!sound.value.loop;
+    await this.run({
+      type: "setTransitionSound",
+      slides,
+      contentType: choice?.file?.contentType,
+      bytesBase64: choice?.file?.bytesBase64,
+      stopPrevious: !!choice?.stop,
+      loop,
+    });
+  }
+
+  /** Transitions › Sound › Loop Until Next Sound. */
+  async setTransitionSoundLoop(loop: boolean): Promise<void> {
+    const commands: ShowCommand[] = [];
+    for (const slide of this.transitionSlides()) {
+      const t = slide.transition;
+      if (t?.sound?.kind !== "play") continue;
+      commands.push({ type: "setTransition", slides: [slide.id], transition: { ...t, sound: { kind: "play", value: { media: t.sound.value.media, ...(loop ? { loop: true } : {}) } } } });
+    }
+    await this.run(compound(commands));
   }
 
   /** Plays the slide's transition or its animations on the editor stage. */
@@ -2577,7 +2691,9 @@ export class ShowStore {
       case "paste": if (!this.clip || this.state.editing) return false; void this.paste(); break;
       case "selectAll": this.select(this.currentSlide()?.shapes.map((s) => s.id) ?? []); break;
       case "deselect":
-        if (this.state.drawMode) this.setDrawMode(null);
+        if (this.state.pathDraw) this.armCustomPath(false);
+        else if (this.state.animPainter) this.set({ animPainter: null });
+        else if (this.state.drawMode) this.setDrawMode(null);
         else if (this.state.handleFocus !== null) this.set({ handleFocus: null });
         else if (this.state.editPoints !== null) this.setEditPoints(false);
         else this.select([]);

@@ -139,6 +139,9 @@ Outside point mode, clicking another cell commits. Leaving the editor otherwise 
 | Mod+H › More | Find and Replace with formatting: Use wildcards, Format ▾ (Font…, Paragraph…, Style…, Highlight) for the Find and the Replace field, No Formatting |
 | Mod+K | Insert Hyperlink (on a link: edit it; Remove Link in the dialog) — bound in the editor |
 | Mod+G, F5 | Go To: a page (print layout), a bookmark or a heading — bound in the editor (F5 does not reload the page while the editor has the focus) |
+| Alt+F10 | Show / hide the Selection Pane (P9-W4; bound in the editor) |
+| Arrow keys, Mod+arrow keys | With floating pictures or shapes selected: move them by Word's grid (0.13 in) / by one pixel (P9-W4) |
+| Enter, Esc | While a shape is armed for drawing (Insert › Shapes): insert it at the caret at its default size / cancel (P9-W4) |
 | F9 | Update Field: the fields of the selection (REF, PAGEREF, NOTEREF, SEQ and the property fields TITLE, AUTHOR, SUBJECT, KEYWORDS, COMMENTS, LASTSAVEDBY, DOCPROPERTY computed by the core, page/date/time/file name/save date by the UI); Mod+A then F9 updates every field |
 
 In the browser a few of Word's keys belong to the browser and never reach the page: Mod+T (new tab), Mod+Shift+T
@@ -150,9 +153,10 @@ Linux. The desktop app gets them all.
 - **Pictures**: click selects a picture and shows eight handles; dragging a corner resizes proportionally, a side handle changes one dimension (one `SetImageSize` on release). Delete / Backspace removes a selected picture. Pictures pasted (Ctrl+V of a screenshot or copied image) or dropped on the page are inserted at the caret / drop point, scaled to the text width.
 - **Tables**: the pointer becomes a resize cursor on a cell's right border (merged cells: the border after their last grid column); dragging moves the border (the neighbouring column gives or takes the difference, the last border widens the table) → `SetTableProps { colWidths }`. Shift+click (or a drag) across cells selects a rectangle of cells (grown to whole merged cells) for Merge Cells, Borders ▾, Shading, alignment.
 - **Floating pictures**: drag a selected floating picture to move it (new offsets from the column and the paragraph → `SetImageAnchor`); the Layout Options button next to a selected picture switches its text wrapping.
+- **Shapes, groups, canvases (P9-W4)**: after picking a shape in Insert › Shapes, click on the page for the default size or drag to draw it (Shift: square, lines at 45°); drawn on a drawing canvas it becomes part of the canvas. Dragging a selected floating shape snaps to the column's edges and centre; hold Alt to move it freely. The handles turn with a rotated shape. Shift+click or Ctrl+click adds pictures and shapes to the selection (for Group, Align, Distribute); a click on a member of a selected group selects the member, a drag moves it inside the group. Ctrl+click on a linked picture or shape follows its link. In a later box of linked text boxes a click puts the caret into the story there. Create Link: click Create Link, then the empty text box to link.
 - **Ruler**: click to add a tab stop of the kind shown in the corner selector (click the selector to cycle Left / Center / Right / Decimal / Bar); drag a stop along the ruler to move it, down off the ruler to remove it; double-click a stop for Tabs….
 - **Comments**: click commented text to select its thread (balloon / pane card); click a balloon to select it; with Show Comments off, click a margin comment icon to show the comments.
-- **Right-click** in the document: Cut/Copy/Paste, New Comment, picture commands (alt text, reset size, delete) on a picture, table commands (insert rows above/below, columns left/right, delete rows/columns/table, Merge Cells, Split Cells…, row height…, Table Properties…) in a table, Paragraph…, Clear formatting.
+- **Right-click** in the document: Cut/Copy/Paste, New Comment, picture commands (alt text, reset size, delete) on a picture, Edit / Open / Remove Link on a linked picture or shape (P9-W4), table commands (insert rows above/below, columns left/right, delete rows/columns/table, Merge Cells, Split Cells…, row height…, Table Properties…) in a table, Paragraph…, Clear formatting.
 - **Format painter** (Home › Clipboard): click copies the formatting at the caret for one use, double-click keeps it on; the next mouse selection (or the word clicked) gets it.
 - **Headers and footers** are shown greyed in the page margins (print layout); double-click one to edit both in the Header and footer dialog (`{PAGE}` = page number).
 - **Notes**: double-click a footnote/endnote reference to jump to its note; double-click the note's number (or a footnote at the bottom of a page) to jump back / into the note.
@@ -178,7 +182,7 @@ Linux. The desktop app gets them all.
 | Alt+F9 | Show / hide the drawing guides (the two centre guides when there are none) |
 | Delete, Backspace | Delete the selection |
 | Enter, F2 | Edit the text of the selected shape |
-| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery; leaves a focused adjust handle or Edit Points first |
+| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery, a Custom Path being drawn or the Animation Painter; leaves a focused adjust handle or Edit Points first |
 | Tab, Shift+Tab | Focus the selected shape's next / previous adjust handle (Slide Master view: next / previous text level) |
 | Arrows, Shift+Arrows (handle focused) | Move the focused adjust handle by 1 px, by 10 px |
 | Click, drag, double-click (Freeform: Shape) | Add a corner, draw freehand, end the shape open; a click on the start point closes it |
@@ -246,8 +250,18 @@ The same keys work in the full-window show (F5), in the presenter view and in it
 Hidden slides are skipped unless the show starts on one. The mouse pointer hides after 3 s without movement. With
 Transitions › On mouse click off, a click does not leave the slide (the keys still do).
 
-In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later, Delete removes it. Esc or a click stops a
-Preview on the stage.
+In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later (PowerPoint's click-step semantics,
+P9-S4), Delete removes it. Esc or a click stops a Preview on the stage.
+
+Animations (P9-S4):
+
+| Keys / mouse | Action |
+| --- | --- |
+| Drag on the stage (Add Animation › Custom Path) | Draw the motion path of the selected shape; Esc cancels |
+| Drag a vertex of the selected motion path | Move the vertex (Edit Points); the path is saved on release |
+| Click / double-click Animation Painter, then click shapes | Copy the selected shape's animations onto one / several shapes; Esc ends |
+| ↑ / ↓ in a spinner (Duration, Delay, Fade In / Out), or its arrows | 0.25 s up / down within PowerPoint's limits |
+| Click on a trigger shape (slide show) | Play the trigger's next animation step (the show does not advance) |
 
 ### Shapes, connectors and tables
 

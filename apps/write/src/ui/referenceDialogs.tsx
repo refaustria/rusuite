@@ -14,7 +14,7 @@ import type { WriteCommand } from "../generated/WriteCommand";
 import type { WriteUi } from "../features/WriteFeatures";
 import { nextTempId, type SyncController } from "../sync/SyncPlugin";
 import {
-  addBookmarkCommand, addressOf, bookmarkList, freshRefName, goToBookmark, goToPos, headingsOf, hyperlinkCommand, linkDialogInit, pageStart,
+  addBookmarkCommand, addressOf, bookmarkList, freshRefName, goToBookmark, goToPos, headingsOf, hyperlinkCommand, linkDialogInit, pageStart, shellOf,
   parseAddress, validBookmarkName, type LinkDialogInit,
 } from "../features/links";
 import {
@@ -1044,6 +1044,11 @@ export function ReferenceDialogs({ ui, ctl, editor }: { ui: WriteUi; ctl: SyncCo
         onClose={close}
         onRemove={() => {
           if (linkInit?.link && linkInit.picture) run([{ type: "setImageLink", block: linkInit.block, offset: linkInit.from, link: null }]);
+          else if (linkInit?.link && linkInit.drawing) {
+            const d = { ...linkInit.drawing };
+            delete d.link;
+            run([{ type: "setDrawingProps", block: linkInit.block, offset: linkInit.from, drawing: shellOf(d) }]);
+          }
           else if (linkInit?.link) run([{ type: "removeHyperlink", block: linkInit.block, from: linkInit.from, to: linkInit.to }]);
           close();
         }}

@@ -15,6 +15,7 @@ import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { clickAction, keyAction, type ShowAction, type ShowState } from "./showState";
 import { nextVisit, ShowSlide, type SlideVisit } from "./AnimatedSlide";
 import { ShowOverlay } from "./ShowOverlay";
+import { stopShowSounds } from "./sounds";
 import { InkLayer, SeeAll, ToolBar, slideBox, toolsCapture, useToolKeys, useTools, zoomTransform } from "./ShowTools";
 import { linkAction } from "../links/regions";
 import type { Hyperlink } from "../generated/Hyperlink";
@@ -77,6 +78,8 @@ export interface PresenterProps {
   /** Set Up Slide Show › Pen color (`#RRGGBB`). */
   penColor?: string;
 }
+
+const NO_FIRES: string[] = [];
 
 export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra, onCustomShow, penColor }: PresenterProps) {
   const t = useT();
@@ -168,6 +171,12 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     }
   };
 
+  // triggers fired on the current slide (a click on a trigger shape, a media bookmark), in order
+  const [fires, setFires] = useState<{ index: number; keys: string[] }>({ index: show.index, keys: [] });
+  const fired = fires.index === show.index ? fires.keys : NO_FIRES;
+  const onTrigger = (key: string) => setFires((f) => ({ index: show.index, keys: [...(f.index === show.index ? f.keys : []), key] }));
+  useEffect(() => () => stopShowSounds(), []);
+
   const slide = slides[show.index];
   const blank = show.ended ? "black" : show.blank;
   return (
@@ -178,6 +187,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       data-testid="presenter"
       data-blank={show.blank}
       data-step={show.step}
+      data-fired={fired.join(" ") || undefined}
       data-ended={show.ended ? "true" : undefined}
       data-idle={idle ? "true" : undefined}
       className={`fixed inset-0 z-50 flex select-none items-center justify-center ${blank === "white" ? "bg-white" : "bg-black"} ${idle ? "cursor-none" : "cursor-pointer"}`}
@@ -194,9 +204,9 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     >
       <div className="absolute inset-0 flex items-center justify-center" style={{ transform: toolsOn ? zoomTransform(tools, size.width, size.height) : undefined, transformOrigin: "0 0" }}>
         {blank === "none" && slide && (
-          <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} />
+          <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} fired={fired} />
         )}
-        {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} step={show.step} media={media} width={size.width} height={size.height} onLink={follow} />}
+        {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} step={show.step} media={media} width={size.width} height={size.height} onLink={follow} fired={fired} onTrigger={onTrigger} />}
         {toolsOn && blank === "none" && slide && !show.ended && (
           <InkLayer tools={tools} setTools={setTools} slide={slide} box={slideBox(deck, size.width, size.height)} scale={slideBox(deck, size.width, size.height).scale} />
         )}

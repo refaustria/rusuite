@@ -23,6 +23,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
   - [Write quality pass (P8-38)](#write-quality-pass-p8-38)
   - [Write pagination round 3 (P9-W2)](#write-pagination-round-3-p9-w2)
   - [Write styles round 2, templates and properties (P9-W3)](#write-styles-round-2-templates-and-properties-p9-w3)
+  - [Write drawings, pictures and floating objects round 2 (P9-W4)](#write-drawings-pictures-and-floating-objects-round-2-p9-w4)
 - [Building blocks (@rusuite/ui-shared)](#building-blocks-rusuiteui-shared)
 - [Keyboard](#keyboard)
 - [Tabs per app](#tabs-per-app)
@@ -466,6 +467,45 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
   Save date first.
 - **Comments** without a user name are written by the document's author (File › Info › Author) instead of asking for
   a name; with neither, the User Name dialog asks as before.
+
+### Write drawings, pictures and floating objects round 2 (P9-W4)
+- **Drawing shapes** (`features/drawings/drawTool.ts`): Insert › Shapes and Text Box › Draw Text Box arm the drawing tool
+  (crosshair, `data-draw-tool` on the editor): a click on the page inserts the shape at Word's default size, a drag at the
+  drawn size, Shift keeps it square (lines at 45° steps); Enter inserts it at the caret (keyboard), Esc cancels. Drawn
+  shapes float In Front of Text (text boxes: Square), anchored to the paragraph at the drawn top edge; drawn on a drawing
+  canvas, the shape becomes one of its members. Insert › Shapes › New Drawing Canvas inserts an inline canvas (15 × 6 cm).
+- **Handles** rotate with the shape (a frame with the eight resize handles and the rotation handle); a drag keeps the
+  opposite handle in place. Moving snaps the object's edges and centre to the column's edges and centre and the
+  paragraph's top (5 px); Alt moves freely. Arrow keys nudge the selected floating objects by Word's grid (0.13 in),
+  Ctrl+arrows by one pixel.
+- **Several objects**: Shift/Ctrl+click adds floating pictures and shapes to the selection (drawn with an outline);
+  Arrange › Group ▾ (Shape Format, Picture Format, Layout) groups them (`wpg:wgp`; pictures become picture members),
+  Ungroup puts the members back as floating objects at their places, Regroup groups the last ungrouped objects again.
+  A click on a member of the selected group selects the member (Shape Format edits it; fill/outline/text colour of the
+  whole group go to all its shapes); dragging a selected member moves it inside the group (the group's frame follows).
+  Resizing a group scales its members; grouped text boxes keep their editable text.
+- **Linked text boxes**: Shape Format › Text › Create Link, then a click on an empty text box links it (Word's rules:
+  the target must be empty and unlinked, the source must not link onward; messages otherwise); the story flows into the
+  next box (`textChain.ts`); Break Link ends the chain after the selected box.
+- **Pictures**: crop mode shows the cut-off parts dimmed (a mask around the crop window); Crop ▾ (split button) offers
+  Crop to Shape (any preset, a clip path from the core's outline), Aspect Ratio (1:1 … 16:10), Fill and Fit; Picture
+  Effects ▾ adds Shadow, Soft Edges (1–50 pt, a feathered CSS mask) and Bevel (Word's twelve presets, an inset light and
+  shade). Wrap Text has Through; Square/Tight/Through pictures with room on both sides get text on both sides
+  (`wrapBoth.ts`, docs/write-layout.md).
+- **Links and alt text**: Insert › Link (Ctrl+K) on a selected shape links the shape; Ctrl+click on a linked picture or
+  shape follows the link (its ScreenTip is the tooltip); the context menu of a linked picture or shape has Edit / Open /
+  Remove Link (Remove keeps the object). HYPERLINK fields read from files are shown like links and stay fields when edited.
+  Alt Text has Mark as decorative.
+- **Arrange**: Align ▾ with Align to Page / Margin / Selected Objects (one object: aligned semantically, relative to the
+  page or margin; several: moved), Distribute Horizontally / Vertically; Bring Forward ▾ / Send Backward ▾ (z-order,
+  Bring in Front of Text, Send Behind Text); the **Selection Pane** (Alt+F10, `ui/arrangeControls.tsx`): every picture
+  and shape top-most first with Word's default names, click (Ctrl: add) selects, double-click renames, the eye hides /
+  shows (not shown, not printed), Show All / Hide All, ▲ ▼ reorder. Position ▾ › More Layout Options… opens Word's
+  Position tab: alignment, absolute position or relative position (%) per axis with every reference (margin, page,
+  column, character, the margin areas; paragraph, line), Move object with text, Lock anchor, Allow overlap, Layout in
+  table cell. Layout › Arrange holds the order, pane, align and group commands too.
+- **Drawing canvas**: shapes drawn on it become members (moved inside it, selected like group members), the canvas
+  resizes without scaling them, Shape Format › Size › Fit shrinks it to its members.
 
 ## Building blocks (`@rusuite/ui-shared`)
 
@@ -1427,6 +1467,87 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   shows; Save stamps them without an undo step, opening restores them.
 - **Print** (Show): the range field is **Slides** by number (`1-3, 5, 8-`; hidden slides keep their numbers), and with
   sections a **Section** choice prints one section; File › Export PDF… uses the same choice.
+
+## Show: animations, transitions and media round 2 (P9-S4)
+
+- **Animation gallery** (Animations › Animation styles / Add Animation): Entrance, Emphasis, Exit and **Motion Paths**
+  sections like PowerPoint's – entrance / exit Appear, Fade, Fly In, **Float In** (Float Out), **Split**, Wipe,
+  **Shape** (circle, box, diamond, plus in Effect Options), **Wheel**, **Random Bars**, **Grow & Turn** (Shrink & Turn),
+  Zoom, **Swivel**, **Bounce**; emphasis **Pulse, Color Pulse, Teeter**, Spin, Grow/Shrink, **Desaturate, Darken,
+  Lighten, Transparency, Object / Line / Fill / Brush / Font Color, Underline, Bold Flash, Bold Reveal, Wave**; motion
+  paths **Lines, Arcs, Turns, Shapes, Loops, Custom Path**; with an audio / video clip selected also **Media › Play,
+  Pause, Stop**. **Effect Options** shows what the effect has: Direction, the four Shapes, Spokes (1, 2, 3, 4, 8),
+  Spin direction and amount (quarter … two spins), Grow/Shrink size (tiny 25 % … huge 400 %), Transparency (25–100 %),
+  the ten standard colours, **Sequence** for shapes with text (As One Object, All at Once, **By Paragraph**), Edit
+  Points / **Reverse Path Direction** for paths, and **More Effect Options…** (the dialog below).
+- **Custom Path**: chosen in the gallery, the stage takes a drag (crosshair; Esc cancels) – the drawn line becomes the
+  path from the shape's centre. While the Animations tab or the pane is shown, every motion path of the slide is drawn
+  dotted from its shape (green start, red end); the selected one shows its vertices as handles – a drag moves a vertex
+  (Bézier handles move along) and saves the whole path.
+- **Trigger ▾**: In the Click Sequence, On Click of any shape of the slide, On Bookmark of a clip's bookmarks.
+  Triggered animations form their own sequences: the pane lists them under "Trigger: <shape / bookmark>", their numbers
+  count per trigger; in the show a click on the trigger shape plays its next step (it does not advance the slide), a
+  clip passing its bookmark plays the bookmark's animations.
+- **Animation Painter**: a click copies the selected shape's animations onto the next shape clicked (replacing that
+  shape's); a double-click keeps it armed for several shapes until it is clicked again or Esc.
+- **Timing**: Start, **Duration** and **Delay** spinners with PowerPoint's limits (0.01–59 s and 0–59 s; the arrows step
+  by 0.25 s), **Timing…** opens the dialog. **Move Earlier / Later** use PowerPoint's semantics: an On Click animation
+  moves together with the With / After Previous animations of its step past the whole neighbouring step; a With / After
+  Previous animation swaps with its neighbour row and keeps its Start (so it joins the step it lands in); triggered
+  animations move within their trigger's sequence.
+- **Effect Options / Timing / Text Animation dialog**: Effect (animate text all at once, by word, by letter with the %
+  delay between; Auto-reverse for emphasis and paths), Timing (Start, Delay, Duration, **Repeat** none / 2 / 3 / 4 / 5 /
+  10 / Until Next Click / Until End of Slide, **Rewind when done playing**, Triggers), Text Animation (Group text as one
+  object, all paragraphs at once, by 1st … 5th level paragraphs, **Animate attached shape**, **In reverse order**).
+- **Paragraph builds in the show**: every paragraph up to the chosen level starts a click step (deeper paragraphs come
+  with their parent; empty paragraphs are skipped; With / After Previous builds play their steps one after the other);
+  the shape stays visible while its text comes, unless "Animate attached shape" is on.
+- **Transitions gallery**: the eight classic kinds inline, **More transitions** with every kind under Subtle (None,
+  Morph, Fade, Push, Wipe, Split, Reveal, Cut, Cover, Shred, Zoom) and Exciting (Fall Over, Drape, Curtains, Wind,
+  Prestige, Fracture, Crush, Peel Off, Page Curl, Airplane, Origami, Honeycomb, Glitter, Vortex, Ripple, Switch, Flip,
+  Gallery, Cube, Doors, Box). Effect Options list each kind's directions and variants (Glitter diamonds / hexagons,
+  Shred strips / particles, Reveal smoothly / through black, Page Curl double / single, Morph objects / words /
+  characters); a kind chosen in the gallery starts with PowerPoint's pick (Push From Bottom, Split Vertical Out, Zoom
+  In, Switch and Flip Right, the others the file format's default). **Sound ▾**: [No Sound], [Stop Previous Sound],
+  Other Sound… (a wav / mp3 / ogg file), Loop Until Next Sound; Apply To All copies the sound too.
+- **Transitions in the show** play only when the show moves **forward** to a slide (Next, a link or number + Enter to a
+  later slide); going back or jumping to an earlier slide shows it at once, as PowerPoint does. The transition's sound
+  starts with it (and stops the previous one; looping sounds play until the next sound or the end of the show).
+  How the PowerPoint 2010+ transitions are drawn (two slide pictures, Web Animations): Morph – a fade; Reveal – the old
+  slide slides off and fades (through black: darkens first); Shred – the old slide blurs and squeezes out, the new one
+  opens from the centre (out) or fades in under it; Fall Over – the old slide tips over its bottom edge; Drape – the old
+  slide is pulled aside with a skew; Curtains – the old slide opens from the middle; Wind – the old slide blows away
+  skewed, the new one drifts in; Prestige – the old slide tilts back and falls, the new one rises tilted; Fracture – the
+  old slide shrinks to a jagged polygon; Crush – the old slide shrinks and turns away; Peel Off and Page Curl – the old
+  slide turns about its side edge (Page Curl single: about a corner); Airplane – the old slide flies up and away small;
+  Origami – the old slide folds away about its vertical axis; Honeycomb – the new slide opens as a growing hexagon;
+  Glitter – the new slide sparkles in (high contrast, from the side); Vortex – the new slide spins in from a blur, the
+  old one spins out small; Ripple – the new slide opens as a growing circle; Switch – both slides swing about the
+  vertical axis; Flip – the slides turn like a card; Gallery – the slides pass by side by side; Cube and Box – the new
+  face turns in about the side the motion comes from; Doors – the old slide opens like two doors in the middle.
+- **How the new effects are drawn** (Konva): Float rises (falls) by a tenth of the slide while fading; Split, Shape,
+  Wheel and Random Bars reveal the shape through a clip mask (Shape In closes from the edges, Out grows from the
+  centre; Random Bars use 24 bars in a fixed shuffled order); Grow & Turn grows from nothing turning 90°; Zoom Slide
+  Center comes from the middle of the slide; Swivel turns about its vertical (horizontal) axis; Bounce drops in from a
+  quarter of the slide; Pulse grows by 5 % and back; Color Pulse, Object / Fill / Line / Font / Brush Color blend the
+  fill, outline or text colour; Teeter rocks ±4°; Desaturate, Darken, Lighten are Konva HSL / Brighten filters; Wave
+  lifts the shape by 5 % of the slide and back; Underline / Bold Flash / Bold Reveal change the text's style. Paragraph
+  steps move and fade the text of their paragraphs (shaped reveals fade). By Letter / By Word lengthen the effect by the
+  letters' delays (the shape animates as one; letters are not drawn one by one). Emphasis and motion paths built by
+  paragraph play on the whole shape at each step. Repeat Until Next Click / Until End of Slide keep the effect looping
+  until the show moves on.
+- **Playback tab** (audio / video): **Bookmarks** (Add Bookmark at a time mm:ss.fff – named "Bookmark N" like
+  PowerPoint, Remove Bookmark ▾), **Editing** (**Trim Video / Trim Audio…**: a preview that plays the trimmed part,
+  Start Time and End Time; Fade In / Fade Out spinners), Start, **Play Across Slides**, Loop until Stopped, Hide While
+  Not Playing, **Rewind after Playing**, Volume, Poster Frame. In the show a clip plays from its trimmed start, stops
+  (or loops) at its trimmed end, fades its volume in and out, fires its bookmarks' triggers when it passes them,
+  rewinds to the start when set, and – Play Across Slides – keeps sounding when the show moves on, until the show ends;
+  Play / Pause / Stop animations control it in the click sequence.
+- **Print and PDF export** print each slide as in the Normal view (PowerPoint's print behaviour): every shape, whatever
+  its entrance or exit animation, no emphasis colours or motion-path positions; audio and video as their poster frame
+  (or the placeholder).
+- The Animation pane: triggered animations under their trigger heading, ¶ marks a paragraph build, ⚙ opens the Timing
+  dialog, Move Earlier / Later as above.
 
 ## Printing (P7-9)
 

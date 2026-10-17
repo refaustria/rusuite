@@ -152,6 +152,8 @@ pub fn document() -> Document {
                 anchor: None,
                 format: Default::default(),
                 link: None,
+                decorative: false,
+                hidden: false,
             }));
         }
         doc.body.push(Block::Paragraph(p));

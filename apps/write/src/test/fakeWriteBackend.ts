@@ -489,7 +489,10 @@ export class FakeWriteBackend implements WriteBackend {
       this.nextId = Math.max(this.nextId, id + 1);
       return id;
     };
-    if (b.kind === "paragraph") return { kind: "paragraph", value: { ...b.value, id: res(b.value.id) } };
+    if (b.kind === "paragraph") {
+      const inlines = b.value.inlines?.map((i) => (i.kind === "drawing" ? ({ kind: "drawing", value: this.freshDrawing(i.value) } as Inline) : i));
+      return { kind: "paragraph", value: { ...b.value, id: res(b.value.id), ...(inlines ? { inlines } : {}) } };
+    }
     if (b.kind === "toc") return { kind: "toc", value: { ...b.value, id: res(b.value.id) } };
     return {
       kind: "table",
@@ -503,6 +506,14 @@ export class FakeWriteBackend implements WriteBackend {
         })),
       },
     };
+  }
+
+  /** A drawing whose 0 ids (the editor's temporary ones, sanitized) — its own, its members', their text's — get fresh ids. */
+  private freshDrawing(d: Extract<Inline, { kind: "drawing" }>["value"]): Extract<Inline, { kind: "drawing" }>["value"] {
+    const out = { ...d, id: d.id > 0 ? d.id : this.alloc() };
+    if (out.text) out.text = { ...out.text, blocks: out.text.blocks.map((b) => (b.kind === "paragraph" && b.value.id <= 0 ? { kind: "paragraph", value: { ...b.value, id: this.alloc() } } : b)) as Block[] };
+    if (out.children?.length) out.children = out.children.map((c) => this.freshDrawing(c));
+    return out;
   }
 
   /** Simplified find: text (case, whole words) and direct bold / italic / style constraints. */
@@ -1427,7 +1438,7 @@ export class FakeWriteBackend implements WriteBackend {
         let d = structuredClone(cur.value);
         if (c.type === "setDrawingProps") {
           const old = d;
-          d = { ...structuredClone(c.drawing), id: old.id };
+          d = { ...this.freshDrawing(structuredClone(c.drawing)), id: old.id };
           if (!c.drawing.text) delete d.text;
           else d.text = { ...c.drawing.text, blocks: old.text ? old.text.blocks : [{ kind: "paragraph", value: { id: this.alloc(), inlines: [] } }] };
         } else if (c.blocks == null) {

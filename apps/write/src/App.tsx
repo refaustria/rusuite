@@ -19,6 +19,7 @@ import { ListDialogs } from "./ui/listGalleries";
 import { InfoPanel } from "./ui/InfoPanel";
 import { ManageStylesDialog } from "./ui/manageStyles";
 import { RevealFormattingPane } from "./ui/revealFormatting";
+import { LayoutDialogHost, SelectionPane } from "./ui/arrangeControls";
 import { fetchTemplate, NewDocumentDialog, saveAsName, templateFile, type TemplateId } from "./ui/templatesUi";
 import { isTemplateName } from "./sync/SyncPlugin";
 import { PageFrame, useWriteChrome } from "./ui/PageFrame";
@@ -357,12 +358,14 @@ export default function App({ backend }: { backend: WriteBackend }) {
         </div>
         {editor && <StylesPane editor={editor} ctl={ctl} features={features} />}
         {editor && <RevealFormattingPane editor={editor} ctl={ctl} features={features} />}
+        {editor && <SelectionPane editor={editor} features={features} />}
         {editor && <CommentsPane editor={editor} ctl={ctl} features={features} />}
         {aiAdapter && <AssistantPane ai={session.ai} adapter={aiAdapter} />}
       </div>
       {editor && <StatusBar ctl={ctl} editor={editor} backend={backend} session={session} features={features} />}
       <FindBar ctl={ctl} editor={editor} ui={features.ui} />
       <WriteDialogs ui={features.ui} ctl={ctl} editor={editor} />
+      {editor && <LayoutDialogHost editor={editor} features={features} />}
       <ReferenceDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <ListDialogs ui={features.ui} ctl={ctl} editor={editor} />
       <UserNameDialog ctl={ctl} features={features} />

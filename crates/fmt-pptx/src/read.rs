@@ -13,7 +13,7 @@ use model_show::{
     ShapeKind, Slide, SlideMaster, SlideSize, TextBody, TextField, Transform,
 };
 
-use crate::anim::{read_media_timing, read_slide_transition, read_timing};
+use crate::anim::{read_media_timing, read_timing};
 use crate::chart::{shape_from_chart, CHART_URI, XLSX_CT};
 use crate::drawing::{
     color_and_alpha, read_arrows, read_color, read_fill, read_line, read_text_body, read_xfrm,
@@ -27,6 +27,7 @@ use crate::master::{
 };
 use crate::table::{read_table, TABLE_URI};
 use crate::theme::read_theme;
+use crate::transition::read_slide_transition;
 use crate::xml::{parse, parse_bool, parse_i64, parse_u32, El};
 use crate::{Error, PptxContext, Result, Warnings};
 
@@ -908,7 +909,31 @@ impl Reader<'_> {
                     .add("connector attachments to groups or connectors dropped");
             }
         }
-        slide.transition = read_slide_transition(&root, self.w);
+        slide.transition = read_slide_transition(&root, self.w).map(|(mut t, sound)| {
+            t.sound = match sound {
+                Some((None, _)) => Some(model_show::TransitionSound::StopPrevious),
+                Some((Some(rid), loop_until_next)) => {
+                    let target = target_of(self.pkg, ctx.part, &rid);
+                    let media = target.and_then(|t| {
+                        let ext = t.extension().unwrap_or("").to_owned();
+                        let fallback = media_content_type(&ext).unwrap_or("audio/wav");
+                        self.media_of_part(&t, Some(fallback))
+                    });
+                    match media {
+                        Some(media) => Some(model_show::TransitionSound::Play {
+                            media,
+                            loop_until_next,
+                        }),
+                        None => {
+                            self.w.add("transition sound file missing; sound dropped");
+                            None
+                        }
+                    }
+                }
+                None => None,
+            };
+            t
+        });
         let timing = root.child("timing").or_else(|| {
             root.elements()
                 .filter(|e| e.name == "AlternateContent")
@@ -933,6 +958,8 @@ impl Reader<'_> {
                     m.muted = mt.muted;
                     m.hide_when_not_playing = mt.hide;
                     m.loop_playback = mt.looped;
+                    m.play_across_slides = mt.across_slides;
+                    m.rewind = mt.rewind;
                 }
             }
             slide.animations = read_timing(timing, &spids, self.w);
@@ -1297,7 +1324,39 @@ impl Reader<'_> {
         {
             self.consumed.insert(t);
         }
-        Some(MediaClip::new(kind, media))
+        let mut clip = MediaClip::new(kind, media);
+        if let Some(m) = nv.find("media").filter(|m| m.prefix == "p14") {
+            let ms = |e: Option<&El>, a: &str| {
+                e.and_then(|e| e.attr(a))
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .filter(|v| v.is_finite() && *v >= 0.0)
+                    .map_or(0, |v| v.round().min(f64::from(u32::MAX)) as u32)
+            };
+            let trim = m.child("trim");
+            clip.trim_start_ms = ms(trim, "st");
+            clip.trim_end_ms = ms(trim, "end");
+            let fade = m.child("fade");
+            clip.fade_in_ms = ms(fade, "in");
+            clip.fade_out_ms = ms(fade, "out");
+            for b in m
+                .child("bmkLst")
+                .into_iter()
+                .flat_map(|l| l.elements())
+                .filter(|b| b.name == "bmk")
+            {
+                let Some(name) = b.attr("name").filter(|n| !n.is_empty()) else {
+                    continue;
+                };
+                if clip.bookmarks.iter().any(|o| o.name == name) {
+                    continue;
+                }
+                clip.bookmarks.push(model_show::Bookmark {
+                    name: name.to_owned(),
+                    time_ms: ms(Some(b), "time"),
+                });
+            }
+        }
+        Some(clip)
     }
 
     /// The layout (else master) placeholder a slide placeholder

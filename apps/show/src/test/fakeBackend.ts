@@ -666,6 +666,26 @@ export class FakeBackend implements ShowBackend {
         }
         return;
       }
+      case "setAnimationOrder": {
+        const s = this.slideOf(c.slide);
+        const list = s.animations ?? [];
+        if (c.order.length !== list.length || !list.every((a) => c.order.includes(a.id))) throw new Error("not a permutation");
+        s.animations = c.order.map((id) => list.find((a) => a.id === id)!);
+        touched.add(s);
+        return;
+      }
+      case "setTransitionSound": {
+        for (const id of c.slides) {
+          const s = this.slideOf(id);
+          const t = s.transition ?? { kind: "none" as const, durationMs: 0, advanceOnClick: true };
+          if (c.bytesBase64) t.sound = { kind: "play", value: { media: 900 + id, ...(c.loop ? { loop: true } : {}) } };
+          else if (c.stopPrevious) t.sound = { kind: "stopPrevious" };
+          else delete t.sound;
+          s.transition = t;
+          touched.add(s);
+        }
+        return;
+      }
       case "addAnimation": {
         const s = this.slideOf(c.slide);
         const list = (s.animations ??= []);

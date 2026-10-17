@@ -833,5 +833,26 @@
    "page:a4"
   ],
   "paragraphs": 7
+ },
+ {
+  "file": "provisional-65-drawings-floating-2.docx",
+  "topic": "Drawings round 2: a group (rectangle and oval), two linked text boxes, a drawing canvas, a centred picture wrapped on both sides, a linked picture with soft edges and a bevel, a HYPERLINK field, a hidden decorative shape",
+  "features": [
+   "heading:1",
+   "drawing:group",
+   "drawing:linked-textbox",
+   "drawing:canvas",
+   "image:float=square",
+   "image:float-align=center",
+   "image:wrap-both-sides",
+   "image:link",
+   "image:soft-edge",
+   "field:hyperlink",
+   "drawing:hidden",
+   "page:a4",
+   "image:count=2",
+   "image:alt"
+  ],
+  "paragraphs": 8
  }
 ]

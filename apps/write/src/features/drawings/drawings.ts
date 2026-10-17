@@ -19,6 +19,7 @@ import { cursorBlock } from "../../sync/editorCommands";
 import { canonDrawing } from "../../sync/model";
 import { colorCss } from "../../sync/schema";
 import type { SyncController } from "../../sync/SyncPlugin";
+import { memberAt, memberPath, withMember } from "./geometry";
 import { innerEditors } from "./innerEditors";
 
 /** EMU per CSS pixel and per centimetre. */
@@ -43,8 +44,9 @@ export const SHAPE_GROUPS: { id: string; items: string[] }[] = [
   { id: "callouts", items: ["wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout"] },
 ];
 
-/** Word's default sizes: shapes 2.5 × 2.5 cm (lines 4 cm wide), text boxes 5 × 2.5 cm. */
+/** Word's default sizes: shapes 2.5 × 2.5 cm (lines 4 cm wide), text boxes 5 × 2.5 cm, a drawing canvas 15 × 6 cm. */
 export function defaultSize(preset: string, kind: DrawingKind): { width: number; height: number } {
+  if (kind === "canvas") return { width: 15 * EMU_PER_CM, height: 6 * EMU_PER_CM };
   if (kind === "textBox") return { width: 5 * EMU_PER_CM, height: 2.5 * EMU_PER_CM };
   if (preset === "line") return { width: 4 * EMU_PER_CM, height: 1 };
   if (/Arrow$|homePlate|chevron/.test(preset) && !/^(up|down|upDown)/.test(preset)) return { width: 3.5 * EMU_PER_CM, height: 1.8 * EMU_PER_CM };
@@ -55,8 +57,8 @@ export function defaultSize(preset: string, kind: DrawingKind): { width: number;
 export function insertDrawingCommand(editor: Editor, id: string, opts: { anchor?: Anchor | null; text?: string } = {}): WriteCommand | null {
   const at = cursorBlock(editor);
   if (!at) return null;
-  const kind: DrawingKind = id === "textBox" ? "textBox" : "shape";
-  const preset = id === "textBox" ? "rect" : id;
+  const kind: DrawingKind = id === "textBox" ? "textBox" : id === "canvas" ? "canvas" : "shape";
+  const preset = id === "textBox" || id === "canvas" ? "rect" : id;
   const cmd: WriteCommand = { type: "insertDrawing", block: at.id, offset: at.offset, kind, preset, ...defaultSize(preset, kind) };
   if (opts.anchor) cmd.anchor = opts.anchor;
   if (opts.text != null) cmd.text = opts.text;
@@ -94,37 +96,85 @@ export function drawingPosAt(doc: PMNode, block: number, offset: number): number
   return found;
 }
 
+/** The member of a group selected inside it (Word: a second click on a grouped shape), by node ids. */
+let memberSelection: { group: number; member: number } | null = null;
+
+/** Selects member `member` of the group `group` (null: the group itself). */
+export function selectMember(view: EditorView | null, group: number, member: number | null): void {
+  const next = member == null ? null : { group, member };
+  if (JSON.stringify(next) === JSON.stringify(memberSelection)) return;
+  memberSelection = next;
+  // A transaction without changes lets the ribbon follow.
+  if (view) view.dispatch(view.state.tr.setMeta("rusuiteMemberSelection", next));
+}
+
+/** The member selected inside group `group`, if any. */
+export const selectedMemberOf = (group: number): number | null => (memberSelection?.group === group ? memberSelection.member : null);
+
 /**
  * The selected drawing node and its position — the drawing selected as an
  * object, or the one whose text has the caret (its nested editor) — or null.
+ * Inside a group, `value` is the selected member and `path` its place.
  */
-export function selectedDrawing(state: EditorState): { node: PMNode; pos: number; value: Drawing } | null {
+export function selectedDrawing(state: EditorState): { node: PMNode; pos: number; value: Drawing; path?: number[] } | null {
   const sel = state.selection;
-  if (sel instanceof NodeSelection && sel.node.type.name === "drawing" && sel.node.attrs.value) {
-    return { node: sel.node, pos: sel.from, value: sel.node.attrs.value as Drawing };
-  }
+  const withPath = (node: PMNode, pos: number, member: number | null | undefined) => {
+    const group = node.attrs.value as Drawing;
+    const path = member != null ? memberPath(group, member) : null;
+    const m = path ? memberAt(group, path) : null;
+    return m && path ? { node, pos, value: m, path } : { node, pos, value: group };
+  };
   const inner = innerEditors.active();
+  const innerFirst = !!inner && innerEditors.newerThanMain();
+  if (!innerFirst && sel instanceof NodeSelection && sel.node.type.name === "drawing" && sel.node.attrs.value) {
+    return withPath(sel.node, sel.from, selectedMemberOf((sel.node.attrs.value as Drawing).id));
+  }
   const pos = inner ? innerEditors.hostPos(inner) : undefined;
   const node = pos !== undefined && pos <= state.doc.content.size ? state.doc.nodeAt(pos) : null;
-  if (pos !== undefined && node?.type.name === "drawing" && node.attrs.value) return { node, pos, value: node.attrs.value as Drawing };
+  if (pos !== undefined && node?.type.name === "drawing" && node.attrs.value) return withPath(node, pos, inner ? innerEditors.memberOf(inner) : null);
   return null;
 }
 
-/** Replaces the drawing at `pos` by `value` (kept selected unless its text is being edited; the mapper sends `SetDrawingProps` / text commands). */
-export function setDrawingValue(view: EditorView, pos: number, value: Drawing, keepSelection = true): boolean {
+/** Replaces the drawing at `pos` by `value` (kept selected unless its text is being edited; the mapper sends `SetDrawingProps` / text commands). With `path`, `value` is that member of the group at `pos`. */
+export function setDrawingValue(view: EditorView, pos: number, value: Drawing, keepSelection = true, path?: number[]): boolean {
   const node = view.state.doc.nodeAt(pos);
   if (!node || node.type.name !== "drawing") return false;
-  const tr = view.state.tr.setNodeMarkup(pos, undefined, { value: canonDrawing(value) });
+  const whole = path?.length ? withMember(node.attrs.value as Drawing, path, value) : value;
+  const tr = view.state.tr.setNodeMarkup(pos, undefined, { value: canonDrawing(whole) });
   if (keepSelection && !innerEditors.active()) tr.setSelection(NodeSelection.create(tr.doc, pos));
   view.dispatch(tr);
   return true;
 }
 
-/** Changes the selected drawing with `f`. */
+/** A group with fill, outline and text colour changes passed on to its shapes (Word formats every member). */
+export function propagateToMembers(before: Drawing, after: Drawing): Drawing {
+  if (after.kind !== "group" || !after.children?.length) return after;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const fill = !same(before.fill, after.fill);
+  const line = !same(before.line, after.line);
+  const text = !same(before.textColor, after.textColor);
+  if (!fill && !line && !text) return after;
+  const apply = (m: Drawing): Drawing => {
+    if (m.kind === "group") return { ...m, children: (m.children ?? []).map(apply) };
+    if (m.kind === "picture") return m;
+    const out = { ...m };
+    if (fill) out.fill = after.fill ?? { kind: "none" };
+    if (line && after.line) out.line = after.line;
+    if (text) {
+      if (after.textColor) out.textColor = after.textColor;
+      else delete out.textColor;
+    }
+    return out;
+  };
+  return { ...after, children: after.children.map(apply) };
+}
+
+/** Changes the selected drawing (or group member) with `f`. */
 export function editSelectedDrawing(editor: Editor, f: (d: Drawing) => Drawing): boolean {
   const sel = selectedDrawing(editor.state);
   if (!sel) return false;
-  return setDrawingValue(editor.view, sel.pos, f(structuredClone(sel.value)));
+  const next = propagateToMembers(sel.value, f(structuredClone(sel.value)));
+  return setDrawingValue(editor.view, sel.pos, next, true, sel.path);
 }
 
 // ----- paint -------------------------------------------------------------------------
@@ -213,4 +263,21 @@ export function flipped(d: Drawing, axis: "h" | "v"): Drawing {
   if (!out.flipH) delete out.flipH;
   if (!out.flipV) delete out.flipV;
   return out;
+}
+
+/** Fit (drawing canvas): the canvas shrinks to its members; returns the canvas and how far its frame moved (EMU), or null without members. */
+export function fitCanvas(d: Drawing): { canvas: Drawing; dx: number; dy: number } | null {
+  const kids = d.children ?? [];
+  if (!kids.length) return null;
+  const x0 = Math.min(...kids.map((m) => m.x ?? 0));
+  const y0 = Math.min(...kids.map((m) => m.y ?? 0));
+  const x1 = Math.max(...kids.map((m) => (m.x ?? 0) + m.width));
+  const y1 = Math.max(...kids.map((m) => (m.y ?? 0) + m.height));
+  const children = kids.map((m) => {
+    const out: Drawing = { ...m, x: (m.x ?? 0) - x0, y: (m.y ?? 0) - y0 };
+    if (!out.x) delete out.x;
+    if (!out.y) delete out.y;
+    return out;
+  });
+  return { canvas: { ...d, children, width: Math.max(1, x1 - x0), height: Math.max(1, y1 - y0) }, dx: x0, dy: y0 };
 }

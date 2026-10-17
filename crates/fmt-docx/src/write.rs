@@ -18,8 +18,9 @@ use model_text::{
 use model_text::{Comment, CommentId, Drawing, DrawingKind, Hyperlink, LinkTarget, ShapeFill};
 
 use crate::drawing::{
-    emu_pt, vml_color, write_blip_effects, write_fill, write_line, write_preset, write_shadow,
-    write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPS, URI_WPS,
+    emu_pt, vml_color, write_blip_effects, write_fill, write_line, write_picture_effects,
+    write_preset, write_src_rect, write_style, NS_O, NS_V, NS_W10, NS_WP14, NS_WPC, NS_WPG, NS_WPS,
+    URI_WPC, URI_WPG, URI_WPS,
 };
 
 use crate::numbering::{write_numbering, W_NS};
@@ -426,6 +427,8 @@ impl<'a> PartWriter<'a> {
                 ("xmlns:w", W_NS),
                 ("xmlns:w14", NS_W14),
                 ("xmlns:wps", NS_WPS),
+                ("xmlns:wpg", NS_WPG),
+                ("xmlns:wpc", NS_WPC),
                 ("xmlns:a", NS_A),
                 ("xmlns:pic", NS_PIC),
                 ("mc:Ignorable", "w14 wp14"),
@@ -570,8 +573,8 @@ impl<'a> PartWriter<'a> {
         let mut open_link: Option<&Hyperlink> = None;
         for inline in &p.inlines {
             let link = inline.as_run().and_then(|r| r.link.as_ref());
-            if open_link.is_some() && open_link != link && !inline.is_marker() {
-                self.x.end("w:hyperlink");
+            if let Some(l) = open_link.filter(|l| Some(*l) != link && !inline.is_marker()) {
+                self.hyperlink_end(l);
                 open_link = None;
             }
             if let (None, Some(l)) = (open_link, link) {
@@ -600,8 +603,8 @@ impl<'a> PartWriter<'a> {
                     .empty("w:bookmarkEnd", &[("w:id", &id.0.to_string())]),
             }
         }
-        if open_link.is_some() {
-            self.x.end("w:hyperlink");
+        if let Some(l) = open_link {
+            self.hyperlink_end(l);
         }
         if let Some((id, _)) = &bookmark {
             self.x.empty("w:bookmarkEnd", &[("w:id", &id.to_string())]);
@@ -761,10 +764,26 @@ impl<'a> PartWriter<'a> {
         }
     }
 
+    /// Closes what [`hyperlink_start`](Self::hyperlink_start) opened.
+    fn hyperlink_end(&mut self, l: &Hyperlink) {
+        if l.field {
+            self.fld_char("end");
+        } else {
+            self.x.end("w:hyperlink");
+        }
+    }
+
     /// Opens a `w:hyperlink`: an external relationship for web and e-mail
     /// targets (`r:id`), `w:anchor` for a bookmark; `w:history="1"` as
-    /// Word writes it.
+    /// Word writes it. A link read from a HYPERLINK field is written as
+    /// that field (begin, instruction, separate; the runs are its result).
     fn hyperlink_start(&mut self, l: &Hyperlink) {
+        if l.field {
+            self.fld_char("begin");
+            self.instr_text(&format!(" {} ", l.field_instruction()));
+            self.fld_char("separate");
+            return;
+        }
         let mut attrs: Vec<(&str, String)> = Vec::new();
         match &l.target {
             LinkTarget::Bookmark(b) => attrs.push(("w:anchor", b.clone())),
@@ -1031,7 +1050,7 @@ impl<'a> PartWriter<'a> {
             }
             Some(a) => {
                 let z = (251_658_240u64 + u64::from(n)).to_string();
-                write_anchor_start(x, a, &z, &cx, &cy);
+                write_anchor_start(x, a, &z, &cx, &cy, &self.doc.page);
             }
         }
         let mut doc_pr = vec![
@@ -1041,20 +1060,12 @@ impl<'a> PartWriter<'a> {
         if let Some(alt) = &img.alt {
             doc_pr.push(("descr", alt));
         }
-        let link = img.link.as_ref().map(|l| self.drawing_link(l));
-        let x = &mut self.x;
-        match &link {
-            None => x.empty("wp:docPr", &doc_pr),
-            Some((rid, tooltip)) => {
-                x.start("wp:docPr", &doc_pr);
-                let mut attrs = vec![("xmlns:a", NS_A), ("r:id", rid.as_str())];
-                if let Some(t) = tooltip {
-                    attrs.push(("tooltip", t.as_str()));
-                }
-                x.empty("a:hlinkClick", &attrs);
-                x.end("wp:docPr");
-            }
+        if img.hidden {
+            doc_pr.push(("hidden", "1"));
         }
+        let link = img.link.as_ref().map(|l| self.drawing_link(l));
+        write_doc_pr(&mut self.x, &doc_pr, link.as_ref(), img.decorative);
+        let x = &mut self.x;
         x.start("wp:cNvGraphicFramePr", &[]);
         x.empty("a:graphicFrameLocks", &[("noChangeAspect", "1")]);
         x.end("wp:cNvGraphicFramePr");
@@ -1068,38 +1079,16 @@ impl<'a> PartWriter<'a> {
         );
         x.empty("pic:cNvPicPr", &[]);
         x.end("pic:nvPicPr");
-        x.start("pic:blipFill", &[]);
         let f = &img.format;
-        let effects =
-            f.recolor != model_text::Recolor::None || f.brightness != 0 || f.contrast != 0;
-        if effects {
-            x.start("a:blip", &[("r:embed", &rid)]);
-            write_blip_effects(x, f);
-            x.end("a:blip");
-        } else {
-            x.empty("a:blip", &[("r:embed", &rid)]);
-        }
-        write_src_rect(x, &f.crop);
-        x.start("a:stretch", &[]);
-        x.empty("a:fillRect", &[]);
-        x.end("a:stretch");
-        x.end("pic:blipFill");
+        self.pic_blip_fill(&rid, f);
+        let x = &mut self.x;
         x.start("pic:spPr", &[]);
         x.start("a:xfrm", &[]);
         x.empty("a:off", &[("x", "0"), ("y", "0")]);
         x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
         x.end("a:xfrm");
-        write_preset(
-            x,
-            f.geometry.as_deref().unwrap_or("rect"),
-            &std::collections::BTreeMap::new(),
-        );
-        if let Some(b) = &f.border {
-            write_line(x, b);
-        }
-        if f.shadow {
-            write_shadow(x);
-        }
+        self.pic_sp_pr_rest(f);
+        let x = &mut self.x;
         x.end("pic:spPr");
         x.end("pic:pic");
         x.end("a:graphicData");
@@ -1125,17 +1114,25 @@ impl<'a> PartWriter<'a> {
         (rid, l.tooltip.clone())
     }
 
-    /// A shape or text box: `mc:AlternateContent` with the DrawingML shape
-    /// (`wps:wsp`) as the choice and a minimal VML shape as the fallback
-    /// for Word 2007.
+    /// A shape, text box, group or drawing canvas: `mc:AlternateContent`
+    /// with the DrawingML shape (`wps:wsp`), group (`wpg:wgp`) or canvas
+    /// (`wpc:wpc`) as the choice and a minimal VML shape as the fallback for
+    /// Word 2007 (none for groups and canvases).
     fn drawing(&mut self, d: &Drawing) -> Result<()> {
         let n = self.shared.next_docpr;
         let id = n.to_string();
         self.shared.next_docpr += 1;
         let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
+        let group = d.kind.is_container();
+        let canvas = d.kind == DrawingKind::Canvas;
         self.x.start("w:r", &[]);
         self.x.start("mc:AlternateContent", &[]);
-        self.x.start("mc:Choice", &[("Requires", "wps")]);
+        let requires = match d.kind {
+            DrawingKind::Canvas => "wpc",
+            DrawingKind::Group => "wpg",
+            _ => "wps",
+        };
+        self.x.start("mc:Choice", &[("Requires", requires)]);
         self.x.start("w:drawing", &[]);
         let frame = if d.anchor.is_some() {
             "wp:anchor"
@@ -1161,29 +1158,68 @@ impl<'a> PartWriter<'a> {
             }
             Some(a) => {
                 let z = (251_658_240u64 + u64::from(n)).to_string();
-                write_anchor_start(&mut self.x, a, &z, &cx, &cy);
+                write_anchor_start(&mut self.x, a, &z, &cx, &cy, &self.doc.page);
             }
         }
         let default_name = match d.kind {
             DrawingKind::TextBox => format!("Text Box {n}"),
-            DrawingKind::Shape => format!("Shape {n}"),
+            DrawingKind::Group => format!("Group {n}"),
+            DrawingKind::Canvas => format!("Canvas {n}"),
+            _ => format!("Shape {n}"),
         };
         let name = d.name.clone().unwrap_or(default_name);
         let mut doc_pr = vec![("id", id.as_str()), ("name", name.as_str())];
         if let Some(alt) = &d.alt {
             doc_pr.push(("descr", alt));
         }
-        self.x.empty("wp:docPr", &doc_pr);
+        if d.hidden {
+            doc_pr.push(("hidden", "1"));
+        }
+        let link = d.link.as_ref().map(|l| self.drawing_link(l));
+        write_doc_pr(&mut self.x, &doc_pr, link.as_ref(), d.decorative);
         self.x.empty("wp:cNvGraphicFramePr", &[]);
         self.x.start("a:graphic", &[]);
-        self.x.start("a:graphicData", &[("uri", URI_WPS)]);
-        self.x.start("wps:wsp", &[]);
-        if d.kind == DrawingKind::TextBox {
-            self.x.empty("wps:cNvSpPr", &[("txBox", "1")]);
+        if canvas {
+            self.x.start("a:graphicData", &[("uri", URI_WPC)]);
+            self.x.start("wpc:wpc", &[]);
+            self.x.start("wpc:bg", &[]);
+            write_fill(&mut self.x, &d.fill);
+            self.x.end("wpc:bg");
+            self.x.start("wpc:whole", &[]);
+            write_line(&mut self.x, &d.line);
+            self.x.end("wpc:whole");
+            self.canvas_members(&d.children)?;
+            self.x.end("wpc:wpc");
+        } else if group {
+            self.x.start("a:graphicData", &[("uri", URI_WPG)]);
+            self.x.start("wpg:wgp", &[]);
+            self.x.empty("wpg:cNvGrpSpPr", &[]);
+            self.group_sp_pr("wpg:grpSpPr", d, false);
+            self.group_members(&d.children)?;
+            self.x.empty("wpg:bodyPr", &[]);
+            self.x.end("wpg:wgp");
         } else {
-            self.x.empty("wps:cNvSpPr", &[]);
+            self.x.start("a:graphicData", &[("uri", URI_WPS)]);
+            self.wsp(d, None)?;
         }
-        self.x.start("wps:spPr", &[]);
+        self.x.end("a:graphicData");
+        self.x.end("a:graphic");
+        self.x.end(frame);
+        self.x.end("w:drawing");
+        self.x.end("mc:Choice");
+        self.x.start("mc:Fallback", &[]);
+        if !group {
+            self.vml_fallback(d, n)?;
+        }
+        self.x.end("mc:Fallback");
+        self.x.end("mc:AlternateContent");
+        self.x.end("w:r");
+        Ok(())
+    }
+
+    /// `a:xfrm` of a drawing: rotation and flips, `off` = its place in its
+    /// group (`in_group`) or 0, `ext` = its size.
+    fn xfrm(&mut self, d: &Drawing, in_group: bool) {
         let rot = ((d.rotation * 60_000.0).round() as i64).rem_euclid(21_600_000);
         let rot_s = rot.to_string();
         let mut xfrm: Vec<(&str, &str)> = Vec::new();
@@ -1196,10 +1232,165 @@ impl<'a> PartWriter<'a> {
         if d.flip_v {
             xfrm.push(("flipV", "1"));
         }
+        let (ox, oy) = if in_group {
+            (d.x.0.to_string(), d.y.0.to_string())
+        } else {
+            ("0".to_owned(), "0".to_owned())
+        };
+        let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
         self.x.start("a:xfrm", &xfrm);
-        self.x.empty("a:off", &[("x", "0"), ("y", "0")]);
+        self.x.empty("a:off", &[("x", &ox), ("y", &oy)]);
         self.x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
         self.x.end("a:xfrm");
+    }
+
+    /// The group shape properties of a group: its child coordinates are its
+    /// own frame (`chOff` 0, `chExt` = its size).
+    fn group_sp_pr(&mut self, el: &str, d: &Drawing, in_group: bool) {
+        let (cx, cy) = (d.width.0.max(0).to_string(), d.height.0.max(0).to_string());
+        let (ox, oy) = if in_group {
+            (d.x.0.to_string(), d.y.0.to_string())
+        } else {
+            ("0".to_owned(), "0".to_owned())
+        };
+        self.x.start(el, &[]);
+        self.x.start("a:xfrm", &[]);
+        self.x.empty("a:off", &[("x", &ox), ("y", &oy)]);
+        self.x.empty("a:ext", &[("cx", &cx), ("cy", &cy)]);
+        self.x.empty("a:chOff", &[("x", "0"), ("y", "0")]);
+        self.x.empty("a:chExt", &[("cx", &cx), ("cy", &cy)]);
+        self.x.end("a:xfrm");
+        self.x.end(el);
+    }
+
+    /// The members of a group: shapes (`wps:wsp`), pictures (`pic:pic`)
+    /// and nested groups (`wpg:grpSp`).
+    fn group_members(&mut self, children: &[Drawing]) -> Result<()> {
+        for c in children {
+            let n = self.shared.next_docpr;
+            self.shared.next_docpr += 1;
+            let id = n.to_string();
+            match c.kind {
+                DrawingKind::Group => {
+                    self.x.start("wpg:grpSp", &[]);
+                    let name = c.name.clone().unwrap_or_else(|| format!("Group {n}"));
+                    self.x
+                        .empty("wpg:cNvPr", &[("id", id.as_str()), ("name", name.as_str())]);
+                    self.x.empty("wpg:cNvGrpSpPr", &[]);
+                    self.group_sp_pr("wpg:grpSpPr", c, true);
+                    self.group_members(&c.children)?;
+                    self.x.end("wpg:grpSp");
+                }
+                DrawingKind::Picture => {
+                    let Some(pic) = &c.picture else { continue };
+                    let rid = self.media_rel(pic.media)?;
+                    let name = c.name.clone().unwrap_or_else(|| format!("Picture {n}"));
+                    let x = &mut self.x;
+                    x.start("pic:pic", &[]);
+                    x.start("pic:nvPicPr", &[]);
+                    let mut c_nv = vec![("id", id.as_str()), ("name", name.as_str())];
+                    if let Some(a) = &c.alt {
+                        c_nv.push(("descr", a));
+                    }
+                    x.empty("pic:cNvPr", &c_nv);
+                    x.empty("pic:cNvPicPr", &[]);
+                    x.end("pic:nvPicPr");
+                    self.pic_blip_fill(&rid, &pic.format);
+                    self.x.start("pic:spPr", &[]);
+                    self.xfrm(c, true);
+                    self.pic_sp_pr_rest(&pic.format);
+                    self.x.end("pic:spPr");
+                    self.x.end("pic:pic");
+                }
+                _ => self.wsp(c, Some(n))?,
+            }
+        }
+        Ok(())
+    }
+
+    /// The members of a drawing canvas: like a group's, nested groups as
+    /// `wpg:wgp` (with their `wpg:cNvPr`).
+    fn canvas_members(&mut self, children: &[Drawing]) -> Result<()> {
+        for c in children {
+            if c.kind == DrawingKind::Group {
+                let n = self.shared.next_docpr;
+                self.shared.next_docpr += 1;
+                let id = n.to_string();
+                let name = c.name.clone().unwrap_or_else(|| format!("Group {n}"));
+                self.x.start("wpg:wgp", &[]);
+                self.x
+                    .empty("wpg:cNvPr", &[("id", id.as_str()), ("name", name.as_str())]);
+                self.x.empty("wpg:cNvGrpSpPr", &[]);
+                self.group_sp_pr("wpg:grpSpPr", c, true);
+                self.group_members(&c.children)?;
+                self.x.empty("wpg:bodyPr", &[]);
+                self.x.end("wpg:wgp");
+            } else {
+                self.group_members(std::slice::from_ref(c))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `pic:blipFill` of a picture (effects in the blip, crop, stretch).
+    fn pic_blip_fill(&mut self, rid: &str, f: &model_text::PictureFormat) {
+        let x = &mut self.x;
+        x.start("pic:blipFill", &[]);
+        let effects =
+            f.recolor != model_text::Recolor::None || f.brightness != 0 || f.contrast != 0;
+        if effects {
+            x.start("a:blip", &[("r:embed", rid)]);
+            write_blip_effects(x, f);
+            x.end("a:blip");
+        } else {
+            x.empty("a:blip", &[("r:embed", rid)]);
+        }
+        write_src_rect(x, &f.crop);
+        x.start("a:stretch", &[]);
+        x.empty("a:fillRect", &[]);
+        x.end("a:stretch");
+        x.end("pic:blipFill");
+    }
+
+    /// `pic:spPr` after `a:xfrm`: outline shape, border, effects.
+    fn pic_sp_pr_rest(&mut self, f: &model_text::PictureFormat) {
+        let x = &mut self.x;
+        write_preset(
+            x,
+            f.geometry.as_deref().unwrap_or("rect"),
+            &std::collections::BTreeMap::new(),
+        );
+        if let Some(b) = &f.border {
+            write_line(x, b);
+        }
+        write_picture_effects(x, f);
+    }
+
+    /// A `wps:wsp`: geometry, colours, the text (or the link to the chain
+    /// that holds it) and its layout. Group members (`in_group`: their
+    /// `cNvPr` id) carry their own name and place.
+    fn wsp(&mut self, d: &Drawing, in_group: Option<u32>) -> Result<()> {
+        self.x.start("wps:wsp", &[]);
+        if let Some(n) = in_group {
+            let id = n.to_string();
+            let default_name = match d.kind {
+                DrawingKind::TextBox => format!("Text Box {n}"),
+                _ => format!("Shape {n}"),
+            };
+            let name = d.name.clone().unwrap_or(default_name);
+            let mut c_nv = vec![("id", id.as_str()), ("name", name.as_str())];
+            if let Some(a) = &d.alt {
+                c_nv.push(("descr", a));
+            }
+            self.x.empty("wps:cNvPr", &c_nv);
+        }
+        if d.kind == DrawingKind::TextBox {
+            self.x.empty("wps:cNvSpPr", &[("txBox", "1")]);
+        } else {
+            self.x.empty("wps:cNvSpPr", &[]);
+        }
+        self.x.start("wps:spPr", &[]);
+        self.xfrm(d, in_group.is_some());
         match &d.custom_geometry {
             Some(xml) => self.x.raw(xml.as_bytes()),
             None => write_preset(&mut self.x, &d.preset, &d.adjust),
@@ -1210,12 +1401,23 @@ impl<'a> PartWriter<'a> {
         if let Some(c) = &d.text_color {
             write_style(&mut self.x, c);
         }
-        if let Some(t) = &d.text {
-            self.x.start("wps:txbx", &[]);
-            self.x.start("w:txbxContent", &[]);
-            self.blocks(&t.blocks, true)?;
-            self.x.end("w:txbxContent");
-            self.x.end("wps:txbx");
+        match (&d.text, d.chain) {
+            (Some(_), Some(ch)) if ch.seq > 0 => {
+                let (cid, seq) = (ch.id.to_string(), ch.seq.to_string());
+                self.x
+                    .empty("wps:linkedTxbx", &[("id", &cid), ("seq", &seq)]);
+            }
+            (Some(t), chain) => {
+                let cid = chain.map(|c| c.id.to_string());
+                let attrs: Vec<(&str, &str)> =
+                    cid.as_deref().map(|c| ("id", c)).into_iter().collect();
+                self.x.start("wps:txbx", &attrs);
+                self.x.start("w:txbxContent", &[]);
+                self.blocks(&t.blocks, true)?;
+                self.x.end("w:txbxContent");
+                self.x.end("wps:txbx");
+            }
+            (None, _) => {}
         }
         let ins = d
             .text
@@ -1257,16 +1459,6 @@ impl<'a> PartWriter<'a> {
         }
         self.x.end("wps:bodyPr");
         self.x.end("wps:wsp");
-        self.x.end("a:graphicData");
-        self.x.end("a:graphic");
-        self.x.end(frame);
-        self.x.end("w:drawing");
-        self.x.end("mc:Choice");
-        self.x.start("mc:Fallback", &[]);
-        self.vml_fallback(d, n)?;
-        self.x.end("mc:Fallback");
-        self.x.end("mc:AlternateContent");
-        self.x.end("w:r");
         Ok(())
     }
 
@@ -1474,9 +1666,75 @@ pub(crate) fn write_tc_pr(
     x.end("w:tcPr");
 }
 
+/// The reference spans (EMU, from the page edge) of an anchor's
+/// relative positions: horizontally and vertically, for the fallback of
+/// `wp14:pctPos*Offset` (the first page of `page`).
+fn reference_boxes(a: &Anchor, page: &model_text::PageSetup) -> ((i64, i64), (i64, i64)) {
+    let tw = |t: Twips| i64::from(t.0) * 635;
+    let (w, h) = (tw(page.width), tw(page.height));
+    let m = &page.margins;
+    let (l, r, t, b) = (tw(m.left), w - tw(m.right), tw(m.top), h - tw(m.bottom));
+    let hb = match a.h.relative_to {
+        HRelative::Page => (0, w),
+        HRelative::LeftMargin | HRelative::InsideMargin => (0, l),
+        HRelative::RightMargin | HRelative::OutsideMargin => (r, w),
+        _ => (l, r),
+    };
+    let vb = match a.v.relative_to {
+        VRelative::Page => (0, h),
+        VRelative::TopMargin | VRelative::InsideMargin => (0, t),
+        VRelative::BottomMargin | VRelative::OutsideMargin => (b, h),
+        _ => (t, b),
+    };
+    // posOffset of a percentage is measured from the reference's start.
+    ((0, hb.1 - hb.0), (0, vb.1 - vb.0))
+}
+
+/// URI of Word's "decorative" extension of `wp:docPr`.
+const DECORATIVE_EXT: &str = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}";
+const NS_ADEC: &str = "http://schemas.microsoft.com/office/drawing/2017/decorative";
+
+/// Writes `wp:docPr` with its link (`a:hlinkClick`: relationship id and
+/// ScreenTip) and the decorative mark (`a:extLst`, Word's
+/// `adec:decorative`).
+fn write_doc_pr(
+    x: &mut XmlOut,
+    attrs: &[(&str, &str)],
+    link: Option<&(String, Option<String>)>,
+    decorative: bool,
+) {
+    if link.is_none() && !decorative {
+        x.empty("wp:docPr", attrs);
+        return;
+    }
+    x.start("wp:docPr", attrs);
+    if let Some((rid, tooltip)) = link {
+        let mut a = vec![("xmlns:a", NS_A), ("r:id", rid.as_str())];
+        if let Some(t) = tooltip {
+            a.push(("tooltip", t.as_str()));
+        }
+        x.empty("a:hlinkClick", &a);
+    }
+    if decorative {
+        x.start("a:extLst", &[("xmlns:a", NS_A)]);
+        x.start("a:ext", &[("uri", DECORATIVE_EXT)]);
+        x.empty("adec:decorative", &[("xmlns:adec", NS_ADEC), ("val", "1")]);
+        x.end("a:ext");
+        x.end("a:extLst");
+    }
+    x.end("wp:docPr");
+}
+
 /// Writes the start of `wp:anchor` up to the wrapping element (the
 /// caller continues with `wp:docPr`).
-fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
+fn write_anchor_start(
+    x: &mut XmlOut,
+    a: &Anchor,
+    z: &str,
+    cx: &str,
+    cy: &str,
+    page: &model_text::PageSetup,
+) {
     let d = &a.distance;
     let (t, b, l, r) = (
         d.top.0.max(0).to_string(),
@@ -1485,6 +1743,9 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
         d.right.0.max(0).to_string(),
     );
     let flag = |v: bool| if v { "1" } else { "0" };
+    // An explicit z-order (Bring Forward …) wins over the document order.
+    let z_own = a.z.to_string();
+    let z = if a.z > 0 { z_own.as_str() } else { z };
     x.start(
         "wp:anchor",
         &[
@@ -1495,8 +1756,8 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
             ("simplePos", "0"),
             ("relativeHeight", z),
             ("behindDoc", flag(a.behind_text())),
-            ("locked", "0"),
-            ("layoutInCell", "1"),
+            ("locked", flag(a.locked)),
+            ("layoutInCell", flag(a.layout_in_cell)),
             ("allowOverlap", flag(a.allow_overlap)),
         ],
     );
@@ -1506,41 +1767,84 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
         HRelative::Page => "page",
         HRelative::Column => "column",
         HRelative::Character => "character",
+        HRelative::LeftMargin => "leftMargin",
+        HRelative::RightMargin => "rightMargin",
+        HRelative::InsideMargin => "insideMargin",
+        HRelative::OutsideMargin => "outsideMargin",
     };
-    x.start("wp:positionH", &[("relativeFrom", h_rel)]);
-    match a.h.place {
-        Placement::Align(al) => x.text_el(
-            "wp:align",
-            &[],
-            match al {
-                HAlign::Left => "left",
-                HAlign::Center => "center",
-                HAlign::Right => "right",
-            },
-        ),
-        Placement::Offset(o) => x.text_el("wp:posOffset", &[], &o.0.to_string()),
-    }
-    x.end("wp:positionH");
+    let h_align = |al: HAlign| match al {
+        HAlign::Left => "left",
+        HAlign::Center => "center",
+        HAlign::Right => "right",
+    };
     let v_rel = match a.v.relative_to {
         VRelative::Margin => "margin",
         VRelative::Page => "page",
         VRelative::Paragraph => "paragraph",
         VRelative::Line => "line",
+        VRelative::TopMargin => "topMargin",
+        VRelative::BottomMargin => "bottomMargin",
+        VRelative::InsideMargin => "insideMargin",
+        VRelative::OutsideMargin => "outsideMargin",
     };
-    x.start("wp:positionV", &[("relativeFrom", v_rel)]);
-    match a.v.place {
-        Placement::Align(al) => x.text_el(
-            "wp:align",
-            &[],
-            match al {
-                VAlignPos::Top => "top",
-                VAlignPos::Center => "center",
-                VAlignPos::Bottom => "bottom",
-            },
-        ),
-        Placement::Offset(o) => x.text_el("wp:posOffset", &[], &o.0.to_string()),
-    }
-    x.end("wp:positionV");
+    let v_align = |al: VAlignPos| match al {
+        VAlignPos::Top => "top",
+        VAlignPos::Center => "center",
+        VAlignPos::Bottom => "bottom",
+    };
+    // Relative positions (wp14) with an absolute fallback for Word 2007.
+    let (h_box, v_box) = reference_boxes(a, page);
+    let position = |x: &mut XmlOut,
+                    el: &str,
+                    rel: &str,
+                    place: Placement<&'static str>,
+                    span: (i64, i64),
+                    axis: char| {
+        match place {
+            Placement::Percent(p) => {
+                x.start("mc:AlternateContent", &[]);
+                x.start("mc:Choice", &[("Requires", "wp14")]);
+                x.start(el, &[("relativeFrom", rel)]);
+                let pct = if axis == 'h' {
+                    "wp14:pctPosHOffset"
+                } else {
+                    "wp14:pctPosVOffset"
+                };
+                x.text_el(pct, &[], &p.to_string());
+                x.end(el);
+                x.end("mc:Choice");
+                x.start("mc:Fallback", &[]);
+                x.start(el, &[("relativeFrom", rel)]);
+                let off = span.0 + (span.1 - span.0) * i64::from(p) / 100_000;
+                x.text_el("wp:posOffset", &[], &off.to_string());
+                x.end(el);
+                x.end("mc:Fallback");
+                x.end("mc:AlternateContent");
+            }
+            Placement::Align(al) => {
+                x.start(el, &[("relativeFrom", rel)]);
+                x.text_el("wp:align", &[], al);
+                x.end(el);
+            }
+            Placement::Offset(o) => {
+                x.start(el, &[("relativeFrom", rel)]);
+                x.text_el("wp:posOffset", &[], &o.0.to_string());
+                x.end(el);
+            }
+        }
+    };
+    let hp = match a.h.place {
+        Placement::Align(al) => Placement::Align(h_align(al)),
+        Placement::Offset(o) => Placement::Offset(o),
+        Placement::Percent(p) => Placement::Percent(p),
+    };
+    position(x, "wp:positionH", h_rel, hp, h_box, 'h');
+    let vp = match a.v.place {
+        Placement::Align(al) => Placement::Align(v_align(al)),
+        Placement::Offset(o) => Placement::Offset(o),
+        Placement::Percent(p) => Placement::Percent(p),
+    };
+    position(x, "wp:positionV", v_rel, vp, v_box, 'v');
     x.empty("wp:extent", &[("cx", cx), ("cy", cy)]);
     x.empty(
         "wp:effectExtent",
@@ -1554,9 +1858,14 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
     };
     match a.wrap {
         WrapKind::Square => x.empty("wp:wrapSquare", &[("wrapText", side)]),
-        WrapKind::Tight => {
+        WrapKind::Tight | WrapKind::Through => {
             // Word requires a polygon; the image's bounding box.
-            x.start("wp:wrapTight", &[("wrapText", side)]);
+            let el = if a.wrap == WrapKind::Tight {
+                "wp:wrapTight"
+            } else {
+                "wp:wrapThrough"
+            };
+            x.start(el, &[("wrapText", side)]);
             x.start("wp:wrapPolygon", &[("edited", "0")]);
             x.empty("wp:start", &[("x", "0"), ("y", "0")]);
             for (px, py) in [
@@ -1568,7 +1877,7 @@ fn write_anchor_start(x: &mut XmlOut, a: &Anchor, z: &str, cx: &str, cy: &str) {
                 x.empty("wp:lineTo", &[("x", px), ("y", py)]);
             }
             x.end("wp:wrapPolygon");
-            x.end("wp:wrapTight");
+            x.end(el);
         }
         WrapKind::TopAndBottom => x.empty("wp:wrapTopAndBottom", &[]),
         WrapKind::Behind | WrapKind::InFront => x.empty("wp:wrapNone", &[]),
@@ -1960,6 +2269,8 @@ mod tests {
                     anchor: None,
                     format: Default::default(),
                     link: None,
+                    decorative: false,
+                    hidden: false,
                 }),
                 Inline::Break(BreakKind::Page),
             ],
@@ -2077,6 +2388,8 @@ mod tests {
                 anchor: None,
                 format: Default::default(),
                 link: None,
+                decorative: false,
+                hidden: false,
             })],
         );
         doc.body = vec![p];

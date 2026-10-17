@@ -12,4 +12,10 @@ target: LinkTarget,
 /**
  * The ScreenTip (docx `w:tooltip`).
  */
-tooltip?: string, };
+tooltip?: string, 
+/**
+ * Written as a HYPERLINK field (`HYPERLINK "url" \o "tip"`, the
+ * field's result being the linked runs) instead of `w:hyperlink`:
+ * links read from such fields stay fields.
+ */
+field?: boolean, };

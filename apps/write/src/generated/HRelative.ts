@@ -4,4 +4,4 @@
  * What a floating object's horizontal position is measured from
  * (docx `wp:positionH/@relativeFrom`).
  */
-export type HRelative = "margin" | "page" | "column" | "character";
+export type HRelative = "margin" | "page" | "column" | "character" | "leftMargin" | "rightMargin" | "insideMargin" | "outsideMargin";

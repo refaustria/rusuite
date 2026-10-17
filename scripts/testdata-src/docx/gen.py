@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (64 documents: 63 .docx, one .dotx template).
+"""Generator for the PROVISIONAL docx reference suite (65 documents: 64 .docx, one .dotx template).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -325,7 +325,7 @@ class Doc:
         counted = re.sub(r"<text:note-body>.*?</text:note-body>", "", body)
         counted = re.sub(r"<office:annotation[ >].*?</office:annotation>", "", counted)
         # Text of shapes and text boxes lives in the drawing, not in the body.
-        counted = re.sub(r"<draw:text-box>.*?</draw:text-box>", "", counted)
+        counted = re.sub(r"<draw:text-box[ >].*?</draw:text-box>", "", counted)
         counted = re.sub(r"<draw:custom-shape .*?</draw:custom-shape>", "", counted)
         paragraphs = len(re.findall(r"<text:(?:p|h)[ >]", counted))
         if self.imgs:
@@ -1296,13 +1296,72 @@ def _(d):
         d.feat(f)
 
 
+# ---------------- 65 drawings round 2 (P9-W4) ----------------
+@topic(65, "drawings-floating-2", "Drawings round 2: a group (rectangle and oval), two linked text boxes, a drawing canvas, a centred picture wrapped on both sides, a linked picture with soft edges and a bevel, a HYPERLINK field, a hidden decorative shape")
+def _(d):
+    _gstyle(d, "grGroup", SHAPE_LOOK + ' style:wrap="run-through" style:run-through="foreground" style:vertical-pos="top" '
+            'style:vertical-rel="paragraph" style:horizontal-pos="from-left" style:horizontal-rel="paragraph"')
+    _gstyle(d, "grLinked", BOX_LOOK + ' style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" style:wrap-contour="false" '
+            'style:run-through="foreground" style:vertical-pos="top" style:vertical-rel="paragraph" '
+            'style:horizontal-pos="from-left" style:horizontal-rel="paragraph" fo:padding="0.13cm"')
+    d.h(1, "Drawings round 2")
+    shape = lambda name, kind, x, y, w, h: (
+        f'<draw:custom-shape draw:name="{name}" draw:style-name="grShapeG" svg:x="{x}cm" svg:y="{y}cm" '
+        f'svg:width="{w}cm" svg:height="{h}cm"><draw:enhanced-geometry svg:viewBox="0 0 21600 21600" draw:type="{kind}"/></draw:custom-shape>'
+    )
+    _gstyle(d, "grShapeG", SHAPE_LOOK)
+    group = X(
+        '<draw:g draw:style-name="grGroup" draw:name="Group 1" text:anchor-type="paragraph" draw:z-index="2">'
+        + shape("Rectangle 2", "rectangle", 0, 0, 3, 1.5)
+        + shape("Oval 3", "ellipse", 3.5, 0.5, 2, 2)
+        + "</draw:g>"
+    )
+    d.p([group, "A group of a rectangle and an oval floats in front of this paragraph. ", txt(2)])
+    d.feat("drawing:group")
+    box = lambda name, x, nxt, paras: X(
+        f'<draw:frame draw:style-name="grLinked" draw:name="{name}" text:anchor-type="paragraph" draw:z-index="3" '
+        f'svg:x="{x}cm" svg:y="0cm" svg:width="5cm" svg:height="1.6cm"><draw:text-box'
+        + (f' draw:chain-next-name="{nxt}"' if nxt else "")
+        + ">" + "".join(f"<text:p>{escape(t)}</text:p>" for t in paras) + "</draw:text-box></draw:frame>"
+    )
+    d.p([box("Text Box 4", 0, "Text Box 5", ["Linked text boxes: this story is longer than the first box,",
+                                             "so it continues in the second box next to it, as in Word."]),
+         box("Text Box 5", 9, None, []), txt(4)])
+    d.feat("drawing:linked-textbox")
+    d.p(["A drawing canvas: CANVAS_HERE"])
+    d.feat("drawing:canvas")
+    d.p([_float_image(d, 0, 4, 3, "square", "center", alt="Centred picture"), txt(10)])
+    d.feat("image:wrap-both-sides")
+    d.styles["frLink"] = (
+        '<style:style style:name="frLink" style:family="graphic"><style:graphic-properties '
+        'style:vertical-pos="top" style:vertical-rel="baseline" loext:softedge-radius="0.18cm"/></style:style>'
+    )
+    data = base64.b64encode(IMAGES[1]).decode()
+    d.imgs += 1
+    linked = X(
+        '<draw:a xlink:type="simple" xlink:href="https://rusuit.es/" office:title="Rusuite">'
+        f'<draw:frame draw:style-name="frLink" draw:name="Image{d.imgs}" text:anchor-type="as-char" svg:width="2cm" svg:height="2cm">'
+        f"<draw:image><office:binary-data>{data}</office:binary-data></draw:image></draw:frame></draw:a>"
+    )
+    d.p(["A linked picture with soft edges and a bevel: ", linked, "."])
+    d.feat("image:link")
+    d.feat("image:soft-edge")
+    d.p(["A HYPERLINK field: FIELD_HERE."])
+    d.feat("field:hyperlink")
+    _gstyle(d, "grFront", SHAPE_LOOK + ' style:wrap="none" style:run-through="foreground" style:vertical-pos="top" '
+            'style:vertical-rel="paragraph" style:horizontal-pos="right" style:horizontal-rel="paragraph"')
+    d.p([_shape(d, "Hidden Shape 6", "ellipse", 1, 1, "", anchor="paragraph", extra="grFront"), "A hidden decorative oval is anchored here."])
+    d.feat("drawing:hidden")
+    d.feat("page:a4")
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 65)), "need exactly topics 1..64"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 66)), "need exactly topics 1..65"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1334,7 +1393,55 @@ STYLE_PATCHES = {
 
 # What LibreOffice cannot export in file 63 (P9-W3): the words-only underline (it writes single), a DOCPROPERTY
 # Company field and the company in docProps/app.xml.
+CANVAS_65 = (
+    '<w:r><mc:AlternateContent><mc:Choice Requires="wpc"><w:drawing>'
+    '<wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="3600000" cy="1080000"/>'
+    '<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="20" name="Canvas 20"/><wp:cNvGraphicFramePr/>'
+    '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+    '<a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas">'
+    '<wpc:wpc xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"><wpc:bg>'
+    '<a:solidFill><a:srgbClr val="F2F2F2"/></a:solidFill></wpc:bg><wpc:whole><a:ln><a:noFill/></a:ln>'
+    '</wpc:whole><wps:wsp><wps:cNvPr id="21" name="Rectangle 21"/><wps:cNvSpPr/><wps:spPr><a:xfrm>'
+    '<a:off x="180000" y="180000"/><a:ext cx="1080000" cy="720000"/></a:xfrm><a:prstGeom prst="rect">'
+    '<a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="4472C4"/></a:solidFill><a:ln w="12700"><a:solidFill>'
+    '<a:srgbClr val="2F528F"/></a:solidFill></a:ln></wps:spPr><wps:bodyPr/></wps:wsp><wps:wsp>'
+    '<wps:cNvPr id="22" name="Oval 22"/><wps:cNvSpPr/><wps:spPr><a:xfrm><a:off x="1620000" y="180000"/>'
+    '<a:ext cx="720000" cy="720000"/></a:xfrm><a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom><a:solidFill>'
+    '<a:srgbClr val="ED7D31"/></a:solidFill><a:ln w="12700"><a:solidFill><a:srgbClr val="AE5A21"/>'
+    '</a:solidFill></a:ln></wps:spPr><wps:bodyPr/></wps:wsp></wpc:wpc></a:graphicData></a:graphic></wp:inline>'
+    '</w:drawing></mc:Choice><mc:Fallback><w:t>[canvas]</w:t></mc:Fallback></mc:AlternateContent></w:r>'
+)
+FIELD_65 = (
+    '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r>'
+    '<w:instrText xml:space="preserve"> HYPERLINK "https://rusuit.es/docs" \\o "Rusuite docs" </w:instrText>'
+    '</w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:color w:val="0563C1"/>'
+    '<w:u w:val="single"/></w:rPr><w:t>the documentation</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/>'
+    '</w:r><w:r><w:t>.</w:t></w:r>'
+)
+
 PART_PATCHES = {
+    "provisional-65-drawings-floating-2.docx": {
+        "word/document.xml": [
+            # The chain of the two text boxes (LibreOffice exports separate boxes).
+            ('<wps:txbx><w:txbxContent>', '<wps:txbx id="1"><w:txbxContent>'),
+            ('<wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict><v:shape id="shape_0" ID="Text Box 5"',
+             '<wps:linkedTxbx id="1" seq="1"/><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict><v:shape id="shape_0" ID="Text Box 5"'),
+            # A drawing canvas with two shapes (LibreOffice has none).
+            ('<w:t>A drawing canvas: CANVAS_HERE</w:t></w:r>', '<w:t xml:space="preserve">A drawing canvas: </w:t></w:r>' + CANVAS_65),
+            # The picture link's ScreenTip and a bevel next to the soft edges.
+            ('<a:hlinkClick r:id="rId4" ', '<a:hlinkClick tooltip="Rusuite" r:id="rId4" '),
+            ('<a:effectLst><a:softEdge rad="64800"></a:softEdge></a:effectLst></pic:spPr>',
+             '<a:effectLst><a:softEdge rad="64800"></a:softEdge></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/>'
+             '<a:lightRig rig="threePt" dir="t"/></a:scene3d><a:sp3d><a:bevelT w="76200" h="25400" prst="circle"/></a:sp3d></pic:spPr>'),
+            # A HYPERLINK field with a ScreenTip.
+            ('<w:t>A HYPERLINK field: FIELD_HERE.</w:t></w:r>', '<w:t xml:space="preserve">A HYPERLINK field: </w:t></w:r>' + FIELD_65),
+            # The oval hidden and marked decorative (Selection Pane, Alt Text).
+            ('<wp:docPr id="10" name="Hidden Shape 6"></wp:docPr>',
+             '<wp:docPr id="10" name="Hidden Shape 6" hidden="1"><a:extLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+             '<a:ext uri="{C183D7F6-B498-43B3-948B-1728B52AA6E4}"><adec:decorative xmlns:adec="http://schemas.microsoft.com/office/drawing/2017/decorative" val="1"/>'
+             '</a:ext></a:extLst></wp:docPr>'),
+        ],
+    },
     "provisional-63-style-sets-properties.docx": {
         "word/document.xml": [
             ('<w:u w:val="single"/>', '<w:u w:val="words"/>'),
@@ -1397,6 +1504,13 @@ RUN_XML = {
 }
 
 
+DRAWING_XML = {
+    "drawing:group": "<wpg:wgp>", "drawing:linked-textbox": "<wps:linkedTxbx ", "drawing:canvas": "<wpc:wpc",
+    "image:link": "<a:hlinkClick ", "image:soft-edge": "<a:softEdge ", "drawing:hidden": 'hidden="1"',
+    "image:wrap-both-sides": 'wrapText="bothSides"',
+}
+
+
 def check(manifest_path, docxdir):
     """Structural sanity checks of converted files vs. manifest. Returns number of failures."""
     fails = 0
@@ -1419,9 +1533,10 @@ def check(manifest_path, docxdir):
             elif ft == "title" and 'w:pStyle w:val="Title"' not in doc:
                 errs.append("title not found")
             elif ft.startswith("image:count="):
+                # Pictures only (shapes, groups and canvases are drawings too).
                 want = int(ft.split("=")[1])
-                if doc.count("<w:drawing>") != want:
-                    errs.append(f"{ft}: found {doc.count('<w:drawing>')}")
+                if doc.count("<pic:pic") != want:
+                    errs.append(f"{ft}: found {doc.count('<pic:pic')}")
             elif ft.startswith("table:rows="):
                 m = re.match(r"table:rows=(\d+):cols=(\d+)", ft)
                 if doc.count("<w:tr>") + doc.count("<w:tr ") < int(m.group(1)):
@@ -1502,6 +1617,8 @@ def check(manifest_path, docxdir):
             elif ft.startswith("drawing:shape="):
                 if f'prst="{ft.split("=")[1]}"' not in doc or "<wps:wsp" not in doc:
                     errs.append(f"{ft} not found")
+            elif ft in DRAWING_XML and DRAWING_XML[ft] not in doc:
+                errs.append(f"{ft} not found")
             elif ft == "drawing:textbox" and "<w:txbxContent>" not in doc:
                 errs.append("txbxContent not found")
             elif ft.startswith("drawing:float=") and "<wp:anchor" not in doc:

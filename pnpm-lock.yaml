@@ -351,6 +351,9 @@ importers:
       '@types/node':
         specifier: 22.10.2
         version: 22.10.2
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
   packages/ui-shared:
     dependencies:

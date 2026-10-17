@@ -155,24 +155,87 @@ impl Slide {
             }
             a.validate()
                 .map_err(|e| bad(format!("animation {}: {e}", a.id.0)))?;
-            if self.find_shape(a.shape).is_none() {
+            let Some(target) = self.find_shape(a.shape) else {
                 return Err(bad(format!(
                     "animation {} targets shape {}, which is not on the slide",
                     a.id.0, a.shape.0
                 )));
+            };
+            if a.kind == crate::anim::AnimationKind::Media
+                && !matches!(target.kind, ShapeKind::Media(_))
+            {
+                return Err(bad(format!(
+                    "media animation {} targets shape {}, which is no audio/video",
+                    a.id.0, a.shape.0
+                )));
+            }
+            match &a.start_on {
+                None => {}
+                Some(crate::anim::StartOn::Click(s)) => {
+                    if self.find_shape(*s).is_none() {
+                        return Err(bad(format!(
+                            "animation {} is triggered by shape {}, which is not on the slide",
+                            a.id.0, s.0
+                        )));
+                    }
+                }
+                Some(crate::anim::StartOn::Bookmark { shape, name }) => {
+                    let ok = self.find_shape(*shape).is_some_and(|s| match &s.kind {
+                        ShapeKind::Media(m) => m.bookmarks.iter().any(|b| &b.name == name),
+                        _ => false,
+                    });
+                    if !ok {
+                        return Err(bad(format!(
+                            "animation {} is triggered by bookmark {name:?} of shape {}, which does not exist",
+                            a.id.0, shape.0
+                        )));
+                    }
+                }
             }
         }
         Ok(())
     }
 
-    /// Removes animations whose shape is no longer on the slide (after
-    /// shapes were deleted or ungrouped). Returns how many were removed.
+    /// Removes animations whose shape (or trigger shape or bookmark) is no
+    /// longer on the slide (after shapes were deleted or ungrouped). Returns how many were removed.
     pub fn prune_animations(&mut self) -> usize {
         let before = self.animations.len();
         let shapes = &self.shapes;
-        self.animations
-            .retain(|a| find_in(shapes, a.shape).is_some());
+        self.animations.retain(|a| {
+            find_in(shapes, a.shape).is_some()
+                && a.start_on.as_ref().map_or(true, |t| match t {
+                    crate::anim::StartOn::Click(s) => find_in(shapes, *s).is_some(),
+                    crate::anim::StartOn::Bookmark { shape, name } => find_in(shapes, *shape)
+                        .is_some_and(|s| match &s.kind {
+                            ShapeKind::Media(m) => m.bookmarks.iter().any(|b| &b.name == name),
+                            _ => false,
+                        }),
+                })
+        });
         before - self.animations.len()
+    }
+
+    /// Puts the animations of the click sequence first, then the
+    /// triggered ones grouped by trigger in order of first appearance
+    /// (stable): the order of `p:timing` and of PowerPoint's Animation
+    /// pane. Returns whether anything moved.
+    pub fn order_triggered(&mut self) -> bool {
+        let mut keys: Vec<Option<crate::anim::StartOn>> = vec![None];
+        for a in &self.animations {
+            if !keys.contains(&a.start_on) {
+                keys.push(a.start_on.clone());
+            }
+        }
+        let before: Vec<NodeId> = self.animations.iter().map(|a| a.id).collect();
+        self.animations.sort_by_key(|a| {
+            keys.iter()
+                .position(|k| *k == a.start_on)
+                .unwrap_or(usize::MAX)
+        });
+        before
+            .iter()
+            .zip(&self.animations)
+            .any(|(id, a)| *id != a.id)
     }
 
     /// Position of animation `id` in the play order.
@@ -535,5 +598,29 @@ mod tests {
         assert_eq!(back, s);
         let old: Slide = serde_json::from_str(r#"{"id":1,"layout":"blank"}"#).unwrap();
         assert!(!old.hidden && old.notes.is_none());
+    }
+
+    #[test]
+    fn triggered_animations_follow_the_click_sequence() {
+        use crate::anim::{Animation, AnimationKind, Effect, StartOn};
+        let mut s = Slide::new(NodeId(1), LayoutKind::Blank);
+        let mk = |id: u64, on: Option<StartOn>| Animation {
+            id: NodeId(id),
+            start_on: on,
+            ..Animation::new(NodeId(2), AnimationKind::Entrance, Effect::Fade)
+        };
+        let a = Some(StartOn::Click(NodeId(7)));
+        let b = Some(StartOn::Click(NodeId(8)));
+        s.animations = vec![
+            mk(10, a.clone()),
+            mk(11, None),
+            mk(12, b.clone()),
+            mk(13, a.clone()),
+            mk(14, None),
+        ];
+        assert!(s.order_triggered());
+        let ids: Vec<u64> = s.animations.iter().map(|x| x.id.0).collect();
+        assert_eq!(ids, [11, 14, 10, 13, 12]);
+        assert!(!s.order_triggered(), "stable once ordered");
     }
 }

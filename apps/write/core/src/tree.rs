@@ -178,7 +178,7 @@ pub(crate) fn collect_ids(block: &Block, out: &mut Vec<NodeId>) {
             }
         }
         Block::Paragraph(p) => {
-            for d in p.drawings() {
+            for d in p.drawings().flat_map(|d| d.walk()) {
                 out.push(d.id);
                 for b in d.blocks() {
                     collect_ids(b, out);
