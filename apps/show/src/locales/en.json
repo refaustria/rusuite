@@ -1434,5 +1434,11 @@
   "show.monitor.auto": "Automatic",
   "show.monitor.primary": "Primary Monitor",
   "show.monitor.detect": "Detect screens…",
-  "show.monitor.n": "Monitor {n}"
+  "show.monitor.n": "Monitor {n}",
+  "show.record": "Record",
+  "show.recordTip": "Record the slide show: slide timings and ink annotations (narration is not recorded)",
+  "show.recordFromCurrent": "From Current Slide…",
+  "show.recordFromStart": "From Beginning…",
+  "show.playNarrations": "Play Narrations",
+  "show.showMediaControls": "Show Media Controls"
 }

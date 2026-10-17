@@ -42,6 +42,12 @@ export interface SlideShowProps {
   onEnd: () => void;
   /** Slide Show › Rehearse Timings: records the time on each slide; at the end asks whether to keep them. */
   rehearse?: boolean;
+  /**
+   * Slide Show › Record (P9-S5): like a rehearsal with the pen at hand; at
+   * the end the timings and the ink are saved without asking. Narration
+   * (audio / camera) is not recorded.
+   */
+  record?: boolean;
   /** Runs this custom show (its slides in its order; P9-S3). */
   customShow?: number | null;
 }
@@ -150,7 +156,8 @@ function NotesOverlay({ notes }: { notes: string }) {
   );
 }
 
-export function SlideShow({ store, mode, link, onEnd, rehearse = false, customShow = null }: SlideShowProps) {
+export function SlideShow({ store, mode, link, onEnd, rehearse: rehearseOnly = false, record = false, customShow = null }: SlideShowProps) {
+  const rehearse = rehearseOnly || record;
   const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
@@ -178,21 +185,27 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
     rehearse ? { times: new Map(), slideStart: Date.now(), paused: null, ask: false } : null,
   );
   const lastIndex = useRef(show.index);
-  const record = useCallback((leaving: number) => {
-    setRehearsal((r) => {
-      if (!r) return r;
-      const id = ids[leaving];
-      const now = Date.now();
-      const spent = (r.paused ?? now) - r.slideStart;
-      const times = new Map(r.times);
-      if (id !== undefined) times.set(id, (times.get(id) ?? 0) + spent);
-      return { ...r, times, slideStart: now, paused: r.paused === null ? null : now };
-    });
+  const rehearsalRef = useRef(rehearsal);
+  rehearsalRef.current = rehearsal;
+  /** The rehearsal with the time on slide `leaving` added (`r` unchanged without a rehearsal). */
+  const withTime = useCallback((r: typeof rehearsal, leaving: number) => {
+    if (!r) return r;
+    const id = ids[leaving];
+    const now = Date.now();
+    const spent = (r.paused ?? now) - r.slideStart;
+    const times = new Map(r.times);
+    if (id !== undefined) times.set(id, (times.get(id) ?? 0) + spent);
+    return { ...r, times, slideStart: now, paused: r.paused === null ? null : now };
   }, [ids]);
+  const recordTime = useCallback((leaving: number) => {
+    const next = withTime(rehearsalRef.current, leaving);
+    rehearsalRef.current = next;
+    setRehearsal(next);
+  }, [withTime]);
   useEffect(() => {
-    if (lastIndex.current !== show.index) record(lastIndex.current);
+    if (lastIndex.current !== show.index) recordTime(lastIndex.current);
     lastIndex.current = show.index;
-  }, [show.index, record]);
+  }, [show.index, recordTime]);
   const [phase, setPhase] = useState<"opening" | "console" | "single">(mode === "presenter" && link ? "opening" : "single");
   // ----- the tools (P9-S5): one state for the presenter view, the audience window and the end question
   const [tools, setTools] = useTools(settings?.penColor ? `#${settings.penColor}` : undefined);
@@ -226,9 +239,15 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
     }
     if (next === "exit" || (rehearsing.current && next.ended)) {
       if (rehearsing.current) {
-        // the end of a rehearsal: keep the timings?
         rehearsing.current = false;
-        record(showRef.current.index);
+        recordTime(showRef.current.index);
+        if (record) {
+          // the end of a recording: the timings and the ink are kept
+          void store.applyTimings(rehearsalRef.current?.times ?? new Map()).then(() => (hasInk(toolsRef.current.ink) ? store.keepInk(toolsRef.current.ink) : undefined));
+          endRef.current();
+          return;
+        }
+        // the end of a rehearsal: keep the timings?
         setRehearsal((r) => (r ? { ...r, ask: true } : r));
         return;
       }
@@ -242,7 +261,7 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
     }
     showRef.current = next;
     setShow(next);
-  }, [record, switchTo]);
+  }, [recordTime, switchTo, record, store]);
   const idsRef = useRef(ids);
   idsRef.current = ids;
   /** A link to a custom show: its slides from the first; with return, the current show resumes after it. */
@@ -429,6 +448,7 @@ export function SlideShow({ store, mode, link, onEnd, rehearse = false, customSh
       tools={!fallback}
       toolsState={[tools, setTools]}
       onCustomShow={startCustomShow}
+      mediaControls={settings?.showMediaControls ?? true}
       toolbarExtra={rehearsal && <RehearsalBar rehearsal={rehearsal} index={show.index} ids={ids} onNext={() => dispatch({ type: "next" })} onPause={() => setRehearsal((r) => r && (r.paused === null ? { ...r, paused: Date.now() } : { ...r, slideStart: r.slideStart + (Date.now() - r.paused), paused: null }))} onRepeat={() => setRehearsal((r) => r && { ...r, slideStart: Date.now(), paused: r.paused === null ? null : Date.now() })} />}
       overlay={
         fallback && (

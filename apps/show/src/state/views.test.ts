@@ -63,7 +63,7 @@ describe("views and guides", () => {
 describe("Set Up Slide Show and Rehearse Timings", () => {
   it("stores the settings and the rehearsed times as After timings", async () => {
     const { store, backend } = await ready();
-    await store.setShowSettings({ loop: true, withoutNarration: false, withoutAnimation: false, useTimings: false, showScrollbar: true, range: { start: 1, end: 2 } });
+    await store.setShowSettings({ loop: true, withoutNarration: false, withoutAnimation: false, useTimings: false, showScrollbar: true, showMediaControls: true, range: { start: 1, end: 2 } });
     expect(store.getState().pres?.showSettings?.loop).toBe(true);
     await store.applyTimings(new Map([[1, 4400], [4, 12600]]));
     const c = backend.commands.at(-1)!;

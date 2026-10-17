@@ -2885,7 +2885,7 @@ export function windowStateOf(v: ViewProps | undefined, windowWidth: number): Pi
 }
 
 /** `ShowSettings::default`. */
-export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true, showScrollbar: true };
+export const DEFAULT_SHOW_SETTINGS: ShowSettings = { loop: false, withoutNarration: false, withoutAnimation: false, useTimings: true, showScrollbar: true, showMediaControls: true };
 
 const DEFAULT_BODY: BodyProps = { anchor: "top", wrap: true, insets: { left: 91440, top: 45720, right: 91440, bottom: 45720 }, autofit: "none" };
 

@@ -81,12 +81,14 @@ export interface PresenterProps {
   toolsState?: [ToolsState, (f: (s: ToolsState) => ToolsState) => void];
   /** The audience window of the presenter view: the presenter's ink, laser pointer and zoom, read-only. */
   mirror?: ToolsState;
+  /** Slide Show › Show Media Controls (default shown). */
+  mediaControls?: boolean;
 }
 
 const NO_FIRES: string[] = [];
 const NO_SET = () => undefined;
 
-export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra, onCustomShow, penColor, toolsState, mirror }: PresenterProps) {
+export function Presenter({ deck, slides, media, mediaVersion, show, onAction, fullscreenExits = true, overlay, tools: toolsOn = false, toolbarExtra, onCustomShow, penColor, toolsState, mirror, mediaControls = true }: PresenterProps) {
   const t = useT();
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [idle, setIdle] = useState(false);
@@ -213,7 +215,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
         {blank === "none" && slide && (
           <ShowSlide deck={deck} slides={slides} visit={visit} step={show.step} media={media} mediaVersion={mediaVersion} width={size.width} height={size.height} fired={fired} />
         )}
-        {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} step={show.step} media={media} width={size.width} height={size.height} onLink={follow} fired={fired} onTrigger={onTrigger} />}
+        {blank === "none" && slide && !show.ended && <ShowOverlay key={slide.id} deck={deck} slide={slide} step={show.step} media={media} width={size.width} height={size.height} onLink={follow} fired={fired} onTrigger={onTrigger} controls={mediaControls} />}
         {zoomed && blank === "none" && slide && !show.ended && (
           <InkLayer tools={tools} setTools={setTools} slide={slide} box={slideBox(deck, size.width, size.height)} scale={slideBox(deck, size.width, size.height).scale} readOnly={!!mirror} />
         )}

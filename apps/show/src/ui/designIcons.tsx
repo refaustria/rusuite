@@ -46,6 +46,7 @@ export const DI = {
   customShow: <I><rect x="2.5" y="4" width="11" height="8" rx="1" /><rect x="6.5" y="8" width="11" height="8" rx="1" /><path d="M10 11l3 1.5-3 1.5z" /></I>,
   setUpShow: <I><rect x="2.5" y="3" width="15" height="10" rx="1" /><path d="M10 13v3M6.5 17h7" /><circle cx="10" cy="8" r="2" /></I>,
   rehearse: <I><circle cx="10" cy="11" r="6" /><path d="M10 7.5V11l2.5 1.5M8 2.5h4" /></I>,
+  record: <I><rect x="2.5" y="4.5" width="15" height="11" rx="1.5" /><circle cx="10" cy="10" r="2.5" fill="currentColor" /></I>,
   hideSlide: <I><rect x="2.5" y="4" width="15" height="11" rx="1" strokeDasharray="2 1.5" /><path d="M4 16L16 3" /></I>,
   regroup: <I><rect x="2.5" y="2.5" width="15" height="15" rx="1" strokeDasharray="2 1.5" /><rect x="5" y="5" width="5" height="5" /><circle cx="12.5" cy="12.5" r="2.5" /></I>,
 };

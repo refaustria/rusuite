@@ -199,9 +199,11 @@ export interface ShowRibbonProps {
   onZoom: (zoom: ShowZoom) => void;
   /** Slide Show › Rehearse Timings. */
   onRehearse?: () => void;
+  /** Slide Show › Record › From Current Slide / From Beginning (timings and ink; P9-S5). */
+  onRecord?: (fromStart: boolean) => void;
 }
 
-export function ShowRibbon({ store, session, onPresent, onPresenterView, onExportPdf, print, zoom, onZoom, onRehearse }: ShowRibbonProps) {
+export function ShowRibbon({ store, session, onPresent, onPresenterView, onExportPdf, print, zoom, onZoom, onRehearse, onRecord }: ShowRibbonProps) {
   const t = useT();
   const fileInput = useRef<HTMLInputElement>(null);
   const state = useShow(store, (s) => s);
@@ -731,9 +733,22 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
             <RibbonButton label={t("show.setup.titleDots")} icon={DI.setUpShow} size="large" showLabel disabled={!state.pres} onClick={() => store.openDialog({ kind: "setUpShow" })} />
             <RibbonButton label={t("show.hideSlide")} icon={DI.hideSlide} size="large" showLabel pressed={!!currentSlide?.hidden} disabled={!hasSlide || masterView} onClick={() => void store.toggleHidden(state.view === "sorter" ? store.selectedSlides() : undefined)} />
             <RibbonButton label={t("show.rehearse")} icon={DI.rehearse} size="large" showLabel disabled={!hasSlide || !onRehearse} onClick={() => onRehearse?.()} />
+            <RibbonMenuButton
+              label={t("show.record")}
+              icon={DI.record}
+              size="large"
+              showLabel
+              tooltip={t("show.recordTip")}
+              disabled={!hasSlide || !onRecord}
+              menu={[
+                { id: "record-current", label: t("show.recordFromCurrent"), onSelect: () => onRecord?.(false) },
+                { id: "record-start", label: t("show.recordFromStart"), onSelect: () => onRecord?.(true) },
+              ]}
+            />
             <RibbonStack>
+              <ViewCheck label={t("show.playNarrations")} checked={!settings.withoutNarration} disabled={!state.pres} onChange={(on) => void store.setShowSettings({ ...settings, withoutNarration: !on })} />
               <ViewCheck label={t("show.useTimings")} checked={settings.useTimings} disabled={!state.pres} onChange={(on) => void store.setShowSettings({ ...settings, useTimings: on })} />
-              <ViewCheck label={t("show.setup.loopShort")} checked={settings.loop} disabled={!state.pres} onChange={(on) => void store.setShowSettings({ ...settings, loop: on })} />
+              <ViewCheck label={t("show.showMediaControls")} checked={settings.showMediaControls ?? true} disabled={!state.pres} onChange={(on) => void store.setShowSettings({ ...settings, showMediaControls: on })} />
             </RibbonStack>
           </>
         ),

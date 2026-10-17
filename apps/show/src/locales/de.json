@@ -1434,5 +1434,11 @@
   "show.monitor.auto": "Automatisch",
   "show.monitor.primary": "Primärer Bildschirm",
   "show.monitor.detect": "Bildschirme erkennen…",
-  "show.monitor.n": "Bildschirm {n}"
+  "show.monitor.n": "Bildschirm {n}",
+  "show.record": "Aufzeichnen",
+  "show.recordTip": "Bildschirmpräsentation aufzeichnen: Anzeigedauern und Freihandanmerkungen (Kommentare werden nicht aufgezeichnet)",
+  "show.recordFromCurrent": "Ab aktueller Folie…",
+  "show.recordFromStart": "Von Beginn an…",
+  "show.playNarrations": "Kommentare wiedergeben",
+  "show.showMediaControls": "Mediensteuerelemente anzeigen"
 }

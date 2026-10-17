@@ -35,6 +35,8 @@ export interface ShowOverlayProps {
   fired?: readonly string[];
   /** A trigger fired: a click on its shape, or a clip passed its bookmark (`startOnKey`). */
   onTrigger?: (key: string) => void;
+  /** Slide Show › Show Media Controls (P9-S5; default shown). */
+  controls?: boolean;
 }
 
 const blobUrls = new Map<string, string>();
@@ -78,8 +80,9 @@ export function passedBookmarks(clip: Pick<MediaClip, "bookmarks">, from: number
 }
 
 /** One clip of the slide. */
-function Clip({ shape, clip, url, poster, scale, command, onBookmark }: {
+function Clip({ shape, clip, url, poster, scale, command, onBookmark, controls }: {
   shape: Shape;
+  controls: boolean;
   clip: MediaClip;
   url: string | undefined;
   poster: string | undefined;
@@ -148,7 +151,7 @@ function Clip({ shape, clip, url, poster, scale, command, onBookmark }: {
   const common = {
     ref,
     src: url,
-    controls: true,
+    controls,
     loop: !!clip.loop && !(clip.trimEndMs ?? 0),
     preload: "auto" as const,
     "data-testid": `show-media-${shape.id}`,
@@ -182,7 +185,7 @@ function Clip({ shape, clip, url, poster, scale, command, onBookmark }: {
   return <video {...common} poster={poster} className="absolute bg-black object-contain" style={{ ...box, opacity: hidden ? 0 : 1 }} />;
 }
 
-export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLink, fired = [], onTrigger }: ShowOverlayProps) {
+export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLink, fired = [], onTrigger, controls = true }: ShowOverlayProps) {
   const scale = fitScale(width, height, deck.slideSize);
   const px = slidePx(deck.slideSize);
   const palette = useMemo(() => themePalette(deck.theme), [deck.theme]);
@@ -268,6 +271,7 @@ export function ShowOverlay({ deck, slide, step = 0, media, width, height, onLin
             scale={scale}
             command={commands.get(s.id)}
             onBookmark={(name) => onTrigger?.(`bmk:${s.id}:${name}`)}
+            controls={controls}
           />
         </span>
       ))}
