@@ -215,10 +215,18 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     // Charts last: their references need every sheet.
     let mut slicer_anchors: HashMap<SheetId, Vec<(String, model_sheet::ChartAnchor)>> =
         HashMap::new();
+    // Per sheet: the PivotCharts read (chart id, `Sheet!PivotTable`).
+    type PivotCharts = Vec<(SheetId, String, Vec<(u32, String)>)>;
+    let mut pivot_charts: PivotCharts = Vec::new();
     for (id, name, part) in &drawings {
         let anchors = slicer_anchors.entry(*id).or_default();
-        for w in crate::drawing::load(&pkg, &mut wb, *id, part, &mut consumed, anchors)? {
+        let mut bound = Vec::new();
+        for w in crate::drawing::load(&pkg, &mut wb, *id, part, &mut consumed, anchors, &mut bound)?
+        {
             warnings.push(format!("sheet {name:?}: {w}"));
+        }
+        if !bound.is_empty() {
+            pivot_charts.push((*id, name.clone(), bound));
         }
     }
 
@@ -250,6 +258,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         )?);
         // GETPIVOTDATA reads the tables.
         wb.recalc_all();
+    }
+    for (id, name, list) in &pivot_charts {
+        for w in crate::drawing::bind_pivot_charts(&mut wb, *id, list) {
+            warnings.push(format!("sheet {name:?}: {w}"));
+        }
     }
 
     // Slicers: their tables and pivot tables are loaded.

@@ -342,6 +342,7 @@ impl CalcDocument {
             | C::CreateTable { sheet, .. }
             | C::CreateNamesFromSelection { sheet, .. } => self.deny_if(*sheet, always),
             C::AddChart { sheet, .. }
+            | C::InsertPivotChart { sheet, .. }
             | C::UpdateChart { sheet, .. }
             | C::SetChartAnchor { sheet, .. }
             | C::SetChartSeries { sheet, .. }

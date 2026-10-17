@@ -4,4 +4,4 @@ import type { BaseItem } from "./BaseItem";
 /**
  * Mirror of `model_sheet::pivot::ShowAs`.
  */
-export type ShowAs = { "kind": "normal" } | { "kind": "percentOfTotal" } | { "kind": "percentOfRow" } | { "kind": "percentOfColumn" } | { "kind": "percentOfParent" } | { "kind": "differenceFrom", baseField: number, baseItem: BaseItem, } | { "kind": "runningTotal", baseField: number, } | { "kind": "rank", baseField: number, };
+export type ShowAs = { "kind": "normal" } | { "kind": "percentOfTotal" } | { "kind": "percentOfRow" } | { "kind": "percentOfColumn" } | { "kind": "percentOfParent" } | { "kind": "differenceFrom", baseField: number, baseItem: BaseItem, } | { "kind": "runningTotal", baseField: number, } | { "kind": "rank", baseField: number, } | { "kind": "percentOfParentColumn" } | { "kind": "percentOfParentTotal", baseField: number, } | { "kind": "percentOf", baseField: number, baseItem: BaseItem, } | { "kind": "percentDifferenceFrom", baseField: number, baseItem: BaseItem, } | { "kind": "percentRunningTotal", baseField: number, } | { "kind": "rankAscending", baseField: number, } | { "kind": "index" };
