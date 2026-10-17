@@ -559,6 +559,17 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   "(Blanks)"; OK → `setFilterColumn` (all values ticked = no filter; nothing ticked = OK disabled; while searching only the
   ticked results). Number vs Text Filters follows the majority of the cached cell kinds. Filtered rows arrive as hidden
   `filtered` rows; the row numbers of a filtered range turn blue and the status bar shows "n of m records found".
+  Round 2 (P9-C5): Custom Sort's Sort On adds Cell Color / Font Color / Conditional Formatting Icon (the order column
+  lists the colours or icons of that column from the core's `lineColors`, conditional formats included, with On Top / On
+  Bottom; colour levels may repeat a column), Order › Custom List… opens the Custom Lists dialog (Excel's day and month
+  lists plus lists typed this session – Excel keeps custom lists in the application, so they are not saved), Options…
+  holds Case sensitive and the orientation (Sort left to right: the levels pick rows, `sortRange.columns`). The context
+  menu adds Put Selected Cell Color / Font Color / Icon On Top (when the cell has one) and Filter by Selected Cell's Value
+  / Color / Font Color / Icon (an AutoFilter over the current region is created first). The filter panel adds Sort by
+  Color ▸ and Filter by Color ▸ (cell colours, font colours, icons of the column) when the column has more than one, and a
+  date column shows the values as a year › month › day tree (tri-state boxes, ± to expand; OK sends Excel's date groups:
+  whole years, whole months or days, `Filter::DateGroups`). Typing a value right under the AutoFilter range extends the
+  range (undo shrinks it). Sorting moves conditional formats and validations with their rows.
  frozen panes split the cell canvas into up to four quadrants (`panes.ts`: one viewport
   per quadrant, frozen ones fixed, a divider line, headers split the same way, pointer positions mapped per quadrant,
   scroll-into-view only for the scrolling part). Merged cells (`merges.ts`) paint as one cell (top-left content and fill over
@@ -593,6 +604,19 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   and the print view) with the text after them, and Show Bar/Icon Only. Patches with `cfSheets` re-fetch the active sheet's
   viewport (debounced 40 ms; other sheets reload when shown). The print view prints fills, bars (CSS gradients) and icons
   (inline SVG). `window.__calcCfOps` holds the last frame's bar/icon ops for the end-to-end tests.
+  Round 2 (P9-C5): Highlight Cells Rules › A Date Occurring… (yesterday … next month) and New Rule › Format only cells
+  with › Dates Occurring; above/below average with 1–3 standard deviations; icon thresholds with `>=` or `>` per icon;
+  data bars with Excel 2010's options – Data Bars ▸ Gradient Fill and Solid Fill galleries (automatic minimum/maximum,
+  0–100 %), and in the rule dialog Fill (solid/gradient), Border (none/solid + colour), Bar Direction and Negative Value
+  and Axis… (negative fill and border colour, axis automatic / cell midpoint / none, axis colour). The core computes each
+  bar (`CfResult.bar`: start and end as fractions of the cell, the axis position, final colours); the grid draws it as
+  given. A rule's number format shows in the cell (`CfResult.display`). Rules Manager: Show formatting rules for adds This
+  Table / This PivotTable (at the active cell), Duplicate Rule copies the selected rule above itself. Clear Rules ▸ adds
+  This Table / This PivotTable. Copy + Paste of our own copy carries the rules (Paste Formats too; a pasted part joins an
+  equivalent rule, so copying a cell next to its rule extends the rule's range; the destination's own rules are
+  removed), Cut + Paste moves them, sorting moves them with the rows, renaming a sheet rewrites rule formulas. Home ›
+  Clipboard › Format Painter (double-click: sticky until Esc or a second click) paints formats, conditional formats and
+  validation on the next selected range (one compound: `pasteRange` formats + Paste Special › Validation).
 - **Calc notes, comments and links** (P8-26, `apps/calc/src/comments`): the Review tab has Comments (New Comment
   Ctrl+Shift+F2 – a cell with a thread opens it to reply –, Delete (the selection's threads, else its notes),
   Previous/Next Comment (row by row, wrapping; opens the thread's card), Show Comments (the Comments pane right of the
@@ -630,7 +654,11 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   directly. The input message shows as a yellow note under the selected cell. Committing an edit in a validated cell asks
   the core (`validateInput`) first; a failed check shows Excel's alert while the editor stays open: Stop → Retry (back to
   the edit, text selected) / Cancel (discard); Warning "Continue?" → Yes (keep) / No (back) / Cancel; Information → OK /
-  Cancel. Paste and fill are not checked (as in Excel); Circle Invalid Data is not offered.
+  Cancel. Paste and fill are not checked (as in Excel). Data Validation ▾ (P9-C5) adds Circle Invalid Data (the core's
+  `invalidCells`: at most 255 cells whose values fail their validation, blanks never; red ellipses on the grid, a circle
+  goes when its cell is corrected, new invalid entries wait for the next Circle Invalid Data) and Clear Validation
+  Circles. List sources may be ranges on other sheets (saved as `x14:dataValidation`), defined names or structured
+  references; validations follow copy, cut, sort and Format Painter like conditional formats.
 - **Calc charts** (P8-20, `apps/calc/src/charts`, renderer `@rusuite/ui-shared` `chart/`): Insert › Charts (Recommended
   Charts dialog with live previews; Column or Bar ▾, Line or Area ▾, Pie or Doughnut ▾, Scatter ▾, Combo ▾ galleries of
   Excel's sub-types). While a chart is selected the contextual **Chart Design** (Add Chart Element ▾ with flyouts, Quick

@@ -41,9 +41,10 @@ describe("validation circles", () => {
     await store.circleInvalidData();
     expect(store.getState().circles).toEqual({ sheet: 0, cells: [{ r0: 1, c0: 0, r1: 1, c1: 0 }, { r0: 2, c0: 0, r1: 2, c1: 0 }] });
     await store.apply({ type: "setInput", sheet: 0, row: 1, col: 0, input: "7" });
-    expect(store.getState().circles?.cells).toEqual([{ r0: 2, c0: 0, r1: 2, c1: 0 }]);
+    await waitFor(() => expect(store.getState().circles?.cells).toEqual([{ r0: 2, c0: 0, r1: 2, c1: 0 }]));
     // A new invalid entry is not circled until the next Circle Invalid Data.
     await store.apply({ type: "setInput", sheet: 0, row: 3, col: 0, input: "99" });
+    await new Promise((r) => setTimeout(r, 20));
     expect(store.getState().circles?.cells).toHaveLength(1);
     expect(core.log.filter((r) => r.type === "invalidCells").length).toBeGreaterThan(1);
     store.clearValidationCircles();

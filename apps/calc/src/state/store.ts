@@ -951,6 +951,8 @@ export class CalcStore {
   /** Applies a command reply; replies older than the newest seen revision are discarded (ADR 0002 §5). */
   applyEnvelope(env: PatchEnvelope): boolean {
     if (env.revision < this.state.revision) return false;
+    // Circle Invalid Data: drop the circles of corrected cells (after this patch).
+    if (this.state.circles) queueMicrotask(() => void this.refreshCircles().catch(() => {}));
     // Any change drops Flash Fill's greyed suggestions.
     this.flash.dismiss();
     this.set({ revision: env.revision, canUndo: env.canUndo, canRedo: env.canRedo, dirty: env.dirty });
@@ -1168,21 +1170,18 @@ export class CalcStore {
   apply(command: CalcCommand): Promise<void> {
     return this.guard(async () => {
       this.applyEnvelope(await this.api.apply(command));
-      if (this.state.circles) await this.refreshCircles();
     });
   }
 
   undo(): Promise<void> {
     return this.guard(async () => {
       this.applyEnvelope(await this.api.undo());
-      if (this.state.circles) await this.refreshCircles();
     });
   }
 
   redo(): Promise<void> {
     return this.guard(async () => {
       this.applyEnvelope(await this.api.redo());
-      if (this.state.circles) await this.refreshCircles();
     });
   }
 
