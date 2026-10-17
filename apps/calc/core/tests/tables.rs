@@ -583,6 +583,7 @@ fn structural_edits_and_sheets_keep_tables() {
         C::DuplicateSheet {
             sheet: 0,
             name: "Copy".into(),
+            index: None,
         },
     );
     let s1 = h.doc().workbook().sheet_id("Copy").unwrap();

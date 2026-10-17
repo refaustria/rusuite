@@ -28,6 +28,7 @@ import {
   DuplicatesResultDialog, GoalSeekDialog, GoalSeekStatusDialog, PasteSpecialDialog, PrintTitlesDialog, RemoveDuplicatesDialog, SaveCsvDialog, SubtotalDialog,
   TextImportDialog, TextToColumnsDialog,
 } from "./datatools/DataDialogs";
+import { MoveCopyDialog } from "./sheets/MoveCopyDialog";
 import { ProtectSheetDialog, ProtectWorkbookDialog, UnprotectDialog } from "./protection/ProtectionDialogs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";
@@ -234,11 +235,26 @@ function TabColorDialog({ store, sheet }: { store: CalcStore; sheet: number }) {
   );
 }
 
-/** Unhide: the hidden sheets ("very hidden" ones excluded), one to show again. */
+/**
+ * Unhide: the hidden sheets ("very hidden" ones excluded); several can be
+ * picked (Excel 365: Ctrl+click toggles, Shift+click extends).
+ */
 function UnhideDialog({ store }: { store: CalcStore }) {
   const t = useT();
   const hidden = unhideableSheets(store.getState().info?.sheets ?? []);
-  const [picked, setPicked] = useState<number | null>(hidden[0]?.id ?? null);
+  const [picked, setPicked] = useState<number[]>(hidden[0] ? [hidden[0].id] : []);
+  const [anchor, setAnchor] = useState(0);
+  const pick = (index: number, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
+    const id = hidden[index]!.id;
+    if (e.shiftKey) {
+      const [a, b] = [Math.min(anchor, index), Math.max(anchor, index)];
+      setPicked(hidden.slice(a, b + 1).map((s) => s.id));
+      return;
+    }
+    setAnchor(index);
+    if (e.ctrlKey || e.metaKey) setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+    else setPicked([id]);
+  };
   const close = () => {
     store.closeDialog();
     store.focusGrid();
@@ -250,19 +266,20 @@ function UnhideDialog({ store }: { store: CalcStore }) {
         onSubmit={(e) => {
           e.preventDefault();
           close();
-          if (picked !== null) void store.unhideSheet(picked);
+          // In sheet order.
+          void store.unhideSheets(hidden.filter((s) => picked.includes(s.id)).map((s) => s.id));
         }}
       >
         <span id="calc-unhide-label">{t("calc.unhide.label")}</span>
-        <div role="listbox" aria-labelledby="calc-unhide-label" className="flex max-h-48 flex-col overflow-auto rounded border border-ui-border bg-ui-bg py-0.5">
-          {hidden.map((s) => (
+        <div role="listbox" aria-multiselectable="true" aria-labelledby="calc-unhide-label" className="flex max-h-48 flex-col overflow-auto rounded border border-ui-border bg-ui-bg py-0.5">
+          {hidden.map((s, index) => (
             <button
               key={s.id}
               type="button"
               role="option"
-              aria-selected={s.id === picked}
+              aria-selected={picked.includes(s.id)}
               className="min-h-8 px-2 text-left hover:bg-ui-hover aria-selected:bg-ui-active"
-              onClick={() => setPicked(s.id)}
+              onClick={(e) => pick(index, e)}
               onDoubleClick={() => {
                 close();
                 void store.unhideSheet(s.id);
@@ -276,7 +293,7 @@ function UnhideDialog({ store }: { store: CalcStore }) {
           <button type="button" className={BTN} onClick={close}>
             {t("common.cancel")}
           </button>
-          <button type="submit" className={BTN} disabled={picked === null}>
+          <button type="submit" className={BTN} disabled={picked.length === 0}>
             {t("common.ok")}
           </button>
         </div>
@@ -420,6 +437,8 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <ProtectSheetDialog store={store} sheet={dialog.sheet} />;
     case "protectWorkbook":
       return <ProtectWorkbookDialog store={store} />;
+    case "moveCopy":
+      return <MoveCopyDialog store={store} sheet={dialog.sheet} />;
     case "unprotect":
       return <UnprotectDialog store={store} target={dialog.target} sheet={dialog.sheet} />;
     case "mergeConfirm":

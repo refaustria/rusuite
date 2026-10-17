@@ -274,6 +274,8 @@ export type CalcDialog =
   | { kind: "protectSheet"; sheet: number }
   /** Review › Protect Workbook… */
   | { kind: "protectWorkbook" }
+  /** Move or Copy… of the sheet tab menu and Home › Format (P9-C1). */
+  | { kind: "moveCopy"; sheet: number }
   /** The password prompt of Unprotect Sheet / Unprotect Workbook. */
   | { kind: "unprotect"; target: "sheet" | "workbook"; sheet: number };
 
@@ -2186,15 +2188,35 @@ export class CalcStore {
   }
 
   /** Copies `sheet` to `Name (2)` (the first free number) right after it and shows the copy. */
-  duplicateSheet(sheet: number): Promise<void> {
+  duplicateSheet(sheet: number, index?: number): Promise<void> {
+    const name = this.copyName(sheet);
+    if (name === null) return Promise.resolve();
+    return this.applyAndShowNew({ type: "duplicateSheet", sheet, name, ...(index !== undefined ? { index } : {}) });
+  }
+
+  /** Excel's name for a copy of `sheet`: `Sheet1 (2)`, `Sheet1 (3)`, … (`null`: unknown sheet). */
+  copyName(sheet: number): string | null {
     const sheets = this.state.info?.sheets ?? [];
     const name = sheets.find((s) => s.id === sheet)?.name;
-    if (name === undefined) return Promise.resolve();
+    if (name === undefined) return null;
     const names = new Set(sheets.map((s) => s.name.toLowerCase()));
     const base = name.replace(/ \(\d+\)$/, "");
     let n = 2;
     while (names.has(`${base} (${n})`.toLowerCase())) n++;
-    return this.applyAndShowNew({ type: "duplicateSheet", sheet, name: `${base} (${n})` });
+    return `${base} (${n})`;
+  }
+
+  /**
+   * Move or Copy: `sheet` before the sheet at position `before` of the
+   * full sheet order (`null`: to the end); `copy` makes a copy there
+   * (shown, as in Excel). One command, one undo step.
+   */
+  moveOrCopy(sheet: number, before: number | null, copy: boolean): Promise<void> {
+    const count = this.state.info?.sheets.length ?? 0;
+    const at = before ?? count;
+    if (copy) return this.duplicateSheet(sheet, at);
+    const from = this.sheetPosition(sheet);
+    return this.moveSheet(sheet, at > from ? at - 1 : at);
   }
 
   /** Moves `sheet` to tab position `index`. */
@@ -2239,6 +2261,12 @@ export class CalcStore {
   /** Shows the hidden `sheet` again and switches to it. */
   unhideSheet(sheet: number): Promise<void> {
     return this.apply({ type: "setSheetHidden", sheet, hidden: false });
+  }
+
+  /** Unhide with several sheets picked (Excel 365): one undo step; the last one is shown. */
+  unhideSheets(sheets: number[]): Promise<void> {
+    if (sheets.length <= 1) return sheets[0] === undefined ? Promise.resolve() : this.unhideSheet(sheets[0]);
+    return this.apply({ type: "compound", commands: sheets.map((sheet) => ({ type: "setSheetHidden", sheet, hidden: false })) });
   }
 
   // --- sheet view: frozen panes, zoom, gridlines, headings -------------------

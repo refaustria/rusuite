@@ -163,11 +163,15 @@ pub enum CalcCommand {
         sheet: u32,
     },
     /// Copies a sheet (contents, formulas, styles, dimensions, tab colour)
-    /// to a new sheet `name` right after it; the copy's references to its
-    /// source sheet point at the copy.
+    /// to a new sheet `name` right after it, or at position `index` of the
+    /// sheet order (Move or Copy › Create a copy); the copy's references
+    /// to its source sheet point at the copy.
     DuplicateSheet {
         sheet: u32,
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        index: Option<u32>,
     },
     /// Moves a sheet to position `index` of the sheet order (0 = first).
     MoveSheet {

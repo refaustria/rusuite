@@ -534,7 +534,7 @@ export class FakeCalcCore {
       case "duplicateSheet": {
         if (this.sheets.some((s) => s.name.toLowerCase() === cmd.name.toLowerCase())) throw new Fail("duplicate_sheet", `sheet ${cmd.name} exists`);
         let sheet = this.newSheet(this.nextId++, cmd.name);
-        const at = cmd.type === "addSheet" ? (cmd.index ?? this.sheets.length) : this.sheets.indexOf(this.sheet(cmd.sheet)) + 1;
+        const at = cmd.type === "addSheet" ? (cmd.index ?? this.sheets.length) : (cmd.index ?? this.sheets.indexOf(this.sheet(cmd.sheet)) + 1);
         if (cmd.type === "duplicateSheet") {
           const src = this.sheet(cmd.sheet);
           sheet = {

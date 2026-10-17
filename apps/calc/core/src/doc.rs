@@ -1177,10 +1177,17 @@ impl CalcDocument {
                     inverse: Some(self.created_inverse(id, name)),
                 })
             }
-            C::DuplicateSheet { sheet, name } => {
+            C::DuplicateSheet { sheet, name, index } => {
                 let s = self.sheet(*sheet)?;
+                let count = self.workbook.sheets().len();
+                if index.is_some_and(|i| i as usize > count) {
+                    return Err(EngineError::InvalidSheetIndex(index.unwrap_or(0) as usize).into());
+                }
                 let before = self.formula_values();
                 let (id, recalc) = self.workbook.duplicate_sheet(s, name)?;
+                if let Some(i) = index {
+                    self.workbook.move_sheet(id, *i as usize)?;
+                }
                 let mut patch = self.sheets_patch(&before);
                 patch.cycle = self.cycle_text(recalc.cycle.as_ref());
                 Ok(Applied {

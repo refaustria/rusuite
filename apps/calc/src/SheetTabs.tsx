@@ -26,6 +26,7 @@ export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): 
     item("delete", t("calc.deleteSheet"), () => store.deleteSheet(sheet), { disabled: sheets.length <= 1 }),
     item("rename", t("calc.rename.confirm"), rename),
     item("duplicate", t("calc.duplicate"), () => store.duplicateSheet(sheet)),
+    item("move-copy", t("calc.moveCopy.dots"), () => store.openDialog({ kind: "moveCopy", sheet })),
     { separator: true },
     item("move-left", t("calc.moveLeft"), () => store.moveSheetBy(sheet, -1), { disabled: at <= 0 }),
     item("move-right", t("calc.moveRight"), () => store.moveSheetBy(sheet, 1), { disabled: at < 0 || at >= sheets.length - 1 }),
@@ -76,6 +77,8 @@ export function SheetTabs({ store }: { store: CalcStore }) {
     <div role="tablist" aria-label={t("calc.sheets")} className="flex items-stretch gap-0.5 border-t border-ui-border bg-ui-panel px-2 text-sm text-ui-fg">
       {sheets.map((s, index) => {
         const color = s.tabColor ? cssColor(s.tabColor, OFFICE_THEME) : undefined;
+        // Excel: an inactive coloured tab is filled with its colour; the active one shows it as a bar.
+        const filled = color && s.id !== active ? { background: color, color: readableOn(color) } : undefined;
         return renaming?.id === s.id ? (
           <input
             key={s.id}
@@ -102,6 +105,8 @@ export function SheetTabs({ store }: { store: CalcStore }) {
             } ${dropAt === index ? "shadow-[inset_2px_0_0_#217346]" : ""} ${
               dropAt === index + 1 && index === sheets.length - 1 ? "shadow-[inset_-2px_0_0_#217346]" : ""
             }`}
+            style={filled}
+            data-tab-fill={filled ? "" : undefined}
             onClick={() => {
               store.setActiveSheet(s.id);
               store.focusGrid();
@@ -143,7 +148,7 @@ export function SheetTabs({ store }: { store: CalcStore }) {
             }}
           >
             {s.name}
-            {color && <span data-testid="tab-color" aria-hidden className="absolute inset-x-1 bottom-0 h-[3px] rounded-sm" style={{ background: color }} />}
+            {color && !filled && <span data-testid="tab-color" aria-hidden className="absolute inset-x-1 bottom-0 h-[3px] rounded-sm" style={{ background: color }} />}
           </button>
         );
       })}
@@ -158,4 +163,15 @@ export function SheetTabs({ store }: { store: CalcStore }) {
       />
     </div>
   );
+}
+
+/** Black or white text on a `#RRGGBB` background (WCAG relative luminance). */
+export function readableOn(css: string): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(css);
+  if (!m) return "#000000";
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => {
+    const c = parseInt(h!, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! > 0.179 ? "#000000" : "#ffffff";
 }

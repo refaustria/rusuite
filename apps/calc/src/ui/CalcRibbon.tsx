@@ -241,6 +241,10 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
                 { id: "unhideCols", label: t("calc.unhideCols"), onSelect: run(actions.unhideCols) },
                 { id: "hideSheet", label: t("calc.hideSheet"), disabled: !actions.canHideSheet(), onSelect: run(actions.hideSheet) },
                 { id: "unhideSheet", label: t("calc.unhideSheetDots"), disabled: !actions.canUnhideSheet(), onSelect: actions.unhideSheet },
+                { separator: true, label: t("calc.organizeSheets") },
+                { id: "renameSheet", label: t("calc.renameSheet"), onSelect: () => store.openDialog({ kind: "renameSheet", sheet: activeSheet }) },
+                { id: "moveCopy", label: t("calc.moveCopy.sheetDots"), onSelect: () => store.openDialog({ kind: "moveCopy", sheet: activeSheet }) },
+                { id: "tabColor", label: t("calc.tabColorDots"), onSelect: () => store.openDialog({ kind: "tabColor", sheet: activeSheet }) },
                 { separator: true, label: t("calc.protect.group") },
                 {
                   id: "protectSheet",

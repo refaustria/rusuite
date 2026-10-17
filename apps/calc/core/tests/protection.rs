@@ -295,6 +295,7 @@ fn workbook_structure_lock() {
         C::DuplicateSheet {
             sheet: 0,
             name: "Sheet1 (2)".into(),
+            index: None,
         },
         C::SetSheetHidden {
             sheet: 1,
