@@ -6,7 +6,7 @@ _Maintained by the PM agent. Read at the start of every session; update after ev
 
 **Owner direction 2026-10-17:** next version is **3.141** (π numbering, `docs/versioning.md`); installers are built only at the end of the cycle. Order: **Calc, Show and Write features → all official EU languages (24) → AI assistant round 2 → release 3.141.** Plan with every batch: `docs/plan-3.141.md`. Mobile/connectors/signing stay in `docs/plan-after-0.1.0.md` (signing starts as soon as the Apple account exists). Working mode unchanged: one agent per app in parallel (max 3), PM verifies, merges on main and deploys the web after each verified merge.
 
-Block 1: P9-S1 merged 2026-10-17; P9-S1, P9-W1, P9-C1 merged and live 2026-10-17 (rusuit.es at 30e6202 incl. C1–C3, S1–S3, W1–W3; live e2e 310/310); Merged: C1–C3, S1–S4, W1–W3; running: P9-C4 (Calc formulas/names/auditing), P9-S5 (Show presenter/reuse), P9-W4 (Write drawings round 2). Briefs ready: C5, W5.
+Block 1: P9-S1 merged 2026-10-17; P9-S1, P9-W1, P9-C1 merged and live 2026-10-17 (rusuit.es at f3d27bd incl. C1–C3, S1–S4, W1–W3; live e2e 317/317); Merged: C1–C3, S1–S4, W1–W3; running: P9-C4 (Calc formulas/names/auditing), P9-S5 (Show presenter/reuse), P9-W4 (Write drawings round 2). Briefs ready: C5, W5.
 
 ## Phase 8 (closed with v0.1.0) – Office parity (owner direction 2026-10-15) + pending P7 items
 
@@ -258,6 +258,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Next: docs/plan-after-0.1.0.md (owner starts follow-up activities the week of 2026-10-19).
 
 ## Open questions
+- 2026-10-17: `tsc --noEmit` on main fails in `apps/write/src/ui/StylesW3Ui.test.tsx` (from P9-W3; vitest does not type-check, CI has no typecheck step, and `build:web` skips tsc – only the desktop `build` runs it, so a release build would have failed). Fix + `pnpm typecheck` script + CI step assigned to the P9-W4 agent as a follow-up commit; from now on the PM's verification runs `pnpm typecheck`.
 - 2026-10-16 (owner, macOS): Gatekeeper blocks the unsigned app. Durable fix = signing + notarization (needs the owner's Apple Developer Program membership → GitHub secrets). Workaround documented (P8-50).
 - 2026-10-16: **rusuit.es is the only public address** (owner: trash resuite.inceptum.at – it becomes a 301 after P8-49). Live relay already accepts the rusuit.es origin. German must be informal "du" (P8-48). Owner wants a written plan for after v0.1.0 (docs/plan-after-0.1.0.md) – they start follow-up activities next week.
 - Done 2026-10-16: release test run green (38911314761); smoke jobs blocking; v0.1.0 released.
