@@ -162,6 +162,9 @@ describe("Review › comments", () => {
     fireEvent.keyDown(document.activeElement ?? window, { key: "Escape" });
     fireEvent.click(screen.getByRole("tab", { name: "File" }));
     fireEvent.click(await screen.findByRole("button", { name: "Options…" }, T));
+    // File › Options (P9-W5): General › User Name… opens the user name dialog.
+    const options = await screen.findByRole("dialog", { name: "Options" }, T);
+    fireEvent.click(within(options).getByRole("button", { name: "User Name…" }));
     expect(await screen.findByRole("dialog", { name: "User Name" }, T)).toBeTruthy();
     await act(async () => undefined);
   });

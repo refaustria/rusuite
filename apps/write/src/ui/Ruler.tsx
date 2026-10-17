@@ -22,8 +22,12 @@ import { useThrottledEditorState } from "./useThrottledEditorState";
 import { useT } from "../i18n";
 import { rulerSegments, textWidth } from "../features/columns";
 import { currentSection } from "../features/structureCommands";
+import { getLocale } from "@rusuite/ui-shared";
+import { columnMarkers, dragIndent, formatLength, indentFrom, indentsOf, markerPositions, rulerTicks, setRulerPreview, snapTo, type IndentMarker, type Indents } from "../features/rulerDrag";
+import { rulerUnitOf, type RulerUnit } from "../features/writeOptions";
+import { colWidthsOf, dragBorder, setColWidths, tableContext } from "../features/tables";
+import { setIndent } from "../features/formatting";
 
-const PX_PER_CM = 96 / 2.54;
 /** Height of the sticky ruler row (`h-7` band + `mb-1`), unzoomed. */
 export const RULER_HEIGHT_PX = 32;
 /** The scroll container's top padding (`p-6`): the sticky ruler sticks below it. */
@@ -69,6 +73,8 @@ interface RulerInfo {
   ids: number[];
   /** The columns of a multi-column section: [start, end] px from the text's left edge (none otherwise). */
   segments: [number, number][];
+  /** The caret's table (column markers), if any. */
+  table: { table: number; left: number; widths: number[] } | null;
 }
 
 /** The caret paragraph's column, measured in the DOM (cells have their own), else the page margins. */
@@ -93,27 +99,49 @@ function measureColumn(editor: Editor, page: PageSetup | null): { left: number; 
   }
 }
 
-/** cm ticks and numbers over `width` px, starting at 0 at the left edge. */
-export function RulerScale({ width }: { width: number }) {
-  const cm = Math.floor(width / PX_PER_CM);
+/** Ticks and numbers (cm or inches) over `width` px, starting at 0 at the left edge. */
+export function RulerScale({ width, unit = "cm" }: { width: number; unit?: RulerUnit }) {
+  const ticks = rulerTicks(width, unit);
   return (
     <>
-      {Array.from({ length: cm * 4 + 1 }, (_, i) => (
-        <span key={i} className="absolute bottom-0 border-l border-gray-400" style={{ left: (i * PX_PER_CM) / 4, height: i % 4 === 0 ? 0 : i % 2 === 0 ? 6 : 3 }} />
+      {ticks.map((k, i) => (
+        <span key={i} className="absolute bottom-0 border-l border-gray-400" style={{ left: k.x, height: k.kind === "major" ? 0 : k.kind === "half" ? 6 : 3 }} />
       ))}
-      {Array.from({ length: cm }, (_, i) => (
-        <span key={`n${i}`} className="absolute top-0.5 -translate-x-1/2 text-[9px] leading-3 text-gray-500" style={{ left: (i + 1) * PX_PER_CM }} data-testid="ruler-number">
-          {i + 1}
-        </span>
-      ))}
+      {ticks
+        .filter((k) => k.label != null)
+        .map((k) => (
+          <span key={`n${k.label}`} className="absolute top-0.5 -translate-x-1/2 text-[9px] leading-3 text-gray-500" style={{ left: k.x }} data-testid="ruler-number">
+            {k.label}
+          </span>
+        ))}
     </>
   );
+}
+
+/** The caret's table: its left edge (px from the page's left edge) and grid widths (twips). */
+function measureTable(editor: Editor, contentWidth: number): { table: number; left: number; widths: number[] } | null {
+  try {
+    const t = tableContext(editor.state);
+    if (!t) return null;
+    const dom = editor.view.nodeDOM(t.pos) as HTMLElement | null;
+    const table = dom?.tagName === "TABLE" ? dom : (dom?.querySelector?.("table") ?? null);
+    const pageEl = editor.view.dom.closest(".write-page") as HTMLElement | null;
+    if (!table || !pageEl) return null;
+    const zoom = pageEl.offsetWidth ? pageEl.getBoundingClientRect().width / pageEl.offsetWidth || 1 : 1;
+    const left = (table.getBoundingClientRect().left - pageEl.getBoundingClientRect().left) / zoom;
+    return { table: t.table, left, widths: colWidthsOf(t, contentWidth) };
+  } catch {
+    return null;
+  }
 }
 
 export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: SyncController; features: WriteFeatures; page: PageSetup | null }) {
   const t = useT();
   const [kind, setKind] = useState<TabStop["kind"]>("left");
   const [drag, setDrag] = useState<{ from: number; x: number; off: boolean } | null>(null);
+  const [indentDrag, setIndentDrag] = useState<{ marker: IndentMarker; value: Indents } | null>(null);
+  const [colDrag, setColDrag] = useState<{ col: number; widths: number[] } | null>(null);
+  const unit = rulerUnitOf(features.ui.getState().options, getLocale() || (typeof navigator !== "undefined" ? navigator.language : "en"));
   const band = useRef<HTMLDivElement>(null);
   const g = pageGeometry(page);
   const info = useThrottledEditorState<RulerInfo>({
@@ -135,6 +163,7 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
         indent: ((first?.attrs.indent as Indent | null) ?? {}) as Indent,
         tabs: first ? tabsOf(ctl.styles, first) : [],
         ids: nodes.map((n) => n.attrs.id as number),
+        table: measureTable(e, (ctl.page ? ctl.page.width - ctl.page.margins.left - ctl.page.margins.right : 9026)),
       };
     },
   });
@@ -193,8 +222,73 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
   };
 
   const ind = info.indent;
-  const px = (tw: number | null | undefined) => (tw ?? 0) / TWIPS_PER_PX;
-  const firstLine = px(ind.left) + (ind.firstLine != null ? px(ind.firstLine) : -px(ind.hanging));
+  /** Pointer x (client) → twips from the column's left edge, unsnapped. */
+  const rawTwips = (clientX: number, left: number) => {
+    const el = band.current;
+    if (!el) return 0;
+    const r = el.getBoundingClientRect();
+    const zoom = el.offsetWidth ? r.width / el.offsetWidth || 1 : 1;
+    return ((clientX - r.left) / zoom - left) * TWIPS_PER_PX;
+  };
+
+  const onIndentDown = (e: ReactPointerEvent, marker: IndentMarker) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const start = indentsOf(ind);
+    const ids = info.ids;
+    const width = info.width * TWIPS_PER_PX;
+    // Alt: no snapping (Word).
+    const at = (ev: PointerEvent | ReactPointerEvent) => {
+      const x = rawTwips(ev.clientX, info.left);
+      return ev.altKey ? Math.round(x) : snapTo(unit, x);
+    };
+    let value = start;
+    setIndentDrag({ marker, value });
+    const move = (ev: PointerEvent) => {
+      value = dragIndent(start, marker, at(ev), width);
+      setIndentDrag({ marker, value });
+      setRulerPreview(editor.view, { ids, indent: value });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setIndentDrag(null);
+      setRulerPreview(editor.view, null);
+      if (JSON.stringify(value) !== JSON.stringify(start)) {
+        setIndent(editor, indentFrom(value));
+        editor.commands.focus();
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const onColumnDown = (e: ReactPointerEvent, col: number) => {
+    const tbl = info.table;
+    if (e.button !== 0 || !tbl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const x0 = rawTwips(e.clientX, tbl.left);
+    let widths = tbl.widths;
+    setColDrag({ col, widths });
+    const move = (ev: PointerEvent) => {
+      const dx = rawTwips(ev.clientX, tbl.left) - x0;
+      widths = dragBorder(tbl.widths, col, ev.altKey ? dx : snapTo(unit, dx));
+      setColDrag({ col, widths });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setColDrag(null);
+      const tc = tableContext(editor.state);
+      if (tc && tc.table === tbl.table && JSON.stringify(widths) !== JSON.stringify(tbl.widths)) void ctl.run(setColWidths(tc, widths)).then(() => editor.commands.focus());
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   return (
     <div className="write-ruler-row sticky top-0 z-[1] mx-auto mb-1 flex" style={{ width: g.width, maxWidth: "100%" }} data-testid="ruler">
       <div
@@ -218,7 +312,7 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
         {/* Multi-column sections: every column has its own scale from 0 at its left edge (Word); the gaps are grey. */}
         {info.segments.map(([start, end], i) => (
           <div key={`col${i}`} className="absolute inset-y-1 bg-white" style={{ left: g.left + start, width: end - start }} data-testid="ruler-segment">
-            <RulerScale width={end - start} />
+            <RulerScale width={end - start} unit={unit} />
           </div>
         ))}
         {info.segments.slice(1).map(([start], i) => (
@@ -231,13 +325,51 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
         ))}
         {info.segments.length === 0 && (
           <div className="absolute inset-y-1 bg-white" style={{ left: info.left, width: info.width }} data-testid="ruler-column">
-            <RulerScale width={info.width} />
+            <RulerScale width={info.width} unit={unit} />
           </div>
         )}
-        {/* Indents (display): first line on top, left/hanging at the bottom, right indent. */}
-        <span className="pointer-events-none absolute top-0 h-0 w-0 -translate-x-1/2 border-x-[5px] border-t-[6px] border-x-transparent border-t-gray-500" style={{ left: info.left + firstLine }} aria-hidden="true" />
-        <span className="pointer-events-none absolute bottom-0 h-0 w-0 -translate-x-1/2 border-x-[5px] border-b-[6px] border-x-transparent border-b-gray-500" style={{ left: info.left + px(ind.left) }} aria-hidden="true" />
-        <span className="pointer-events-none absolute bottom-0 h-0 w-0 -translate-x-1/2 border-x-[5px] border-b-[6px] border-x-transparent border-b-gray-500" style={{ left: info.left + info.width - px(ind.right) }} aria-hidden="true" />
+        {/* Indents: first line on top, hanging and the left-indent box at the bottom, the right indent (drag them, Word). */}
+        {(() => {
+          const shown = indentDrag?.value ?? indentsOf(ind);
+          const pos = markerPositions(shown, info.width * TWIPS_PER_PX);
+          const marker = (m: IndentMarker, cls: string, extra: string) => (
+            <span
+              key={m}
+              role="slider"
+              tabIndex={-1}
+              aria-label={t(`write.w5.indent.${m}`)}
+              aria-valuenow={Math.round(pos[m])}
+              title={`${t(`write.w5.indent.${m}`)}: ${formatLength(m === "right" ? shown.right : pos[m], unit)}`}
+              data-indent-marker={m}
+              className={`absolute z-[2] -translate-x-1/2 cursor-ew-resize ${cls}`}
+              style={{ left: info.left + pos[m] / TWIPS_PER_PX, touchAction: "none" }}
+              onPointerDown={(e) => onIndentDown(e, m)}
+            >
+              <span className={`block h-0 w-0 ${extra}`} />
+            </span>
+          );
+          return [
+            marker("firstLine", "top-0 px-1", "border-x-[5px] border-t-[6px] border-x-transparent border-t-gray-500"),
+            marker("hanging", "bottom-[5px] px-1", "border-x-[5px] border-b-[6px] border-x-transparent border-b-gray-500"),
+            marker("left", "bottom-0 px-1", "h-[5px] w-[10px] border border-gray-500 bg-ui-panel"),
+            marker("right", "bottom-0 px-1", "border-x-[5px] border-b-[6px] border-x-transparent border-b-gray-500"),
+          ];
+        })()}
+        {/* Table column markers: drag one to change the column widths (Word's Move Table Column). */}
+        {info.table &&
+          columnMarkers(colDrag?.widths ?? info.table.widths).map((x, i) => (
+            <span
+              key={`tc${i}`}
+              role="slider"
+              tabIndex={-1}
+              aria-label={t("write.w5.moveTableColumn", { n: i + 1 })}
+              aria-valuenow={Math.round(x)}
+              data-table-marker={i}
+              className="absolute top-1 z-[2] h-5 w-2 -translate-x-1/2 cursor-ew-resize border-x border-gray-500 bg-[repeating-linear-gradient(0deg,#9ca3af_0_1px,transparent_1px_3px)]"
+              style={{ left: info.table!.left + x / TWIPS_PER_PX, touchAction: "none" }}
+              onPointerDown={(e) => onColumnDown(e, i)}
+            />
+          ))}
         {info.tabs.map((s) => {
           const dragging = drag?.from === s.pos;
           const x = info.left + (dragging ? drag.x : s.pos) / TWIPS_PER_PX;
@@ -249,7 +381,7 @@ export function Ruler({ editor, ctl, features, page }: { editor: Editor; ctl: Sy
               data-tab-stop={s.kind}
               data-pos={s.pos}
               aria-label={t("write.tabStopAt", { kind: t(`write.tabKind.${s.kind}`), pos: (s.pos / (1440 / 2.54)).toFixed(2) })}
-              title={t("write.tabStopAt", { kind: t(`write.tabKind.${s.kind}`), pos: (s.pos / (1440 / 2.54)).toFixed(2) })}
+              title={`${t(`write.tabKind.${s.kind}`)}: ${formatLength(s.pos, unit)}`}
               className={`absolute bottom-0 flex h-7 w-8 -translate-x-1/2 cursor-ew-resize items-end justify-center pb-0.5 text-ui-fg ${dragging && drag.off ? "opacity-30" : ""}`}
               style={{ left: x, touchAction: "none" }}
               onPointerDown={(e) => onStopDown(e, s)}

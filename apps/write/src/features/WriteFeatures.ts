@@ -43,13 +43,23 @@ import { draftFromSelection, type CommentDraft } from "../comments/commands";
 import { authorColor, type CommentFilter } from "../comments/model";
 import { t } from "../i18n";
 import { innerEditors } from "./drawings/innerEditors";
+import type { BorderSide } from "../generated/BorderSide";
+import { autoCorrectPlugin } from "./autoCorrect";
+import { borderPainterPlugin } from "./borderPainter";
+import { specialCharFor } from "./specialChars";
+import { caretAfterSplit, joinTablesTarget, mergeTablesCommand, splitTableCommand } from "./tables2";
+import { loadOptions, type WriteOptions } from "./writeOptions";
+import { rulerPreviewPlugin } from "./rulerDrag";
+import { unequalColumnsPlugin } from "./unequalColumns";
+import { findPos } from "../sync/SyncPlugin";
 
 export type WriteView = "print" | "draft";
 export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
   | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font"
-  | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | "newDocument" | "manageStyles" | "layout" | null;
+  | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | "newDocument" | "manageStyles" | "layout"
+  | "textToTable" | "tableToText" | "tableBorders" | "writeOptions" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -119,6 +129,13 @@ export interface WriteUiState {
   paragraphTab: "indents" | "breaks";
   /** The Symbol dialog's tab. */
   symbolTab: "symbols" | "special";
+  /** View › Gridlines (Table Layout › View Gridlines): dashed lines where a table has no border. */
+  gridlines: boolean;
+  /** Table Design › Border Painter and its pen. */
+  borderPainter: boolean;
+  pen: BorderSide;
+  /** File › Options (ruler unit, AutoCorrect), this browser only. */
+  options: WriteOptions;
 }
 
 /** Observable UI state shared by the ribbon, the dialogs and the editor plugins. */
@@ -151,6 +168,10 @@ export class WriteUi {
     userThen: null,
     paragraphTab: "indents",
     symbolTab: "symbols",
+    gridlines: true,
+    borderPainter: false,
+    pen: { style: "single", width: 10, color: { kind: "auto" } },
+    options: loadOptions(),
   };
   private listeners = new Set<() => void>();
 
@@ -233,7 +254,7 @@ export class WriteFeatures {
     const lang = getLocale() || (typeof navigator !== "undefined" && navigator.language ? navigator.language : "en");
     return {
       "data-testid": "editor",
-      class: `tiptap-content min-h-full outline-none${this.ui.getState().hiddenText ? " show-hidden" : ""}`,
+      class: `tiptap-content min-h-full outline-none${this.ui.getState().hiddenText ? " show-hidden" : ""}${this.ui.getState().gridlines ? "" : " hide-gridlines"}`,
       spellcheck: this.ui.getState().spellcheck ? "true" : "false",
       lang,
       "data-hyphenate": this.ctl.settings.autoHyphenation ? "auto" : "none",
@@ -267,6 +288,27 @@ export class WriteFeatures {
     if (!t) return;
     await this.ctl.run({ type: "insertTableRow", table: t.table, at: t.rows });
     caretToCell(editor.view, t.table, t.rows, 0);
+  }
+
+  /** Ctrl+Shift+Enter: Split Table above the caret's row (in the first row: a paragraph above the table). */
+  splitTable(editor: Editor): boolean {
+    const t = tableContext(editor.state);
+    const cmd = splitTableCommand(editor.state, t);
+    if (!t || !cmd) return false;
+    const first = t.row === 0;
+    void this.ctl.run(cmd).then(() => {
+      if (editor.isDestroyed) return;
+      caretAfterSplit(editor.view, findPos(editor.state.doc, t.table), first);
+    });
+    return true;
+  }
+
+  /** Delete / Backspace in the empty paragraph between two tables: the tables are joined (Word). */
+  joinTables(editor: Editor): boolean {
+    const p = joinTablesTarget(editor.state);
+    if (p == null) return false;
+    void this.ctl.run(mergeTablesCommand(p));
+    return true;
   }
 
   /** The Tiptap extension (add it to the editor's extensions). */
@@ -321,9 +363,17 @@ export class WriteFeatures {
           "Mod-Alt-1": () => toggleHeading(this.editor as Editor, 1),
           "Mod-Alt-2": () => toggleHeading(this.editor as Editor, 2),
           "Mod-Alt-3": () => toggleHeading(this.editor as Editor, 3),
-          // Word: Backspace at a list item's start removes the number first, keeping the indent (W-28).
-          Backspace: () => listBackspace(this.editor as Editor, ctl),
+          // Word: Backspace at a list item's start removes the number first, keeping the indent (W-28); in the empty
+          // paragraph between two tables Backspace / Delete join them (P9-W5).
+          Backspace: () => features.joinTables(this.editor as Editor) || listBackspace(this.editor as Editor, ctl),
+          Delete: () => features.joinTables(this.editor as Editor),
+          // Word: Ctrl+Shift+Enter splits the table above the caret's row.
+          "Mod-Shift-Enter": () => features.splitTable(this.editor as Editor),
           Escape: () => {
+            if (ui.getState().borderPainter) {
+              ui.set({ borderPainter: false });
+              return true;
+            }
             if (!painter.active) return false;
             painter.cancel(this.editor as Editor);
             return true;
@@ -403,6 +453,13 @@ export class WriteFeatures {
           wrapBothPlugin(),
           wordsUnderlinePlugin(),
           tableRenderPlugin(() => ctl.styles),
+          autoCorrectPlugin(() => ui.getState().options.autoCorrect, () => getLocale() || "en"),
+          rulerPreviewPlugin(),
+          unequalColumnsPlugin(),
+          borderPainterPlugin(
+            () => ({ on: ui.getState().borderPainter, pen: ui.getState().pen }),
+            (cmds) => void ctl.run(cmds.length === 1 ? cmds[0]! : { type: "compound", commands: cmds }),
+          ),
           paragraphBoxPlugin(),
           contextualSpacingPlugin(() => ctl.styles),
           listIndentPlugin(() => ctl.numbering, () => ctl.styles),
@@ -447,6 +504,13 @@ export class WriteFeatures {
                 // A selection the browser has just changed (Shift+Home, then Delete at once) may not have
                 // reached the editor state yet: take it over before Delete / Backspace / Enter act on it.
                 if (e.key === "Delete" || e.key === "Backspace" || e.key === "Enter") syncDomSelection(view);
+                // Word's special-character keys (Ctrl+Shift+Space, Alt+Ctrl+C, Ctrl+Hyphen …).
+                const special = specialCharFor(e);
+                if (special && view.state.selection.$from.parent.isTextblock) {
+                  e.preventDefault();
+                  view.dispatch(view.state.tr.insertText(special).scrollIntoView());
+                  return true;
+                }
                 // Word: Ctrl+= subscript, Ctrl+Shift+= superscript.
                 if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === "Equal" || e.key === "=" || e.key === "+")) {
                   e.preventDefault();
@@ -506,6 +570,8 @@ export class WriteFeatures {
               let commentsUi = ui.getState().comments;
               let hide = ui.getState().hideWhiteSpace;
               let hidden = ui.getState().hiddenText;
+              let gridlines = ui.getState().gridlines;
+              let borderPainter = ui.getState().borderPainter;
               let settings = ctl.settings;
               let properties = ctl.properties;
               const offCtl = ctl.subscribe(() => {
@@ -562,6 +628,11 @@ export class WriteFeatures {
                 if (ui.getState().hideWhiteSpace !== hide) {
                   hide = ui.getState().hideWhiteSpace;
                   remeasurePages(view);
+                }
+                if (ui.getState().gridlines !== gridlines || ui.getState().borderPainter !== borderPainter) {
+                  gridlines = ui.getState().gridlines;
+                  borderPainter = ui.getState().borderPainter;
+                  view.dispatch(view.state.tr.setMeta("addToHistory", false));
                 }
                 if (ui.getState().hiddenText !== hidden) {
                   hidden = ui.getState().hiddenText;

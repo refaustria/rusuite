@@ -120,6 +120,7 @@ describe("Table Design and Table Layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Properties" }));
     dlg = screen.getByRole("dialog", { name: "Table Properties" });
     fireEvent.click(within(dlg).getByRole("radio", { name: "Centered" }));
+    fireEvent.click(within(dlg).getByRole("tab", { name: "Row" }));
     fireEvent.click(within(dlg).getByRole("checkbox", { name: "Allow row to break across pages" }));
     fireEvent.click(within(dlg).getByRole("button", { name: "OK" }));
     await waitFor(() => {
