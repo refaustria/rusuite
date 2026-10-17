@@ -3,7 +3,8 @@
 The chart model shared by Calc and Show, how Calc stores and resolves charts, and the rendering
 rules a chart renderer must follow so that Calc and Show draw the same chart the same way (and as
 close to Excel/PowerPoint as we can get without their layout engine). Backend: P8-18; renderer and
-Calc UI: P8-20 (see "Renderer" and "Calc UI" below); Show charts: P8-24 ("Show" below).
+Calc UI: P8-20 (see "Renderer" and "Calc UI" below); Show charts: P8-24 ("Show" below); charts round 2
+and sparklines: P9-C6 ("Round 2" and "Sparklines" below).
 
 | Layer | Where | What |
 |---|---|---|
@@ -17,6 +18,7 @@ Calc UI: P8-20 (see "Renderer" and "Calc UI" below); Show charts: P8-24 ("Show" 
 | Show document | `model_show::chart` | `ChartShape { chart, data: ChartData, workbook }`: the chart plus its embedded data table |
 | pptx | `fmt-pptx` (`chart.rs`) | `p:graphicFrame` → `ppt/charts/chartN.xml` + `ppt/embeddings/*.xlsx` |
 | Show UI | `apps/show/src/charts/` | charts on the slide, Insert › Chart, Chart Design / Format tabs, Edit Data, Format pane |
+| Sparklines | `model_sheet::sparkline`, `fmt-xlsx` (`sparkline.rs`), `calc-core` (`sparklines.rs`), `apps/calc/src/sparklines/` | groups per sheet, `x14:sparklineGroups`, `setSparklineGroups` / `sheetSparklines`, drawing in cells, Insert › Sparklines, Sparkline tab |
 
 File-format details and losses: [ooxml-subset.md](ooxml-subset.md) (xlsx, "Charts").
 
@@ -63,6 +65,33 @@ Formatting overrides: `ChartFill` = `{type:"none"}` | `{type:"solid", color}` (`
 `circle`, `dash`, `diamond`, `dot`, `plus`, `square`, `star`, `triangle`, `x`. `Trendline` =
 `{kind: linear | exponential | logarithmic | power | {type:"polynomial", order} | {type:"movingAverage", period}, name?, displayEquation?, displayRSquared?, line?}`.
 
+### Round 2 model fields (P9-C6)
+
+All optional; absent = the rendering of P8-20 (Show's charts look as before unless they set them).
+
+- `Chart.chartArea?` / `plotArea?`: `ShapeFormat` = `{fill?, line?, shadow?}` with `AreaFill` =
+  `{type:"none"}` | `{type:"solid", color}` | `{type:"gradient", stops:[{pos 0..1, color}], angle? (degrees,
+  0 = left → right, clockwise; DrawingML `lin ang`), radial?}` | `{type:"picture", media:{contentType, data (base64)}, tile?}`;
+  `shadow` = Office's "Offset: Bottom Right" outer shadow. `roundedCorners?`.
+- `TextFormat` = `{font?, size? (pt), bold?, italic?, color?, rotation? (degrees −90..90, negative reads upwards)}` on
+  `Chart.textFormat` (the whole chart; its size scales every default by size / 9 pt), `ChartTitle.textFormat` (chart
+  and axis titles), `Axis.textFormat` (tick labels; `rotation` absent = automatic), `Chart.legendTextFormat`,
+  `DataLabels.textFormat`, `DataTable.textFormat`, `PointLabel.textFormat`. `Axis.line?`: the axis line.
+- `ManualLayout` = `{x, y, w?, h?}`: fractions of the chart area from its top-left corner (`c:manualLayout`, `edge`
+  mode): `Chart.plotLayout` (the inner plot area), `ChartTitle.layout` (top-left of the title), `Chart.legendLayout`,
+  `PointLabel.layout` (centre of the label).
+- `Series.errorBars?[]`: `{direction? ("x" | [y]), barType? ([both] | plus | minus), amount, noEndCap?, line?}` with
+  `amount` = `{type:"fixed", value}` | `{type:"percentage", value}` | `{type:"stdDev", value}` | `{type:"stdErr"}` |
+  `{type:"custom", plus?, minus?}` (`DataRef`s); X bars only on scatter charts.
+- `Chart.dataTable?`: `{horizontal? [true], vertical? [true], outline? [true], keys?, textFormat?}`.
+- `Chart.upDownBars?`: `{gapWidth? [150], up?, down?}` (`ShapeFormat`s) and `Chart.highLowLines?` (`LineFormat`): line
+  charts.
+- `DataLabels` adds `range?` ("Value From Cells", a `DataRef`), `showRange?`, `leaderLines?`, `textFormat?` and
+  `points?[]` = `PointLabel` `{idx, delete?, showValue?, showPercent?, showCategory?, showSeries?, showRange?, position?,
+  numberFormat?, textFormat?, layout?}` (a point's own label replaces the series' for that point; `delete` hides it).
+- Custom error bar amounts and Value From Cells texts are resolved by `Workbook::chart_extras` (Calc: the `chartData`
+  reply's `extras`, merged into `ResolvedSeries.errorBars` / `labelTexts` by the API client).
+
 ### Charts on a Calc sheet
 
 `ChartObject { id, name?, anchor, chart }`, back to front (later = on top). `id` is unique per
@@ -78,10 +107,21 @@ EMU → CSS px: `px = emu / 9525`. A corner's pixel position is the left/top of 
 geometry (`colGeometry`/`rowGeometry`, hidden columns/rows have zero size) plus the offset.
 
 References follow the workbook like formulas: row/column inserts and deletes on the referenced sheet
-(a fully deleted reference becomes `#REF!`, i.e. an empty series), sheet renames, and a duplicated
-sheet's charts point at the copy. Anchors on the edited sheet move with their rows/columns; a
-corner in a deleted span moves to the start of the span (offset 0). A reference to a deleted sheet
-keeps its text and shows nothing (or its cache).
+(a fully deleted values reference removes its series, as Excel does; other fully deleted references
+become `#REF!`), sheet renames, and a duplicated sheet's charts point at the copy. Anchors on the
+edited sheet move with their rows/columns; a corner in a deleted span moves to the start of the span
+(offset 0). Deleting a sheet turns every chart reference to it into `#REF!` and stores the values it
+showed as the reference's cache (P9-C6): the chart keeps drawing them and saves them as `c:f #REF!`
+with the cache; undo restores the references. The series formula reads `=SERIES(#REF!,#REF!,#REF!,1)`.
+
+### Chart sheets (P9-C6)
+
+`Workbook::is_chart_sheet` / `set_chart_sheet` (command `setChartSheet {sheet, chartSheet}`, `SheetInfo.chartSheet`)
+mark a sheet whose first chart is shown full-size instead of cells (`xl/chartsheets/`). Move Chart › New sheet sends
+`addSheet` (before the current sheet) and one compound `setChartSheet` + `addChart` (an absolute anchor of
+8 670 364 × 6 292 273 EMU, `CHART_SHEET_SIZE`) + `removeChart`. The UI draws the chart at the grid area's size (no
+headings, gridlines or scrolling; the chart is selected on activation and neither moves nor resizes) and prints it as
+one page at the printable area's size. Moving a chart from a chart sheet onto a worksheet places it at A1, 480 × 288 px.
 
 ### Excel's recommended chart (`Chart::from_range`, request `recommendedChart`)
 
@@ -166,7 +206,8 @@ Excel), values along the bottom (secondary at the top). Scatter: X along the bot
 `delete` hides the axis but keeps its scale; `tickLabels: "none"` hides only the labels,
 `"low"`/`"high"` put them at the low/high end of the crossing axis.
 
-Automatic value scale (Rusuite's approximation of Excel; `min`/`max`/`majorUnit` override each part):
+Automatic value scale (Rusuite's approximation of Excel, P8-20; Calc uses Excel's bounds below since
+P9-C6; `min`/`max`/`majorUnit` override each part):
 
 1. Data range: the minimum and maximum of the plotted values (stacked: of the per-category sums of
    positive and of negative values; percent stacked: the axis is 0..1, format `0%`).
@@ -182,9 +223,29 @@ Automatic value scale (Rusuite's approximation of Excel; `min`/`max`/`majorUnit`
 6. Tick labels use `numberFormat`, else the first value cell's format (`formatCode`), else
    General. Minor gridlines/ticks every `minorUnit` [major / 5].
 
+**Excel's automatic bounds** (layout option `excelScale`, Calc since P9-C6; the zero rule of step 2 and the
+interval count of step 3 are unchanged): with `range = dataMax − dataMin` (stacked: the sums as in step 1),
+
+- major unit `u = niceUnit((hi − lo) / maxIntervals)` of the *unpadded* range (`lo`/`hi` after the zero rule);
+- `pad = 0.05 · range` (`0.05 · |dataMax|` when the range is 0);
+- maximum `⌈(dataMax + pad) / u⌉ · u` (0 when the zero rule set it, i.e. all values ≤ 0 and the maximum is
+  above 5/6 of the minimum);
+- minimum 0 by the zero rule, else `⌊(dataMin − pad) / u⌋ · u`; positive data never gets a negative bound
+  from the padding (and negative data no positive one);
+- when the bounds need more than `maxIntervals + 1` intervals the unit grows to the next 1-2-5 step.
+
+Examples (220 px plot, 5 intervals): 1..10 → 0..12 by 2; 0..100 → 0..120 by 20; 3..97 → 0..120 by 20; −10..−1
+→ −12..0 by 2; −5..5 → −6..6 by 2; 100..110 → 95..115 by 5 (no zero bound). Excel's KB "How Chart Axis Limits
+Are Determined" gives the same 5 % rule for the bounds; its exact choice of the major unit is not documented, the
+1-2-5 step of the unpadded range per available height is ours.
+
 Category axes: `n` equal bands. Bar/column and line charts plot at the band centres; area charts
 plot on the band edges (`crossBetween midCat`). Category labels are horizontal and are thinned
-(every k-th label) when they would overlap; numeric/date categories use `categoryFormatCode`.
+(every k-th label) when they would overlap; numeric/date categories use `categoryFormatCode`. An axis
+`textFormat.rotation` rotates them (negative angles end at their tick, reading upwards); with the layout
+option `autoRotateLabels` (Calc) labels that would overlap turn −45° (when a −45° label fits the band,
+√2 · label height ≤ band), else −90°, and are thinned only then; rotated labels take
+`maxWidth · |sin a| + height · |cos a|` from the plot area.
 
 ### Chart types
 
@@ -239,6 +300,37 @@ plot on the band edges (`crossBetween midCat`). Category labels are horizontal a
   when the label fits in the slice, else outside], also `insideEnd`, `insideBase`, `center`, `top`,
   `bottom`, `left`.
 
+### Round 2 rendering rules (P9-C6)
+
+- **Chart area**: `chartArea.fill` replaces the host's area fill (`none` = transparent), `chartArea.line` its border
+  (`none` = no border; colour/width/dash), `shadow` adds an offset shadow (canvas `shadowBlur 4`, offset 2 px, 40 %
+  black; SVG `feDropShadow`), `roundedCorners` an 8 px corner radius. Gradients are drawn along the line through the
+  box centre at `angle` (half length `(|w cos a| + |h sin a|) / 2`), radial ones from the centre to the half
+  diagonal. Pictures are stretched over the box (or tiled); the canvas painter decodes them asynchronously
+  (`setChartImageListener`: the host repaints).
+- **Plot area**: `plotArea` is painted over the plot box behind the gridlines (default: nothing).
+- **Texts**: element default (title 14 pt, axis titles 10 pt bold, labels 9 pt) → the chart's `textFormat` (its
+  `size` scales each default by size / 9 pt; colour, font, bold, italic apply to all) → the element's format. Scene
+  text items carry `font` / `italic`; widths are measured with the size and weight only.
+- **Manual layouts**: a title with `layout` is drawn left/top-aligned at (x·W + 4, y·H + 2) and takes no space; a
+  legend with `legendLayout` is placed at (x·W, y·H) (size at least its content) and takes no space; `plotLayout` is
+  the inner plot box itself (axes and labels are drawn around it). A point label with `layout` is centred there; with
+  `leaderLines` a 1 px `#A6A6A6` line joins it to its point.
+- **Error bars** (on top of the series; bars at their bar's centre, stacked series at the segment top): fixed
+  `value`; percentage `|v| · value / 100`; standard deviation `value · s` around the *mean* of the series (all bars at
+  the mean, as Excel), `s` the sample standard deviation; standard error `√(Σ(y − ȳ)² / (n (n − 1)))` around each
+  point; custom: the point's plus/minus amounts (one value applies to every point). `barType` keeps one side. Drawn
+  in `#595959` (tx1 + 35 %), 0.75 pt, with 7 px caps unless `noEndCap`; scatter charts draw X and Y bars.
+- **Data table** (column, line and area charts): under the plot area, a header row with the categories (replacing the
+  category labels) and one row per series (legend key with `keys`, name, the values in the series' format); borders
+  `#BFBFBF` per `horizontal` / `vertical` / `outline`; the plot area moves right to leave room for the names.
+- **Up/down bars and high-low lines** (the primary line series, behind the lines): per category a bar from the first
+  to the last series' value, `band / (1 + gapWidth / 100)` wide, white with a `#595959` border when the last value is
+  higher, `#595959` when lower (`up` / `down` override); high-low lines from the lowest to the highest value, `#404040`.
+- **Point labels**: `points[idx]` replaces the series' label parts, position, number format and text format for that
+  point; `delete` hides it. Value From Cells (`showRange`) puts the cell text first, then series, category, value,
+  percentage.
+
 ## Calc commands, requests and patches
 
 Commands (`apply`, all undoable; the patch lists the sheet in `chartSheets`):
@@ -251,9 +343,12 @@ Commands (`apply`, all undoable; the patch lists the sheet in `chartSheets`):
 | `setChartSeries {sheet, id, series, categories}` | Replaces the data ("Select Data") | `unknown_chart`, `invalid_chart` (not for `unsupported` charts) |
 | `removeChart {sheet, id}` | Deletes the chart | `unknown_chart` |
 | `restoreCharts {sheet, charts}` | *Internal* (undo) | |
+| `setChartSheet {sheet, chartSheet}` | Makes the sheet a chart sheet or a worksheet (P9-C6); the patch carries the sheet list | `unknown_sheet` |
+| `setSparklineGroups {sheet, groups}` | Replaces the sparkline groups (P9-C6, see "Sparklines") | `invalid_rule` |
 
 Requests: `sheetCharts {sheet}` → `charts {charts}`; `chartData {sheet, id}` and
-`previewChartData {sheet, chart}` → `chartData {data}`; `recommendedChart {sheet, r0, c0, r1, c1}` →
+`previewChartData {sheet, chart}` → `chartData {data, extras?}` (`extras`: per series the custom error bar amounts
+and Value From Cells texts, P9-C6); `sheetSparklines {sheet}` → `sparklines {groups}` (P9-C6); `recommendedChart {sheet, r0, c0, r1, c1}` →
 `recommendedChart {chart | null}` (`range_too_large` above 65 536 cells). `snapshot` replies carry
 every chart of the sheet in `snapshot.charts`.
 
@@ -281,8 +376,14 @@ resolve (Calc recomputes) and keeps unsupported chart types verbatim.
   frame/handles of a selected element), `sceneToSvg(scene)` (print, PDF, previews; unique clip ids),
   `hitTestChart(scene, x, y)` (topmost element), `ChartPreview` (React, inline SVG).
 - Everything in "Rendering rules" above is implemented; approximations: text widths are measured
-  by the host (default: an average Calibri advance), category labels are thinned, never rotated or
-  wrapped; minor gridlines are drawn in `#F2F2F2`; area charts with bars use band centres.
+  by the host (default: an average Calibri advance), category labels are thinned or rotated, never
+  wrapped; minor gridlines are drawn in `#F2F2F2`; area charts with bars use band centres; value axis
+  labels are not rotated (only category labels take `rotation`); rich-text runs of a title share one format.
+- P9-C6 options (default off, so Show draws as before; Calc sets both): `excelScale` (Excel's axis bounds) and
+  `autoRotateLabels`. New scene elements: `errorBars` (per series), `dataTable`, `upDownBars`, `highLowLines`;
+  rect/path items may carry `gradient`, `image`, `tile`, `shadow`, `radius`; text items `font`, `italic`.
+  `chartC6.test.ts` keeps a snapshot of all 25 shared presets with Show's options generated with the renderer of
+  `main` before P9-C6.
 - `crosses` follows OOXML: an axis' `crosses` says where *it* sits on the other axis (`val.crosses:
   max` puts the value axis on the right; `cat.crosses: {at: 5}` draws the category axis at value 5);
   a secondary value axis sits on the opposite side unless its `crosses` is `min`.
@@ -336,6 +437,72 @@ resolve (Calc recomputes) and keeps unsupported chart types verbatim.
   intersect it as SVG at their place, cut at the page; the selection scope prints the charts that
   intersect the selection.
 - Unsupported charts are drawn as the placeholder and are read-only (dialogs and pane disabled).
+
+### Calc UI round 2 (P9-C6)
+
+- Format pane: **Chart area** (Automatic / No fill / Solid / Gradient (two colours and an angle) / Picture fill (a
+  PNG/JPEG/GIF from the device), border colour / none / width / dash, Shadow, Rounded corners), **Text options** (font,
+  size, bold, italic, colour; on axes and axis titles a custom angle) on the chart area, titles, axes, legend, data
+  labels and the data table, **Plot area** (fill and border), **Error bars** on a series (Y; X too on scatter: amount
+  None / Fixed / Percentage / Standard Deviation / Standard Error / Custom with the plus/minus ranges, value,
+  direction, end cap, colour), data label extras (Value From Cells range, leader lines, the selected point's own label
+  on/off and "Same as the series"), and on the chart area the data table (keys, borders), high-low lines and up/down
+  bars (gap width). Calc's Chart Styles 3–8 also set Excel's looks: grey plot area (3), shadow (4), light grey plot
+  area with a border (5), white-to-grey gradient (6), dark chart area with white text (7), black with rounded corners
+  (8); style 1 and 2 clear them.
+- Add Chart Element ▾ adds Data Table (None / With / No Legend Keys), Error Bars (None / Standard Error / Percentage
+  5 % / Standard Deviation 1 – on the selected series, else on all), Lines (None / High-Low Lines) and Up/Down Bars
+  (line charts).
+- Manual layout: a press on the selected title, legend or plot area drags it inside the chart (`movedLayout`:
+  fractions of the chart, previewed while dragging, one `updateChart` on release; a click without moving still edits
+  a title inline). Reset to Match Style keeps them; the Format pane has no layout fields.
+- Formula bar: while a series (or its labels, trendline, error bars) is selected it shows `=SERIES(name, categories,
+  values, order)`; Enter applies an edited formula with `setChartSeries` (a new order moves the series; shared
+  categories stay shared when unchanged), Esc reverts, an invalid formula shows a toast.
+- Chart sheets: see "Chart sheets" above. Picture fills repaint when decoded.
+- The renderer runs with `excelScale` and `autoRotateLabels`; the Select Data dialog (Switch Row/Column, Hidden and
+  Empty Cells) is P8-20's.
+
+## Sparklines (P9-C6)
+
+Model (`model_sheet::sparkline`): `SparklineGroup {kind (line | column | winLoss), sparklines: [{row, col, data}],
+colors: {series, negative, axis, markers, first, last, high, low}, high, low, first, last, negative, markers, showAxis,
+rightToLeft, minAxis / maxAxis (individual | group | {custom, value}), dateRange?, lineWeight (pt, 0.75),
+emptyCells (gap | zero | span), displayHidden}`. `data` is a reference without `=` (one row or column, Excel's
+`Sheet1!B2:G2`). A cell holds one sparkline (a later group wins). Data references follow row/column edits and sheet
+renames like chart references; a deleted location cell removes its sparkline (and an emptied group); a deleted source
+sheet makes the data `#REF!`. `Workbook::sparkline_data` resolves each sparkline: numbers (booleans as 0/1), blanks,
+text and errors as empty, hidden rows/columns left out unless `displayHidden`; `dates` from `dateRange`.
+
+Commands and requests: `setSparklineGroups {sheet, groups}` (the UI sends the whole new list; undo restores it;
+patch `sparklineSheets`), `sheetSparklines {sheet}` → the groups with their data; region snapshots carry
+`sparklines` too. `sparklineSheets` lists the sheets after a sparkline command, a change of a cell their data reads, or
+a structural / sheet list / row-column change on a workbook with sparklines. Structural edits and sheet deletion are
+undone with `setSparklineGroups`.
+
+Drawing (`apps/calc/src/sparklines/render.ts`, also used for print as SVG): inside the cell with 2 px horizontal and
+3 px vertical padding. Lines: points evenly spaced (by date with a numeric `dateRange`), between the vertical bounds
+(own min/max, the group's, or custom), `lineWeight` pt in the series colour; gaps split the line, `span` connects, `zero`
+plots 0; markers / first / last / high / low / negative points as dots of radius `max(1.5, 1.25 · width)` px, high >
+low > first > last > negative. Columns: 80 % of each slot, from zero when the data crosses it (else from the lower
+bound, all-negative data from the upper), at least 1 px; highlighted columns in their colours. Win/loss: equal half
+height bars up (> 0) or down (< 0), nothing for 0, negative colour with `negative`. `showAxis`: a 1 px line at zero
+when the range crosses it (win/loss: the middle). `rightToLeft` reverses the points.
+
+Styles (`sparkline_style(1..36)`, TypeScript `sparklineStyle`): 6 rows × the six accents – row 1 accent darker 50 %
+(negative: the next accent, markers darker 50 %, first/last lighter 40 %, high/low the accent), row 2 darker 25 %, row 3
+the accent, row 4 lighter 40 % with darker highlights, row 5 the accent with black highlights, row 6 text colour +35 %
+with accent highlights; the axis is black. Rusuite's reading of Excel's gallery, not Excel's exact table.
+
+UI: Insert › Sparklines › Line / Column / Win/Loss → Create Sparklines (Data Range, default the selection; Location
+Range; range pickers; Excel's errors: location not in one row or column, data that does not fit the locations,
+invalid references). Sparkline tab (while the active cell holds one): Edit Data ▾ (Edit Group Location & Data…,
+Edit Single Sparkline's Data…, Hidden & Empty Cells…), Type (Line / Column / Win/Loss), Show (High, Low, Negative,
+First, Last Points, Markers), Style (gallery of 36), Sparkline Color ▾ (with Weight 0.25–6 pt), Marker Color ▾
+(Negative, Markers, High, Low, First, Last), Axis ▾ (General / Date Axis Type…, Show Axis, Plot Data Right-to-Left;
+vertical minimum and maximum: Automatic for Each Sparkline / Same for All Sparklines / Custom Value…), Group,
+Ungroup, Clear ▾ (Selected Sparklines / Selected Sparkline Groups). Formatting applies to every group with a
+sparkline in the selection. Printing draws the sparklines in their cells.
 
 ## Show (P8-24)
 
