@@ -150,6 +150,13 @@ body,
 .tiptap-content :is(p, h1, h2, h3, h4, h5, h6):has(> .drawing-wrap.behind, > .drawing-wrap.front) { position: relative; }
 /* Hidden text (w:vanish): not shown, not printed; View › Hidden Text shows it dotted. */
 .tiptap-content .hidden-text { display: none; }
+/* Word's underline kinds (the underline mark's data-u); "words" is drawn per word by wordsUnderline.ts. */
+.tiptap-content u[data-u="double"] { text-decoration-style: double; }
+.tiptap-content u[data-u="dotted"] { text-decoration-style: dotted; }
+.tiptap-content u[data-u="dashed"] { text-decoration-style: dashed; }
+.tiptap-content u[data-u="wavy"] { text-decoration-style: wavy; }
+.tiptap-content u[data-u="none"], .tiptap-content u[data-u="words"] { text-decoration: none; }
+.tiptap-content u[data-u="words"] .u-word { text-decoration: underline; }
 .tiptap-content.show-hidden .hidden-text { display: inline; text-decoration: underline dotted #7f7f7f; }
 
 /* Tab characters sized by the tab-stop layout, with their leaders. */

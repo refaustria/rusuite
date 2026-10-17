@@ -22,7 +22,9 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { insertNote } from "./structureCommands";
 import { listBackspace } from "./listKeys";
 import { formatTarget } from "./runFormat";
-import { toggleChar, wordUnderline } from "./wordKeys";
+import { toggleChar, toggleRun, wordUnderline } from "./wordKeys";
+import { wordsUnderlinePlugin } from "./wordsUnderline";
+import { loadDefaultSet } from "./styleSets";
 import { toggleHeading } from "../sync/editorCommands";
 import { getLocale } from "@rusuite/ui-shared";
 import { caretToCell, inLastCell, tableContext } from "./tables";
@@ -45,7 +47,7 @@ export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
   | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font"
-  | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | null;
+  | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | "newDocument" | "manageStyles" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -82,6 +84,9 @@ export interface WriteUiState {
   styleInspector: boolean;
   /** View › Navigation pane. */
   navigation: boolean;
+  /** Reveal Formatting pane (Shift+F1) and its "Distinguish style source". */
+  revealFormatting: boolean;
+  revealSource: boolean;
   /** The Apply Styles box (Ctrl+Shift+S). */
   applyStyles: boolean;
   styleDialog: StyleDialog | null;
@@ -122,6 +127,8 @@ export class WriteUi {
     linkedDisabled: false,
     styleInspector: false,
     navigation: false,
+    revealFormatting: false,
+    revealSource: false,
     applyStyles: false,
     styleDialog: null,
     styleInstances: null,
@@ -188,7 +195,8 @@ export class WriteFeatures {
   readonly fields: FieldContext;
 
   constructor(readonly ctl: SyncController) {
-    this.fields = layoutFieldContext(() => ctl.getState().name, () => getLocale(), () => new Date(), () => ctl.properties);
+    this.fields = layoutFieldContext(() => ctl.getState().name, () => getLocale(), () => new Date(), () => ctl.savingProperties ?? ctl.properties);
+    ctl.defaultStyleSet = loadDefaultSet;
     ctl.beforeSave = () => (this.editor && !this.editor.isDestroyed ? updateFieldsCommand(this.editor.state, this.fields) : null);
     ctl.saveStats = () => ({ pages: this.ui.getState().view === "print" ? this.ui.getState().pages : undefined });
   }
@@ -230,12 +238,13 @@ export class WriteFeatures {
   /**
    * Review › New Comment (Ctrl+Alt+M): a draft balloon on the selection
    * (the word at the caret when nothing is selected). The first comment
-   * asks for the user name.
+   * asks for the user name unless the document has an author.
    */
   newComment(): void {
     const editor = this.editor;
     if (!editor || editor.isDestroyed) return;
-    if (!this.ctl.user) {
+    // Without a user name the document's author names the comment (the core's fallback); with neither, ask.
+    if (!this.ctl.user && !this.ctl.properties.author?.trim()) {
       this.ui.set({ dialog: "userName", userThen: "newComment" });
       return;
     }
@@ -298,6 +307,10 @@ export class WriteFeatures {
           "Mod-Shift-a": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "allCaps"),
           "Mod-Shift-d": () => toggleChar(formatTarget(this.editor as Editor), ctl.styles, "doubleUnderline"),
           "Mod-Shift-w": () => wordUnderline(formatTarget(this.editor as Editor), ctl.styles),
+          // Word: Ctrl+B / I / U switch relative to the style (in a bold heading Ctrl+B un-bolds: `w:b w:val="0"`).
+          "Mod-b": () => toggleRun(formatTarget(this.editor as Editor), ctl.styles, "bold"),
+          "Mod-i": () => toggleRun(formatTarget(this.editor as Editor), ctl.styles, "italic"),
+          "Mod-u": () => toggleRun(formatTarget(this.editor as Editor), ctl.styles, "underline"),
           // Word: Ctrl+Alt+1/2/3 are the Heading 1–3 styles (a toggle). Bound before Tiptap's heading keymap so that
           // both paths (focus in the editor, focus elsewhere: ShortcutLayer) do the same thing.
           "Mod-Alt-1": () => toggleHeading(this.editor as Editor, 1),
@@ -318,6 +331,11 @@ export class WriteFeatures {
           // Word: Ctrl+Shift+S is Apply Styles (not Tiptap's strikethrough).
           "Mod-Shift-s": () => {
             ui.set({ applyStyles: true });
+            return true;
+          },
+          // Word: Shift+F1 shows the Reveal Formatting pane.
+          "Shift-F1": () => {
+            ui.set({ revealFormatting: !ui.getState().revealFormatting });
             return true;
           },
           "Mod-Alt-Shift-s": () => {
@@ -371,6 +389,7 @@ export class WriteFeatures {
         return [
           findPlugin(),
           linksPlugin(),
+          wordsUnderlinePlugin(),
           tableRenderPlugin(() => ctl.styles),
           paragraphBoxPlugin(),
           contextualSpacingPlugin(() => ctl.styles),
@@ -486,6 +505,8 @@ export class WriteFeatures {
                   refreshContextualSpacing(view);
                   refreshListIndent(view);
                   refreshSectionWidths(view);
+                  // Defaults and style sets change paragraphs the patch does not list: lay the pages out again.
+                  remeasurePages(view);
                 }
                 if (ctl.numbering !== numbering) {
                   numbering = ctl.numbering;

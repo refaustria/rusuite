@@ -113,6 +113,18 @@ export function bookmarkStarts(doc: PMNode): Map<string, number> {
   return m;
 }
 
+/** Word's DOCPROPERTY names → the document property (`CoreProperties::named` in Rust). */
+export function docProperty(p: CoreProperties | null, name: string): string | null {
+  if (!p) return null;
+  const key: Record<string, keyof CoreProperties> = {
+    title: "title", subject: "subject", author: "author", keywords: "keywords", comments: "description",
+    category: "category", company: "company", lastsavedby: "lastModifiedBy",
+  };
+  const k = key[name.toLowerCase()];
+  const v = k ? p[k] : undefined;
+  return typeof v === "string" ? v : null;
+}
+
 /** The live result of a field, or null to keep showing the cached one. */
 export function fieldValue(kind: FieldKind, pos: number, state: EditorState, ctx: FieldContext): string | null {
   switch (kind.kind) {
@@ -132,6 +144,22 @@ export function fieldValue(kind: FieldKind, pos: number, state: EditorState, ctx
       return ctx.properties?.()?.author ?? null;
     case "title":
       return ctx.properties?.()?.title ?? null;
+    case "subject":
+      return ctx.properties?.()?.subject ?? null;
+    case "keywords":
+      return ctx.properties?.()?.keywords ?? null;
+    case "comments":
+      return ctx.properties?.()?.description ?? null;
+    case "lastSavedBy":
+      return ctx.properties?.()?.lastModifiedBy ?? null;
+    case "docProperty":
+      return docProperty(ctx.properties?.() ?? null, kind.value.name);
+    case "saveDate": {
+      // Word's SAVEDATE: when the document was saved last (a save in progress stamps the new time first).
+      const m = ctx.properties?.()?.modified;
+      const d = m ? new Date(m) : null;
+      return d && !Number.isNaN(d.getTime()) ? formatDateTime(d, kind.value.format ?? "d.M.yyyy", ctx.locale()) : null;
+    }
     case "pageRef": {
       // Like PAGE: the page the bookmark starts on, from the pagination.
       const at = bookmarkStarts(state.doc).get(kind.value.bookmark.toLowerCase());

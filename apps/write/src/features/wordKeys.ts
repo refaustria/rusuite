@@ -17,10 +17,10 @@ import type { RunProperties } from "../sync/model";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
 import { marksFromProps } from "../sync/toPM";
 import { changeCaseCommand } from "./changeCase";
-import { resolvedRunAt } from "./fontBox";
+import { inheritedRunAt, resolvedRunAt } from "./fontBox";
 import { wordAt } from "./formatting";
 import { patchRun, type RunPatch } from "./runFormat";
-import { overlayRun, paragraphStyleId, resolveCharacter, resolveParagraph, resolveRun } from "./styleCss";
+import { applyCharacterStyle, overlayRun, paragraphStyleId, resolveCharacter, resolveParagraph, resolveRun } from "./styleCss";
 
 // ----- font size ---------------------------------------------------------------------
 
@@ -48,12 +48,16 @@ export function stepFontList(size: number, dir: 1 | -1): number {
   return Math.round((prev ?? Math.max(1, Math.ceil(pt) - 1)) * 100);
 }
 
+/** The run formatting a text node in `para` inherits (paragraph style chain, character style), without its direct formatting. */
+function inheritedOf(sheet: StyleSheet | null | undefined, para: PMNode, node: PMNode): RunProperties {
+  const out: RunProperties = resolveRun(sheet, paragraphStyleId(sheet, para));
+  const cs = styleFromMarks(node.marks);
+  return cs ? applyCharacterStyle(out, resolveCharacter(sheet, cs)) : out;
+}
+
 /** The effective run formatting of a text node in `para` (styles, character style, direct). */
 function resolvedOf(sheet: StyleSheet | null | undefined, para: PMNode, node: PMNode): RunProperties {
-  let out: RunProperties = resolveRun(sheet, paragraphStyleId(sheet, para));
-  const cs = styleFromMarks(node.marks);
-  if (cs) out = overlayRun(out, resolveCharacter(sheet, cs));
-  return overlayRun(out, propsFromMarks(node.marks));
+  return overlayRun(inheritedOf(sheet, para, node), propsFromMarks(node.marks));
 }
 
 /**
@@ -93,60 +97,92 @@ export function growFont(editor: Editor, sheet: StyleSheet | null | undefined, h
 
 // ----- character toggles ---------------------------------------------------------------
 
-export type CharToggle = "smallCaps" | "allCaps" | "doubleUnderline";
-
-/** The patch of a toggle given the formatting at the selection's start (small caps and all caps exclude each other). */
-export function togglePatch(kind: CharToggle, at: RunProperties): RunPatch {
-  switch (kind) {
-    case "smallCaps":
-      return at.smallCaps ? { smallCaps: false } : { smallCaps: true, allCaps: false };
-    case "allCaps":
-      return at.allCaps ? { allCaps: false } : { allCaps: true, smallCaps: false };
-    case "doubleUnderline":
-      return { underline: at.underline === "double" ? null : "double" };
-  }
-}
-
-/** Ctrl+Shift+K / A / D: one toggle decided by the selection's start, applied to the whole selection. */
-export function toggleChar(editor: Editor, sheet: StyleSheet | null | undefined, kind: CharToggle): boolean {
-  const patch = togglePatch(kind, resolvedRunAt(editor.state, sheet));
-  return applyRunPatchEach(editor, sheet, () => patch);
-}
-
 /**
- * Ctrl+Shift+W (Word's word underline): the words of the selection get a single underline, the spaces between
- * them none; pressed where the selection's start is underlined, the underline goes. (The model has no `words`
- * underline kind: the result is stored as underlined words, which looks the same in Word.)
+ * Sets the direct formatting of every selected text node (or the typing formatting at a caret) to
+ * `next(direct, inherited)`, where `inherited` is what the node's styles give it.
  */
-export function wordUnderline(editor: Editor, sheet: StyleSheet | null | undefined): boolean {
+export function applyRunEach(editor: Editor, sheet: StyleSheet | null | undefined, next: (direct: RunProperties, inherited: RunProperties) => RunProperties): boolean {
   const { state } = editor;
-  const at = resolvedRunAt(state, sheet);
-  const on = !at.underline || at.underline === "none";
   const { from, to, empty } = state.selection;
-  if (empty) return applyRunPatchEach(editor, sheet, () => ({ underline: on ? "single" : null }));
   const schema = state.schema;
   const tr = state.tr;
-  state.doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.isText) return true;
+  if (empty) {
+    const marks = state.storedMarks ?? state.selection.$from.marks();
+    const props = next(propsFromMarks(marks), inheritedRunAt(state, sheet));
+    editor.view.dispatch(tr.setStoredMarks(marksFromProps(schema, props, styleFromMarks(marks), linkFromMarks(marks))));
+    return true;
+  }
+  state.doc.nodesBetween(from, to, (node, pos, parent) => {
+    if (!node.isText || !parent) return true;
     const start = Math.max(from, pos);
     const end = Math.min(to, pos + node.nodeSize);
-    const text = node.text!.slice(start - pos, end - pos);
-    let offset = start;
-    for (const part of text.split(/(\s+)/u)) {
-      if (!part) continue;
-      const a = offset;
-      const b = offset + part.length;
-      offset = b;
-      const props = patchRun(propsFromMarks(node.marks), { underline: on && !/^\s+$/u.test(part) ? "single" : null });
-      const marks = marksFromProps(schema, props, styleFromMarks(node.marks), linkFromMarks(node.marks));
-      for (const m of node.marks) tr.removeMark(a, b, m.type);
-      for (const m of marks) tr.addMark(a, b, m);
-    }
+    const props = next(propsFromMarks(node.marks), inheritedOf(sheet, parent, node));
+    const marks = marksFromProps(schema, props, styleFromMarks(node.marks), linkFromMarks(node.marks));
+    for (const m of node.marks) tr.removeMark(start, end, m.type);
+    for (const m of marks) tr.addMark(start, end, m);
     return false;
   });
   if (!tr.docChanged) return false;
   editor.view.dispatch(tr);
   return true;
+}
+
+/** A run property whose value turns on / off. */
+type Switch = { key: keyof RunProperties; on: unknown; off: unknown; isOn: (v: unknown) => boolean };
+
+const flag = (key: keyof RunProperties): Switch => ({ key, on: true, off: false, isOn: (v) => v === true });
+
+/**
+ * `direct` with `sw` switched to `on`, relative to the styles (Word's toggle semantics): where the style already
+ * gives the wanted value the direct value goes, otherwise it is set explicitly – so Bold in a bold heading writes
+ * `w:b w:val="0"`, and Bold again removes it.
+ */
+export function switchRun(direct: RunProperties, inherited: RunProperties, sw: Switch, on: boolean): RunProperties {
+  const out: Record<string, unknown> = { ...direct };
+  const fromStyle = sw.isOn((inherited as Record<string, unknown>)[sw.key]);
+  if (fromStyle === on) delete out[sw.key];
+  else out[sw.key] = on ? sw.on : sw.off;
+  return out as RunProperties;
+}
+
+const SWITCHES = {
+  bold: flag("bold"),
+  italic: flag("italic"),
+  strike: flag("strike"),
+  smallCaps: flag("smallCaps"),
+  allCaps: flag("allCaps"),
+  underline: { key: "underline", on: "single", off: "none", isOn: (v: unknown) => v != null && v !== "none" } as Switch,
+  doubleUnderline: { key: "underline", on: "double", off: "none", isOn: (v: unknown) => v === "double" } as Switch,
+  wordsUnderline: { key: "underline", on: "words", off: "none", isOn: (v: unknown) => v === "words" } as Switch,
+};
+export type RunSwitch = keyof typeof SWITCHES;
+
+/**
+ * Ctrl+B / I / U, Home › Bold / Italic / Underline / Strikethrough, Ctrl+Shift+K / A / D / W: decided by the
+ * selection's start (`on` forces a state), applied to every run relative to its style. Small caps and all caps
+ * exclude each other.
+ */
+export function toggleRun(editor: Editor, sheet: StyleSheet | null | undefined, kind: RunSwitch, on?: boolean): boolean {
+  const sw = SWITCHES[kind];
+  const want = on ?? !sw.isOn((resolvedRunAt(editor.state, sheet) as Record<string, unknown>)[sw.key]);
+  return applyRunEach(editor, sheet, (direct, inherited) => {
+    let out = switchRun(direct, inherited, sw, want);
+    if (want && kind === "smallCaps") out = switchRun(out, inherited, SWITCHES.allCaps, false);
+    if (want && kind === "allCaps") out = switchRun(out, inherited, SWITCHES.smallCaps, false);
+    return out;
+  });
+}
+
+export type CharToggle = "smallCaps" | "allCaps" | "doubleUnderline";
+
+/** Ctrl+Shift+K / A / D: one toggle decided by the selection's start, applied to the whole selection. */
+export function toggleChar(editor: Editor, sheet: StyleSheet | null | undefined, kind: CharToggle): boolean {
+  return toggleRun(editor, sheet, kind);
+}
+
+/** Ctrl+Shift+W (Word's word underline): `w:u w:val="words"` – the words underlined, the spaces between them not. */
+export function wordUnderline(editor: Editor, sheet: StyleSheet | null | undefined): boolean {
+  return toggleRun(editor, sheet, "wordsUnderline");
 }
 
 // ----- Shift+F3 ---------------------------------------------------------------------------

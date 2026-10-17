@@ -226,7 +226,7 @@ export function updateFieldsCommand(state: EditorState, ctx: FieldContext, all: 
       if (child.type.name !== "field") return;
       const kind = child.attrs.kind as FieldKind;
       // Rust recomputes these itself.
-      if (["ref", "pageRef", "noteRef", "seq", "title", "author"].includes(kind.kind)) return;
+      if (["ref", "pageRef", "noteRef", "seq", "title", "author", "subject", "keywords", "comments", "lastSavedBy", "docProperty"].includes(kind.kind)) return;
       const v = fieldValue(kind, pos + 1 + offset, state, ctx);
       if (v != null && v !== child.attrs.cached) values.push([id, charOffsetOf(node, offset), v]);
     });

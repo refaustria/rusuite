@@ -9,7 +9,7 @@ import type { StyleSheet } from "../generated/StyleSheet";
 import { propsFromMarks, styleFromMarks } from "../sync/fromPM";
 import type { RunProperties } from "../sync/model";
 import { TEXTBLOCK_TYPES } from "../sync/schema";
-import { overlayRun, paragraphStyleId, resolveCharacter, resolveRun } from "./styleCss";
+import { applyCharacterStyle, overlayRun, paragraphStyleId, resolveCharacter, resolveRun } from "./styleCss";
 
 /** Font names of the Office theme's font slots. */
 export const THEME_FONT_NAMES: Record<string, string> = {
@@ -29,6 +29,17 @@ export function fontName(f: FontFace | null | undefined): string | null {
 
 /** The effective run formatting at the caret (or the stored marks), resolved through the styles. */
 export function resolvedRunAt(state: EditorState, sheet: StyleSheet | null | undefined): RunProperties {
+  return overlayRun(inheritedRunAt(state, sheet), propsFromMarks(caretMarks(state)));
+}
+
+/** The marks typing at the caret uses: the text before it (Word shows what typing would use), else after it. */
+function caretMarks(state: EditorState) {
+  const { $from } = state.selection;
+  return state.storedMarks ?? ($from.parentOffset > 0 ? $from.marks() : ($from.nodeAfter?.marks ?? $from.marks()));
+}
+
+/** The run formatting at the caret without its direct formatting: paragraph style chain, then the character style. */
+export function inheritedRunAt(state: EditorState, sheet: StyleSheet | null | undefined): RunProperties {
   const { $from } = state.selection;
   let para = null;
   for (let d = $from.depth; d >= 0; d--) {
@@ -37,12 +48,9 @@ export function resolvedRunAt(state: EditorState, sheet: StyleSheet | null | und
       break;
     }
   }
-  // The marks of the text before the caret (Word shows what typing would use), else after it.
-  const marks = state.storedMarks ?? ($from.parentOffset > 0 ? $from.marks() : ($from.nodeAfter?.marks ?? $from.marks()));
-  let out: RunProperties = para ? resolveRun(sheet, paragraphStyleId(sheet, para)) : { ...(sheet?.defaults.run ?? {}) };
-  const cs = styleFromMarks(marks);
-  if (cs) out = overlayRun(out, resolveCharacter(sheet, cs));
-  return overlayRun(out, propsFromMarks(marks));
+  const out: RunProperties = para ? resolveRun(sheet, paragraphStyleId(sheet, para)) : { ...(sheet?.defaults.run ?? {}) };
+  const cs = styleFromMarks(caretMarks(state));
+  return cs ? applyCharacterStyle(out, resolveCharacter(sheet, cs)) : out;
 }
 
 /** The font box value: a named font (theme fonts resolved) and the size (hundredths of a point; Word's 10 pt fallback). */

@@ -52,9 +52,9 @@ describe("page setup helpers", () => {
 });
 
 describe("Write ribbon", () => {
-  it("has File, Home, Insert, Layout, References, Review and View", async () => {
+  it("has File, Home, Insert, Design, Layout, References, Review and View", async () => {
     await mount();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Layout", "References", "Review", "View"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["File", "Home", "Insert", "Design", "Layout", "References", "Review", "View"]);
     const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
     for (const g of ["Clipboard", "Font", "Paragraph", "Styles", "Editing"]) expect(within(toolbar).getByRole("group", { name: g })).toBeTruthy();
   });
@@ -142,6 +142,7 @@ describe("Write ribbon", () => {
     expect(document.activeElement).toBe(tab("Home"));
     fireEvent.keyDown(tab("Home"), { key: "ArrowRight" });
     fireEvent.keyDown(tab("Insert"), { key: "ArrowRight" });
+    fireEvent.keyDown(tab("Design"), { key: "ArrowRight" });
     fireEvent.keyDown(tab("Layout"), { key: "Enter" });
     expect(tab("Layout").getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(tab("Layout"), { key: "Escape" });

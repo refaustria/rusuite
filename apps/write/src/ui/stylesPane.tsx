@@ -228,6 +228,12 @@ export function StylesPane({ editor, ctl, features }: { editor: Editor; ctl: Syn
           <button type="button" className={SMALL_BTN} onClick={() => void clearFormatting(editor, ctl, true)}>
             {t("write.styles.clearAll")}
           </button>
+          <button type="button" className={SMALL_BTN} onClick={() => ui.openDialog("manageStyles")}>
+            {t("write.manage.button")}
+          </button>
+          <button type="button" className={SMALL_BTN} aria-pressed={state.revealFormatting} onClick={() => ui.set({ revealFormatting: !state.revealFormatting })}>
+            {t("write.reveal.button")}
+          </button>
         </div>
       </div>
       {state.styleInspector && <StyleInspector editor={editor} ctl={ctl} />}

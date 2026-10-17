@@ -59,7 +59,9 @@ import { styleFromMarks } from "../sync/fromPM";
 import type { Style } from "../generated/Style";
 import { useT } from "../i18n";
 import { getLocale, contextualTabs, CONTEXT_COLORS } from "@rusuite/ui-shared";
-import { fontBoxValue } from "../features/fontBox";
+import { fontBoxValue, resolvedRunAt } from "../features/fontBox";
+import { toggleRun, type RunSwitch } from "../features/wordKeys";
+import { designTab } from "./designTab";
 import { presetColumns, presetOf, textWidth, type ColumnPreset } from "../features/columns";
 import { columnsCommand } from "../features/columns";
 import { CAPTION_LABELS } from "../features/references";
@@ -244,6 +246,12 @@ export const FIELD_CHOICES: { id: FieldKind["kind"]; readonly label: string }[] 
   withLabel({ id: "fileName" as const }, "write.field.fileName"),
   withLabel({ id: "author" as const }, "write.field.author"),
   withLabel({ id: "title" as const }, "write.field.title"),
+  withLabel({ id: "subject" as const }, "write.field.subject"),
+  withLabel({ id: "keywords" as const }, "write.field.keywords"),
+  withLabel({ id: "comments" as const }, "write.field.comments"),
+  withLabel({ id: "docProperty" as const }, "write.field.company"),
+  withLabel({ id: "lastSavedBy" as const }, "write.field.lastSavedBy"),
+  withLabel({ id: "saveDate" as const }, "write.field.saveDate"),
 ];
 
 /** Date/time pictures by UI language (Word's defaults). */
@@ -328,6 +336,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         props: runPropsAt(e),
         // Home › Font shows what is in effect (style chain and theme fonts), not only direct formatting.
         fontBox: fontBoxValue(e.state, ctl.styles),
+        // Bold / Italic / Underline / Strikethrough are pressed for what is in effect (a bold heading: Bold on).
+        resolved: resolvedRunAt(e.state, ctl.styles),
         columns: sec?.columns ?? null,
         style,
         charStyle,
@@ -371,7 +381,11 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     ),
   }));
   const value: CellStyleView = {
-    font: { ...s.props, font: s.fontBox.font, size: s.fontBox.size } as CellStyleView["font"],
+    font: {
+      ...s.props,
+      bold: !!s.resolved.bold, italic: !!s.resolved.italic, strike: !!s.resolved.strike, underline: s.resolved.underline ?? "none",
+      font: s.fontBox.font, size: s.fontBox.size,
+    } as CellStyleView["font"],
   };
 
   const onChange = (patch: CellStylePatch) => {
@@ -379,11 +393,17 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
     // Inside a text box the text box's editor is formatted (Word).
     const target = formatTarget(editor);
     const chain = () => target.chain().focus();
-    if (f.bold !== undefined) (f.bold ? chain().setBold() : chain().unsetBold()).run();
-    if (f.italic !== undefined) (f.italic ? chain().setItalic() : chain().unsetItalic()).run();
-    if (f.strike !== undefined) (f.strike ? chain().setStrike() : chain().unsetStrike()).run();
+    // Word's toggle semantics: switched relative to the style (Bold off in a bold heading writes `w:b w:val="0"`).
+    const sw = (kind: RunSwitch, on: boolean) => {
+      target.commands.focus();
+      toggleRun(target, ctl.styles, kind, on);
+    };
+    if (f.bold !== undefined) sw("bold", f.bold);
+    if (f.italic !== undefined) sw("italic", f.italic);
+    if (f.strike !== undefined) sw("strike", f.strike);
     if (f.underline !== undefined) {
-      if (f.underline === "none") chain().unsetMark("underline").run();
+      if (f.underline === "none") sw("underline", false);
+      else if (f.underline === "single") sw("underline", true);
       else chain().setMark("underline", { kind: f.underline }).run();
     }
     const ts: Parameters<typeof setTextStyle>[1] = {};
@@ -476,6 +496,22 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         return { kind, cached: name ?? "" };
       case "title":
         return { kind, cached: ctl.properties.title ?? "" };
+      case "subject":
+        return { kind, cached: ctl.properties.subject ?? "" };
+      case "keywords":
+        return { kind, cached: ctl.properties.keywords ?? "" };
+      case "comments":
+        return { kind, cached: ctl.properties.description ?? "" };
+      case "lastSavedBy":
+        return { kind, cached: ctl.properties.lastModifiedBy ?? "" };
+      // Insert › Field › Company: Word's DOCPROPERTY Company.
+      case "docProperty":
+        return { kind, value: { name: "Company" }, cached: ctl.properties.company ?? "" };
+      case "saveDate": {
+        const format = datePicture(locale, "date");
+        const m = ctl.properties.modified ? new Date(ctl.properties.modified) : null;
+        return { kind, value: { format }, cached: m && !Number.isNaN(m.getTime()) ? formatDateTime(m, format, locale) : "" };
+      }
       default:
         return { kind: "author", cached: ctl.properties.author ?? "" };
     }
@@ -1308,7 +1344,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       accent="#2b579a"
       rightSlot={<HelpMenu docStats={() => ({ blocks: editor.state.doc.childCount })} />}
       tabs={[
-        home, insert, layout, references, review, view,
+        home, insert, designTab(ctl, t), layout, references, review, view,
         ...contextualTabs(tableTabList, t("ribbon.ctx.tableTools"), CONTEXT_COLORS.table),
         ...contextualTabs(pictureTab ? [pictureTab] : [], t("ribbon.ctx.pictureTools"), CONTEXT_COLORS.picture),
         ...((d) => contextualTabs(d ? [shapeFormatTab(editor, ctl, d, features.ui)] : [], t("ribbon.ctx.drawingTools"), CONTEXT_COLORS.drawing))(
@@ -1317,7 +1353,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       ]}
       backstage={{
         session,
-        onNew: () => triggerShortcut("Mod+N"),
+        // File › New shows the template gallery (Ctrl+N: a blank document at once, as in Word).
+        onNew: () => features.ui.openDialog("newDocument"),
         onOpen,
         onSave,
         onSaveAs: () => triggerShortcut("F12"),
