@@ -1118,7 +1118,9 @@ test.describe("Write drawings and character formatting (P8-34)", () => {
     await expect(dialog).toBeVisible();
     await dialog.getByRole("checkbox", { name: "Small caps" }).check();
     await dialog.getByRole("tab", { name: "Advanced" }).click();
-    await dialog.getByRole("textbox", { name: /^Spacing/ }).fill("2");
+    // P9-W3: Word's Spacing ▾ Expanded + By.
+    await dialog.getByRole("combobox", { name: "Spacing" }).selectOption("plus");
+    await dialog.getByRole("textbox", { name: "Spacing by (pt)" }).fill("2");
     await dialog.getByRole("button", { name: "OK" }).click();
     const span = main(page).locator("span.text-style", { hasText: "Small caps here" });
     await expect(span).toHaveCSS("font-variant-caps", "small-caps");

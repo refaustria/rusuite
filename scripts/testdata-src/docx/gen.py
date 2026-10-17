@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL docx reference suite (62 documents).
+"""Generator for the PROVISIONAL docx reference suite (64 documents: 63 .docx, one .dotx template).
 
 Emits one flat ODT (.fodt) per topic plus manifest.json. Conversion to .docx is done by
 scripts/gen-docx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -77,10 +77,11 @@ class Doc:
         self.master_xml = None  # replaces the Standard master page
         self.meta_xml = ""  # office:meta content (document properties)
         self.text_decls = ""  # first children of office:text (sequence declarations)
+        self.ext = "docx"  # "dotx": converted as a Word template
 
     @property
     def file(self):
-        return f"provisional-{self.n:02d}-{self.slug}.docx"
+        return f"provisional-{self.n:02d}-{self.slug}.{self.ext}"
 
     def feat(self, f):
         if f not in self.feats:
@@ -1242,13 +1243,66 @@ def _(d):
     d.p(["Hidden: [", span('text:display="none"', "secret", "run:hidden"), "] done."])
 
 
+# ---------------- 63-64 style sets, document properties, a template (P9-W3) ----------------
+@topic(63, "style-sets-properties", "Linked styles with style-set looks (caps, shading, bottom rule), document defaults, words underline, small caps and spacing, document properties with TITLE/SUBJECT/AUTHOR/KEYWORDS fields and DOCPROPERTY Company")
+def _(d):
+    d.meta_xml = (
+        "<dc:title>Style sets and properties</dc:title><dc:subject>Reference suite</dc:subject>"
+        "<meta:initial-creator>Anna Berg</meta:initial-creator><dc:creator>Anna Berg</dc:creator>"
+        "<meta:keyword>styles</meta:keyword><dc:description>Provisional test document</dc:description>"
+    )
+    d.extra_styles = (
+        # Shaded heading (white caps on blue) and a heading with a bottom rule, both linked like Word's.
+        '<style:style style:name="Shaded_20_Heading" style:display-name="Shaded Heading" style:family="paragraph" '
+        'style:parent-style-name="Standard" style:next-style-name="Standard" style:class="text" '
+        'loext:linked-style-name="Shaded_20_Heading_20_Char">'
+        '<style:paragraph-properties fo:background-color="#4472c4" fo:margin-top="12pt" fo:margin-bottom="0pt" fo:keep-with-next="always"/>'
+        '<style:text-properties fo:font-size="14pt" fo:color="#ffffff" fo:text-transform="uppercase"/></style:style>'
+        '<style:style style:name="Shaded_20_Heading_20_Char" style:display-name="Shaded Heading Char" style:family="text" '
+        'loext:linked-style-name="Shaded_20_Heading">'
+        '<style:text-properties fo:font-size="14pt" fo:color="#ffffff" fo:text-transform="uppercase"/></style:style>'
+        '<style:style style:name="Lined_20_Heading" style:display-name="Lined Heading" style:family="paragraph" '
+        'style:parent-style-name="Standard" style:next-style-name="Standard" style:class="text">'
+        '<style:paragraph-properties fo:border-bottom="1pt solid #4472c4" fo:padding-bottom="1pt" fo:margin-top="12pt"/>'
+        '<style:text-properties fo:font-size="13pt" fo:color="#2f5496" fo:font-variant="small-caps" fo:letter-spacing="0.0353cm"/></style:style>'
+    )
+    d.body.append(X('<text:p text:style-name="Shaded_20_Heading">Shaded heading</text:p>'))
+    d.p(["Title: ", X("<text:title>Style sets and properties</text:title>"),
+         ", subject: ", X("<text:subject>Reference suite</text:subject>"), "."])
+    d.p(["Author: ", X("<text:initial-creator>Anna Berg</text:initial-creator>"),
+         ", keywords: ", X("<text:keywords>styles</text:keywords>"), ", company: COMPANY."])
+    d.body.append(X('<text:p text:style-name="Lined_20_Heading">Lined heading</text:p>'))
+    name = d.style("text", '<style:text-properties style:text-underline-style="solid" style:text-underline-width="auto" '
+                           'style:text-underline-color="font-color" style:text-underline-mode="skip-white-space"/>')
+    d.p(["Words only: ", X(f'<text:span text:style-name="{name}">underlined words only</text:span>'), "."])
+    d.p(["A linked run: ", X('<text:span text:style-name="Shaded_20_Heading_20_Char">in Normal text</text:span>'), "."])
+    for f in ["style:linked", "style:shading", "style:bottom-rule", "run:words-underline",
+              "field:title", "field:subject", "field:author", "field:keywords", "field:docproperty=company",
+              "props:title", "props:subject", "props:author", "props:keywords", "props:company", "page:a4"]:
+        d.feat(f)
+
+
+@topic(64, "template-memo", "A Word template (.dotx): memo title, To/From/Date/Re lines with a tab stop and a DATE field, a rule, body placeholder")
+def _(d):
+    d.ext = "dotx"
+    d.meta_xml = "<dc:title>Memo</dc:title>"
+    d.title("Memo")
+    for label, value in [("To:", "[Recipient names]"), ("From:", "[Your name]"), ("Re:", "[Subject]")]:
+        d.p([label, TAB, value])
+    d.p(["Date:", TAB, X('<text:date style:data-style-name="N37" text:date-value="2026-10-17">17.10.2026</text:date>')])
+    d.p(txt(1))
+    d.p("[Type the text of the memo here.]")
+    for f in ["template", "title", "tab", "field:date", "props:title", "page:a4"]:
+        d.feat(f)
+
+
 def emit(outdir, pngdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     for k in range(3):
         IMAGES[k] = (Path(pngdir) / f"img{k}.png").read_bytes()
     manifest = []
-    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 63)), "need exactly topics 1..62"
+    assert [t[0] for t in sorted(TOPICS)] == list(range(1, 65)), "need exactly topics 1..64"
     for n, slug, desc, fn in sorted(TOPICS):
         d = Doc(n, slug, desc)
         fn(d)
@@ -1278,7 +1332,41 @@ STYLE_PATCHES = {
 }
 
 
+# What LibreOffice cannot export in file 63 (P9-W3): the words-only underline (it writes single), a DOCPROPERTY
+# Company field and the company in docProps/app.xml.
+PART_PATCHES = {
+    "provisional-63-style-sets-properties.docx": {
+        "word/document.xml": [
+            ('<w:u w:val="single"/>', '<w:u w:val="words"/>'),
+            ('<w:r><w:rPr></w:rPr><w:t>, company: COMPANY.</w:t></w:r>',
+             '<w:r><w:rPr></w:rPr><w:t xml:space="preserve">, company: </w:t></w:r>'
+             '<w:fldSimple w:instr=" DOCPROPERTY Company \\* MERGEFORMAT "><w:r><w:t>ACME Corp</w:t></w:r></w:fldSimple>'
+             '<w:r><w:t>.</w:t></w:r>'),
+        ],
+        "docProps/app.xml": [("<Template></Template>", "<Template></Template><Company>ACME Corp</Company>")],
+    },
+}
+
+
 def patch(docxdir):
+    for name, parts in PART_PATCHES.items():
+        path = Path(docxdir) / name
+        if not path.exists():
+            continue
+        with zipfile.ZipFile(path) as z:
+            items = [(i, z.read(i.filename)) for i in z.infolist()]
+        out = []
+        for info, data in items:
+            for old, new in parts.get(info.filename, []):
+                xml = data.decode("utf-8")
+                if old not in xml:
+                    raise SystemExit(f"{name}: {old!r} not found in {info.filename}")
+                data = xml.replace(old, new, 1).encode("utf-8")
+            out.append((info, data))
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for info, data in out:
+                z.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED)
+        print(f"patched {name}")
     for name, edits in STYLE_PATCHES.items():
         path = Path(docxdir) / name
         if not path.exists():  # converting only some topics
@@ -1305,6 +1393,7 @@ RUN_XML = {
     "run:small-caps": "<w:smallCaps/>", "run:all-caps": "<w:caps/>", "run:spacing": "<w:spacing w:val=",
     "run:scale": "<w:w w:val=", "run:double-strike": "<w:dstrike/>", "run:outline": "<w:outline/>",
     "run:shadow": "<w:shadow/>", "run:emboss": "<w:emboss/>", "run:imprint": "<w:imprint/>", "run:hidden": "<w:vanish/>",
+    "run:words-underline": '<w:u w:val="words"/>',
 }
 
 
@@ -1417,6 +1506,24 @@ def check(manifest_path, docxdir):
                 errs.append("txbxContent not found")
             elif ft.startswith("drawing:float=") and "<wp:anchor" not in doc:
                 errs.append("wp:anchor not found")
+            elif ft == "template":
+                with zipfile.ZipFile(f) as z:
+                    types = z.read("[Content_Types].xml").decode("utf-8")
+                if "wordprocessingml.template.main+xml" not in types:
+                    errs.append("template content type not found")
+            elif ft.startswith("field:") and ft not in ("field:ref", "field:pageref") and not ft.startswith("field:seq="):
+                instr = {"field:docproperty=company": "DOCPROPERTY Company"}.get(ft, ft.split(":")[1].upper())
+                if instr not in doc:
+                    errs.append(f"{ft} not found")
+            elif ft == "props:company":
+                with zipfile.ZipFile(f) as z:
+                    if "<Company>" not in z.read("docProps/app.xml").decode("utf-8"):
+                        errs.append("Company not found")
+            elif ft.startswith("style:") and ft in ("style:shading", "style:bottom-rule"):
+                with zipfile.ZipFile(f) as z:
+                    styles = z.read("word/styles.xml").decode("utf-8")
+                if ("<w:shd " if ft == "style:shading" else "<w:pBdr>") not in styles:
+                    errs.append(f"{ft} not found")
             elif ft.startswith("run:") and ft.split("=")[0] in RUN_XML and RUN_XML[ft.split("=")[0]] not in doc:
                 errs.append(f"{ft} not found")
         n = len(re.findall(r"<w:p[ >]", doc))

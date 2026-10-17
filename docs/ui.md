@@ -22,6 +22,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
   - [Write shapes, text boxes, picture formatting, character formatting (P8-34)](#write-shapes-text-boxes-picture-formatting-character-formatting-p8-34)
   - [Write quality pass (P8-38)](#write-quality-pass-p8-38)
   - [Write pagination round 3 (P9-W2)](#write-pagination-round-3-p9-w2)
+  - [Write styles round 2, templates and properties (P9-W3)](#write-styles-round-2-templates-and-properties-p9-w3)
 - [Building blocks (@rusuite/ui-shared)](#building-blocks-rusuiteui-shared)
 - [Keyboard](#keyboard)
 - [Tabs per app](#tabs-per-app)
@@ -415,6 +416,57 @@ The algorithm is in `docs/write-layout.md`; the numbers in docs/perf.md.
   pages after it are taken over as soon as the breaks meet the previous ones again (a keystroke on page 100 of 200 lays
   out in a few milliseconds).
 
+### Write styles round 2, templates and properties (P9-W3)
+- **Toggle properties like Word**: bold, italic, caps, small caps, strikethrough, double strikethrough, outline, shadow,
+  emboss, engrave and hidden *switch* where a character style turns them on over a paragraph style that has them
+  (Strong in a bold heading is not bold; `model_text::apply_character_style`, mirrored in the editor's CSS). Ctrl+B /
+  Ctrl+I / Ctrl+U and Home › Bold / Italic / Underline / Strikethrough work relative to the style: in a bold heading
+  Bold is pressed, and pressing it writes `w:b w:val="0"`; pressing it again removes the direct value. Small caps /
+  all caps (Ctrl+Shift+K / A) and the double underline (Ctrl+Shift+D) follow the same rule.
+- **Words-only underline**: `Underline::Words` (`w:u w:val="words"`); Ctrl+Shift+W sets it, the Font dialog lists it
+  with Word's other underline styles (single, double, dotted, dashed, wave). The editor underlines each word, not the
+  spaces between them.
+- **Font › Advanced** as in Word: Scale, Spacing Normal / Expanded / Condensed *by* n pt, Position Normal / Raised /
+  Lowered *by* n pt, Kerning for fonts of n points and above.
+- **Manage Styles** (Styles pane › Manage Styles…): *Edit* – the styles sorted Alphabetical / As Recommended / Font /
+  Based on / By type, shown Recommended / In use / All (All includes hidden styles, marked "(Hide)"); Modify…, Delete
+  (user styles), New Style…; double-click modifies. *Recommend* – Show, Hide until used, Hide (`w:hidden`,
+  `w:semiHidden`) and Assign Value (`w:uiPriority`). *Set Defaults* – font, size, space before / after and line
+  spacing of the document defaults (`SetStyleDefaults` → `w:docDefaults`; what Normal and every style without its own
+  value use).
+- **Design tab** (between Insert and Layout): *Style Sets* gallery with the built-in sets Word, Basic, Black & White,
+  Casual, Centered, Elegant, Lines, Minimalist, Modern and Shaded (`StyleSet::builtin`; previews of Title, Heading 1 and
+  body text; the set the document matches is marked) and the user's own sets; ▾ › Reset to the Default Style Set, Save
+  as a New Style Set… (the current defaults + Normal, Title, Subtitle, Heading 1–3, kept on this device, ADR 0009).
+  Applying a set is one undo step (`ApplyStyleSet`): the document keeps it as ordinary style definitions (and
+  `w:latentStyles` travel along). *Paragraph Spacing* ▾: No Paragraph Space, Compact, Tight, Open, Relaxed, Double (the
+  defaults' spacing). *Set as Default*: new blank documents on this device start with the current set (`newDocument
+  { styleSet }`).
+- **Modify Style › Format › Numbering…**: the list (with its labels) and the *list level* the style's paragraphs get
+  (Word's heading numbering: Heading N on level N).
+- **Reveal Formatting** pane (Shift+F1, or Styles pane › Reveal Formatting): Font (font, size, bold / italic /
+  underline, colour, highlight, effects, spacing, scale, position, kerning), Paragraph (style, alignment, indentation,
+  spacing, outline level, keep with next, numbering level) and Section (margins, paper, orientation) of the selection
+  start; "Distinguish style source" names where each value comes from (direct formatting, a style, the document
+  defaults).
+- **Home › Font boxes** show the resolved font and size (direct → character style → paragraph style chain → defaults,
+  theme fonts by name) – unchanged since P8-27, now with the toggle rules.
+- **File › New** shows Word's template gallery: Blank document, Report, Letter, Memo, Minutes (shipped as `.dotx` in
+  `apps/write/public/templates/`, English and German, written by write-core's `templates` module). A template opens as
+  a new untitled, unmodified document with its styles, numbering, page setup, headers / footers and placeholder
+  content (`newFromTemplate`); Ctrl+N still makes a blank document at once.
+- **Templates**: File › Open accepts `.dotx` (it opens the template itself, like Word; saving keeps the template
+  content type). Save As (F12) on the web has Word's *Save as type*: Word Document (*.docx) / Word Template (*.dotx);
+  on the desktop the native dialog offers both extensions and a `.dotx` name writes a template.
+- **File › Info**: Title, Subject, Author, Tags (keywords), Categories, Company (`docProps/app.xml`), Comments; Created,
+  Last Modified, Last Modified By; statistics: words, pages, characters with and without spaces, paragraphs (the
+  core's `statistics`, also written to `app.xml`); the file type (document / template).
+- **Fields from the properties**: Insert › Field has Subject, Keywords, Comments, Company (`DOCPROPERTY Company`),
+  Last saved by and Save date besides Author and Title; F9 / the save update them, the save stamps Last saved by and
+  Save date first.
+- **Comments** without a user name are written by the document's author (File › Info › Author) instead of asking for
+  a name; with neither, the User Name dialog asks as before.
+
 ## Building blocks (`@rusuite/ui-shared`)
 
 | Export | Use |
@@ -696,7 +748,8 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, multilevel list, indent, line spacing, alignment, shading, borders,
   tabs; Styles gallery (quick styles with live previews, ▾ Create a Style / Clear Formatting / Apply Styles, Styles pane; P8-21); Editing: Find and replace), Insert (Table picker, Picture, Links: Link /
   Bookmark / Cross-reference, Header/Footer/Page number, Text: Field, Date & Time, Symbols: Symbol ▾, Footnotes, Page break,
-  Line break), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Columns ▾, Breaks ▾ incl. Column, Hyphenation ▾),
+  Line break), Design (Document Formatting: Style Sets gallery ▾ Reset / Save as a New Style Set; Formatting: Paragraph
+  Spacing ▾, Set as Default; P9-W3), Layout (Margins, Orientation, Size → `SetSection`/`SetPage`, Columns ▾, Breaks ▾ incl. Column, Hyphenation ▾),
   References (Table of contents, Captions: Insert Caption, Insert Table of Figures ▾, Cross-reference, Bookmark, Update Fields;
   Footnotes; P8-27), Review (Comments: New, Delete ▾, Previous/Next, Resolve, Show Comments, Comments Pane; P8-25), View (views, ruler, Navigation Pane, zoom, spelling, shortcuts help); contextual Table Design and
   Table Layout in a table, Picture Format on a picture (P8-17).
