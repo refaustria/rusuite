@@ -1,6 +1,6 @@
 # Roadmap – ideas beyond the README scope
 
-> What comes after v0.1.0 is planned in [docs/plan-after-0.1.0.md](docs/plan-after-0.1.0.md).
+> The current cycle (3.141) is planned in [docs/plan-3.141.md](docs/plan-3.141.md); later cycles in [docs/plan-after-0.1.0.md](docs/plan-after-0.1.0.md). Versions follow π ([docs/versioning.md](docs/versioning.md)).
 
 Captured here, **not implemented** unless essential to the current phase. README is the authority on scope.
 

@@ -2,7 +2,13 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current phase: Phase 8 – Office parity (owner direction 2026-10-15) + pending P7 items
+## Current cycle: 3.141 (owner direction 2026-10-17)
+
+**Owner direction 2026-10-17:** next version is **3.141** (π numbering, `docs/versioning.md`); installers are built only at the end of the cycle. Order: **Calc, Show and Write features → all official EU languages (24) → AI assistant round 2 → release 3.141.** Plan with every batch: `docs/plan-3.141.md`. Mobile/connectors/signing stay in `docs/plan-after-0.1.0.md` (signing starts as soon as the Apple account exists). Working mode unchanged: one agent per app in parallel (max 3), PM verifies, merges on main and deploys the web after each verified merge.
+
+Block 1 running: P9-C1 (Calc protection/Format Cells/sheets), P9-S1 (Show rich text + master text), P9-W1 (Write lists/numbering/shortcuts). Next per app: C2 tables/data tools, S2 tables, W2 pagination.
+
+## Phase 8 (closed with v0.1.0) – Office parity (owner direction 2026-10-15) + pending P7 items
 
 **Owner direction 2026-10-15:** keep improving toward "very close to what an office suite offers", implementing functionality broadly (no VBA, no Power Query for now; JSON maybe later); consider an AI connection via API. Backlog: `docs/parity-backlog.md` (tiers per app); AI: `docs/ai-plan.md`. Work order: finish P7-11 i18n → P7-12 privacy → parity tier 1 in batches (Calc functions first, engine-only, started now) → cloud connectors → AI assistant → mobile after v0.1.0.
 
@@ -69,6 +75,9 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 
 | ID | Task | Model | State | Branch | Notes |
 |---|---|---|---|---|---|
+| P9-C1 | Calc: sheet/workbook protection, Insert/Delete adjustments (CF/validation/pivot), Format Cells leftovers (No Border/Outline, accounting underlines, pattern fills, rotation), Unhide several / hidden-sheet skipping / tab colours / Move or Copy | Opus | running | p9/calc-protection | brief docs/tasks/P9-C1-calc-protection-format-sheets.md; port 4911 |
+| P9-S1 | Show: rich in-place text editor (levels, Shift+Enter, run formatting), spAutoFit/normAutofit, formatted prompt text, master/layout in-place editing + levels 2–9 + rename layout/add placeholder, Text box click-or-drag | Opus | running | p9/show-rich-text | brief docs/tasks/P9-S1-show-rich-text-master.md; port 4921 |
+| P9-W1 | Write: List Paragraph/contextual spacing, Backspace like Word, levels from real indents, numbering/bullet/multilevel galleries + Define New Number Format, Restart/Continue/Set Value, outlineLvl, heading numbers in TOC, Word shortcuts (W-30) | Opus | running | p9/write-lists | brief docs/tasks/P9-W1-write-lists-numbering-shortcuts.md; port 4931 |
 | P3-1 | `model-text` document model + `core_model::units`; ADR 0006 | Opus | done (merged) | – | verified: 499 tests total, wasm check, 3 insta snapshots; bullets stored as readable chars (fmt-docx maps to Symbol PUA); `Document.theme` missing (ROADMAP/fmt-docx context) |
 | P3-3 | Write app scaffold: `apps/write` core/src-tauri/src-wasm/Tiptap UI, deployed at /write/ | Sonnet | done (merged) | – | verified: LIVE https://resuite.inceptum.at/write/ (Tiptap 3.31.3 placeholder editor), tauri build runs under xvfb, deploy script covers calc+write |
 | P3-6 | 50 provisional reference .docx files + manifest + docs/docx-suite.md | Sonnet | done (merged) | – | verified: 50 files + manifest, 52/52 harness PASS, structural spot-checks OK; LibreOffice writes highlights as `w:shd` (reader must accept both) |
@@ -201,6 +210,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Tauri system deps (webkit2gtk-4.1-dev, gtk-3-dev, build-essential, pkg-config) were already present.
 
 ## Last decisions
+30. 2026-10-17: Owner set the 3.141 cycle (π versioning, docs/versioning.md): features for Calc/Show/Write first, then all 24 EU languages, then AI round 2, then one release build at the end. Assumption until the owner says otherwise: the web keeps being deployed from main after each verified merge. The PM orchestrates only (never writes code).
 29. 2026-10-15: Agents no longer deploy; only the PM deploys from main. (The P8-9/P8-10 deploy hold was lifted after P8-10 merged.) Do not share CARGO_TARGET_DIR across checkouts (insta snapshot paths).
 28. 2026-10-15: Owner asked about copyright risk of OOXML support – assessment in docs/legal-notes.md (open standard under the OSP; safeguards: trademark non-affiliation statements added to README and portal, no bundled proprietary fonts, own icons; recommend a trademark search and a NOTICE file before public release).
 27. 2026-10-15: Owner confirmed scope: pivot tables YES, comments & notes YES, Show transitions + animations YES, AI provider Anthropic first. README non-goals for these will be amended when each lands; VBA/Power Query/track changes/co-authoring stay out.

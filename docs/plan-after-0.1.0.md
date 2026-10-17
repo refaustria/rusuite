@@ -1,4 +1,6 @@
-# Plan after v0.1.0 (written 2026-10-16 for the owner's follow-up activities starting the week of 2026-10-19)
+# Plan after v0.1.0 (written 2026-10-16; re-ordered by the owner on 2026-10-17)
+
+> **Superseded in order by [docs/plan-3.141.md](plan-3.141.md):** the owner chose Calc/Show/Write features → all EU languages → AI round 2 → release 3.141 (π numbering, [docs/versioning.md](versioning.md)). Mobile (Block 1 below), connectors round 2 (Block 2) and the signing item stay here for later cycles; signing starts as soon as the Apple account exists.
 
 Status at v0.1.0: Phase 8 parity batches, three quality passes, cloud connectors v1 (WebDAV, desktop), AI assistant v1 (desktop), in-app "Report a problem", portal at **https://rusuit.es** (free, open source MIT, informal German). Everything below is ordered by my recommendation; each block is one or more agent tasks that I run the usual way (brief → agent → verification → merge → deploy). Owner inputs are marked **Owner**.
 
