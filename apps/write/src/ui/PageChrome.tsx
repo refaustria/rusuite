@@ -3,9 +3,11 @@
 // margins (covering whatever the page gaps of the text flow show there),
 // headers and footers (greyed, double-click edits them), the grey gap
 // between sheets ("Page N" on hover, double-click hides / shows the white
-// space), the footnote separator and continued footnotes, repeated table
-// header rows and column rules. The text and the footnotes on their own
-// page are the editor's (features/pagination.ts places them).
+// space), the footnote separators (a continued note gets the full-width
+// continuation separator), endnote separators at section ends, repeated
+// table header rows and column rules. The text and the notes (also the
+// continued part of a long footnote, P9-W2) are the editor's
+// (features/pagination.ts places them).
 
 import { memo, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
@@ -71,17 +73,6 @@ function useVisibleRange(ref: React.RefObject<HTMLDivElement | null>, layout: Pa
     };
   }, [ref, layout]);
   return range;
-}
-
-/** The HTML of a note's element (a continued footnote), without the editor's placement. */
-function noteHtml(editor: Editor | null, id: number): string {
-  const el = editor?.view.dom.querySelector<HTMLElement>(`.note[data-note-id="${id}"]`);
-  if (!el) return "";
-  const c = el.cloneNode(true) as HTMLElement;
-  c.removeAttribute("style");
-  c.classList.remove("note-paged");
-  c.querySelectorAll("[contenteditable]").forEach((e) => e.removeAttribute("contenteditable"));
-  return c.outerHTML;
 }
 
 /** A clone of a table's header rows at a page top: HTML and the table's left / width (frame px). */
@@ -156,13 +147,9 @@ const Sheet = memo(function Sheet({ s, last, layout, editor, frame, onEditHeader
           style={{ top: s.notesTop + 5, left: x + g.left, ...(s.notes[0]!.from > 0 ? (mixed ? { width: g.width - g.left - g.right } : { right: g.right }) : {}) }}
         />
       )}
-      {s.notes
-        .filter((n) => n.from > 0)
-        .map((n) => (
-          <div key={`c${n.id}`} className="page-note-cont tiptap-content" style={{ top: n.top, left: x + g.left, ...(mixed ? { width: g.width - g.left - g.right } : { right: g.right }), height: n.to - n.from }}>
-            <div style={{ marginTop: -n.from }} dangerouslySetInnerHTML={{ __html: noteHtml(editor, n.id) }} />
-          </div>
-        ))}
+      {(s.endSeps ?? []).map((y, i) => (
+        <div key={`e${i}`} className="page-endnote-sep" data-testid="page-endnote-separator" data-page={s.index + 1} style={{ top: y + 5, left: x + g.left }} />
+      ))}
       {repeat && s.repeat && (
         <div className="page-repeat tiptap-content" data-testid="page-repeat-header" style={{ top: s.repeat.top, left: repeat.left, width: repeat.width, height: s.repeat.height }} dangerouslySetInnerHTML={{ __html: repeat.html }} />
       )}

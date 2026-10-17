@@ -177,6 +177,76 @@ pub struct Section {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub page_number_format: Option<LevelKind>,
+    /// Footnote numbering of the section (docx `w:sectPr/w:footnotePr`:
+    /// `w:numFmt`, `w:numStart`, `w:numRestart`; References › Footnote and
+    /// Endnote). `None` = continuous Arabic numbers from 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub footnote_numbering: Option<NoteNumbering>,
+    /// Endnote numbering of the section (docx `w:sectPr/w:endnotePr`).
+    /// `None` = continuous lower-case Roman numbers from i.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub endnote_numbering: Option<NoteNumbering>,
+}
+
+/// Where note numbers start again (docx `w:numRestart`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub enum NoteRestart {
+    /// Numbers run on through the document (`continuous`, the default).
+    #[default]
+    Continuous,
+    /// Every section starts again (`eachSect`).
+    EachSection,
+    /// Every page starts again (`eachPage`; footnotes only).
+    EachPage,
+}
+
+/// The number format, start and restart of footnotes or endnotes in a
+/// section (the Footnote and Endnote dialog's Format group).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "apps/write/src/generated/")
+)]
+pub struct NoteNumbering {
+    /// Number format (`w:numFmt`; `None` = the note kind's default:
+    /// decimal for footnotes, lower-case Roman for endnotes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub format: Option<LevelKind>,
+    /// First number (`w:numStart`; `None` = 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub start: Option<u32>,
+    /// Where the numbers restart (`w:numRestart`).
+    #[serde(default, skip_serializing_if = "is_continuous")]
+    #[cfg_attr(feature = "ts", ts(optional, as = "Option<NoteRestart>"))]
+    pub restart: NoteRestart,
+}
+
+fn is_continuous(r: &NoteRestart) -> bool {
+    *r == NoteRestart::Continuous
+}
+
+impl NoteNumbering {
+    /// Whether everything has its default (stored as no numbering).
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// `Some(self)` unless it is the default.
+    pub fn non_default(self) -> Option<Self> {
+        (!self.is_default()).then_some(self)
+    }
 }
 
 /// One column of unequal-width columns: its width and the space after it.
@@ -312,6 +382,8 @@ impl Section {
             title_page: false,
             page_number_start: None,
             page_number_format: None,
+            footnote_numbering: None,
+            endnote_numbering: None,
         }
     }
 

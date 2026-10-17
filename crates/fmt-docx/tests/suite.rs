@@ -1651,3 +1651,120 @@ fn links_bookmarks_cross_references_captions_columns_properties() {
     assert_same("60", &doc, &back.document);
     insta::assert_snapshot!("document_xml_60", main);
 }
+
+// --- pagination round 3 (P9-W2) ----------------------------------------------------
+
+/// A one-cell row with `text` and row properties `props`.
+fn row(doc: &mut Document, text: &str, props: model_text::RowProperties) -> model_text::TableRow {
+    let p = Paragraph::with_text(doc.alloc_id(), text);
+    model_text::TableRow {
+        id: doc.alloc_id(),
+        props,
+        cells: vec![model_text::TableCell::new(
+            doc.alloc_id(),
+            Default::default(),
+            vec![Block::Paragraph(p)],
+        )],
+    }
+}
+
+#[test]
+fn nested_table_header_and_cant_split_roundtrip() {
+    let mut doc = Document::new();
+    let header = model_text::RowProperties {
+        header: true,
+        ..Default::default()
+    };
+    let keep = model_text::RowProperties {
+        cant_split: true,
+        ..Default::default()
+    };
+    let inner_rows = vec![
+        row(&mut doc, "inner head", header),
+        row(&mut doc, "inner kept", keep),
+        row(&mut doc, "inner plain", Default::default()),
+    ];
+    let inner = model_text::Table {
+        id: doc.alloc_id(),
+        props: Default::default(),
+        rows: inner_rows,
+    };
+    let after = Paragraph::with_text(doc.alloc_id(), "");
+    let mut outer_row = row(&mut doc, "outer", keep);
+    outer_row.cells[0].blocks.push(Block::Table(inner));
+    outer_row.cells[0].blocks.push(Block::Paragraph(after));
+    let outer_head = row(&mut doc, "outer head", header);
+    let outer = model_text::Table {
+        id: doc.alloc_id(),
+        props: Default::default(),
+        rows: vec![outer_head, outer_row],
+    };
+    doc.body = vec![
+        Block::Table(outer),
+        Block::Paragraph(Paragraph::new(doc.alloc_id())),
+    ];
+    let back = reread(&doc);
+    let t = back.body[0].as_table().unwrap();
+    assert!(t.rows[0].props.header && !t.rows[0].props.cant_split);
+    assert!(t.rows[1].props.cant_split && !t.rows[1].props.header);
+    let nested = t.rows[1].cells[0]
+        .blocks
+        .iter()
+        .find_map(|b| b.as_table())
+        .expect("nested table");
+    let flags: Vec<(bool, bool)> = nested
+        .rows
+        .iter()
+        .map(|r| (r.props.header, r.props.cant_split))
+        .collect();
+    assert_eq!(flags, vec![(true, false), (false, true), (false, false)]);
+}
+
+#[test]
+fn endnotes_at_section_end_and_note_numbering_roundtrip() {
+    let mut doc = Document::new();
+    doc.settings.endnotes_at_section_end = true;
+    let mut end1 = Paragraph::with_text(doc.alloc_id(), "first section");
+    end1.props.section_end = Some(model_text::SectionId(7));
+    let last = Paragraph::with_text(doc.alloc_id(), "second section");
+    doc.body = vec![Block::Paragraph(end1), Block::Paragraph(last)];
+    let mut first = model_text::Section::new(model_text::SectionId(7), doc.page.clone());
+    first.footnote_numbering = Some(model_text::NoteNumbering {
+        format: Some(LevelKind::LowerLetter),
+        start: None,
+        restart: model_text::NoteRestart::EachPage,
+    });
+    first.endnote_numbering = Some(model_text::NoteNumbering {
+        format: Some(LevelKind::UpperRoman),
+        start: Some(2),
+        restart: model_text::NoteRestart::EachSection,
+    });
+    let second = model_text::Section::new(model_text::SectionId(8), doc.page.clone());
+    doc.sections = vec![first.clone(), second];
+    doc.sync_sections();
+    let back = reread(&doc);
+    assert!(back.settings.endnotes_at_section_end);
+    assert_eq!(back.sections.len(), 2);
+    assert_eq!(
+        back.sections[0].footnote_numbering,
+        first.footnote_numbering
+    );
+    assert_eq!(back.sections[0].endnote_numbering, first.endnote_numbering);
+    assert_eq!(back.sections[1].footnote_numbering, None);
+    // Written back again, unchanged (the settings keep `w:pos` first in `w:endnotePr`).
+    let again = reread(&back);
+    assert_eq!(again.sections, back.sections);
+    let bytes = fmt_docx::write(&back).unwrap();
+    let pkg = Package::open(Cursor::new(bytes.as_slice())).unwrap();
+    let xml = String::from_utf8(
+        pkg.part(&PartName::new("/word/settings.xml").unwrap())
+            .unwrap()
+            .data
+            .clone(),
+    )
+    .unwrap();
+    assert!(
+        xml.contains(r#"<w:endnotePr><w:pos w:val="sectEnd"/>"#),
+        "{xml}"
+    );
+}

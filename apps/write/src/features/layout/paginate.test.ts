@@ -459,8 +459,8 @@ describe("incremental pagination", () => {
     const inc = paginate(after, { ...OPTS, resume: { prev, from } });
     expect(inc.pages.map((p) => [p.start, p.end])).toEqual(full.pages.map((p) => [p.start, p.end]));
     expect(inc.spacers.map((s) => [s.unit, Math.round(s.height)])).toEqual(full.spacers.map((s) => [s.unit, Math.round(s.height)]));
-    // Only the pages from the edit on were walked again.
-    expect(inc.pages[0]).not.toBe(prev.pages[0]);
+    // Only the pages from the edit on were walked again: the ones before are taken over.
+    expect(inc.pages[0]).toBe(prev.pages[0]);
     expect(from).toBeGreaterThan(prev.pages[2]!.start);
   });
 

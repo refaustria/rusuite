@@ -12,10 +12,10 @@
 use core_model::units::Emu;
 use model_text::{
     Anchor, Block, CellProperties, FieldKind, HeaderSlot, Inline, LevelKind, MediaId, NodeId, Note,
-    NoteKind, Numbering, Orientation, PageSetup, Paragraph, ParagraphProperties, RowHeight,
-    RowProperties, RunProperties, Section, SectionId, SectionKind, Style, StyleKind, StylePatch,
-    StyleSheet, Table, TableCell, TableProperties, TableRow, Toc, TocEntry, Twips, VMerge,
-    WrapKind,
+    NoteKind, NoteNumbering, Numbering, Orientation, PageSetup, Paragraph, ParagraphProperties,
+    RowHeight, RowProperties, RunProperties, Section, SectionId, SectionKind, Style, StyleKind,
+    StylePatch, StyleSheet, Table, TableCell, TableProperties, TableRow, Toc, TocEntry, Twips,
+    VMerge, WrapKind,
 };
 use model_text::{Columns, Comment, CommentId, CoreProperties, DocumentSettings, Hyperlink};
 use model_text::{Drawing, DrawingKind, Level, ListPreset, PictureFormat};
@@ -106,6 +106,13 @@ pub struct SectionPatch {
     pub page_number_format: Option<LevelKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<PageSetupPatch>,
+    /// Footnote numbering (References › Footnote and Endnote); the
+    /// default value removes the section's own numbering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footnote_numbering: Option<NoteNumbering>,
+    /// Endnote numbering, like `footnoteNumbering`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endnote_numbering: Option<NoteNumbering>,
 }
 
 /// A position for [`WriteCommand::AddComment`]: char offset `offset` of

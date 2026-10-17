@@ -11,7 +11,7 @@ import { columnResizePlugin } from "./columnResize";
 import { findPlugin } from "./find";
 import { clearFormatting, FormatPainter, toggleScript } from "./formatting";
 import { imageFiles, insertImageFile } from "./images";
-import { paginationPlugin, remeasurePages, type PageLayout } from "./pagination";
+import { paginationPlugin, relayoutPages, remeasurePages, type PageLayout } from "./pagination";
 import type { FlowProps } from "./layout/measure";
 import { layoutFieldContext, refreshStructure, structurePlugin, updateFieldsCommand, type FieldContext } from "./structure";
 import { linksPlugin } from "./links";
@@ -45,7 +45,7 @@ export type WriteDialog =
   | "rowHeight" | "altText" | "pageSetup" | "headerFooter" | "paragraph" | "pageNumbers"
   | "splitCells" | "cellMargins" | "tableProps" | "bordersShading" | "tabs" | "userName"
   | "link" | "bookmark" | "goTo" | "caption" | "crossRef" | "columns" | "symbol" | "dateTime" | "font"
-  | "numberFormat" | "bulletFormat" | "numberingValue" | null;
+  | "numberFormat" | "bulletFormat" | "numberingValue" | "notes" | null;
 
 /** Review › Comments: what the margin / pane shows. */
 export interface CommentsUiState {
@@ -386,6 +386,7 @@ export class WriteFeatures {
             onPages: (pages) => ui.set({ pages }),
             flow: (node) => features.flow(node),
             hideWhiteSpace: () => ui.getState().hideWhiteSpace,
+            endnotesAtSectionEnd: () => !!ctl.settings.endnotesAtSectionEnd,
             onLayout: (l) => {
               const f = ui.getState().frame;
               const frame = l && (f?.firstHeader !== l.firstHeader || f?.lastFooter !== l.lastFooter) ? { firstHeader: l.firstHeader, lastFooter: l.lastFooter } : l ? f : null;
@@ -494,7 +495,8 @@ export class WriteFeatures {
                   page = ctl.page;
                   sections = ctl.sections;
                   refreshSectionWidths(view);
-                  remeasurePages(view);
+                  // Blocks whose section width changed are measured again; the pages resume before the changed section.
+                  relayoutPages(view);
                   refreshStructure(view);
                 }
                 if (ctl.settings !== settings) {

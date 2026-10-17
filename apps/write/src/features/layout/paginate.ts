@@ -20,10 +20,30 @@ export interface CellLine {
   at: Anchor;
 }
 
+/** A row of a table nested in a cell: its cells split like the parent row's (P9-W2). */
+export interface NestedRow {
+  kind: "row";
+  top: number;
+  bottom: number;
+  /** "Allow row to break across pages" off (`w:cantSplit`): the row moves whole when it does not fit. */
+  cantSplit?: boolean;
+  /** A header row (`w:tblHeader`): never alone at a page bottom (Word does not repeat nested header rows). */
+  header?: boolean;
+  /** Spacer positions at the start of each of its cells (a page starts at the row). */
+  at: Anchor;
+  cells: CellFlow[];
+}
+
+/** What a cell holds, in order: its lines and the rows of nested tables. */
+export type CellContent = ({ kind: "line" } & CellLine) | NestedRow;
+
 export interface CellFlow {
+  /** Every line of the cell (nested tables' lines included, DOM order). */
   lines: CellLine[];
   /** Natural bottom of the cell's content. */
   bottom: number;
+  /** The structure for splitting (lines and nested rows); `lines` when absent. */
+  content?: CellContent[];
 }
 
 /** One unit of the flow: a line of a paragraph, a table row or an unbreakable block. */
@@ -95,6 +115,8 @@ export interface FlowBlock {
   top: number;
   /** Index of the child in a columns box, -1 for a top-level block. */
   child: number;
+  /** An endnote placed at its section's end: the note id (`top` is the notes area). */
+  note?: number;
   /** Natural (or virtual, in a columns box) top and bottom of the element. */
   y: number;
   bottom: number;
@@ -103,8 +125,18 @@ export interface FlowBlock {
 export interface FootnoteFlow {
   id: number;
   height: number;
-  /** Line boundaries (px from the note's top), for continuing a long note on the next page. */
-  lines: { top: number; bottom: number }[];
+  /** Line boundaries (px from the note's top), for continuing a long note on the next page; `at`: where a spacer before the line goes (inside the note). */
+  lines: { top: number; bottom: number; at?: Anchor }[];
+}
+
+/** The endnotes of a section placed at its end (`w:endnotePr/w:pos="sectEnd"`): units `[first, last]`, their total height. */
+export interface EndnoteGroup {
+  section: number;
+  first: number;
+  last: number;
+  height: number;
+  /** The unit after the group (-1: none); the reserved space goes before it. */
+  next: number;
 }
 
 export interface Flow {
@@ -114,8 +146,29 @@ export interface Flow {
   regions: RegionFlow[];
   blocks: FlowBlock[];
   footnotes: Map<number, FootnoteFlow>;
+  /** Endnotes at section ends (units of the flow with virtual positions). */
+  endGroups?: EndnoteGroup[];
+  /** Built from the previous run's flow: see `FlowReuse`. */
+  reuse?: FlowReuse;
   /** Natural bottom of the last block. */
   end: number;
+}
+
+/**
+ * How a flow relates to the previous run's (`buildFlow` with a previous
+ * flow): units before `from` are the same; units from `same` on are the
+ * previous ones moved by `du` (index), `dy` (natural y) and the index
+ * deltas of blocks, paragraphs, tables and regions.
+ */
+export interface FlowReuse {
+  from: number;
+  same: number;
+  du: number;
+  dy: number;
+  db: number;
+  dp: number;
+  dt: number;
+  dr: number;
 }
 
 /** The vertical page box (px): sheet height, the body's offset from the sheet top and its height. */
@@ -196,12 +249,16 @@ export interface LayoutPage extends PageSpec {
   sets?: { region: number; top: number; height: number }[];
   /** The columns of the column sets: units `[start, end)` in column `col` of a set starting at frame y `top`. */
   regionColumns?: { region: number; col: number; start: number; end: number; top: number }[];
+  /** Table rows split across pages: the frame y window of the row's part on this page (borders stay open at the cuts). */
+  rowWindows?: { unit: number; top: number; bottom: number }[];
+  /** A row that can not break and is taller than the page: clipped at frame y `bottom` (Word). */
+  clips?: { unit: number; bottom: number }[];
 }
 
 export interface Spacer {
   at: Anchor;
   height: number;
-  /** `page` = a page gap; `span` = a page gap in a columns box (spans all columns); `column` = a zero-height column break. */
+  /** `page` = a page gap; `span` = a page gap in a columns box (spans all columns); `column` = a zero-height column break. A negative height pulls the content up (after a clipped row). */
   kind: "page" | "span" | "column";
   /** The unit it precedes. */
   unit: number;
@@ -230,6 +287,11 @@ export interface PaginateResult {
 }
 
 const EPS = 0.5;
+
+/** A cell's content for splitting (its lines when it has no structure). */
+function contentOf(c: CellFlow): CellContent[] {
+  return c.content ?? c.lines.map((l) => ({ kind: "line" as const, ...l }));
+}
 
 /**
  * Lays the flow out on pages: line-granular breaks with widow/orphan
@@ -316,6 +378,8 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
   };
 
   // ----- page breaks -----
+  /** The last unit placed was clipped at the page bottom. */
+  let clipped = false;
   let page = newPage(0, units[0]?.section ?? 0);
   origin = bodyTop(page);
 
@@ -348,7 +412,10 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
         extra = t.headerHeight;
       }
     }
-    const h = Math.max(0, bodyTop(page) + extra - visual(u.anchorTop));
+    // After a clipped row (taller than the page, can not break) the content goes back up to the page top.
+    const raw = bodyTop(page) + extra - visual(u.anchorTop);
+    const h = clipped && u.at.kind === "block" ? raw : Math.max(0, raw);
+    clipped = false;
     spacers.push({ at: u.at, height: h, kind, unit: b });
     shift += h;
   };
@@ -419,59 +486,126 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
     return fit.placed;
   };
 
-  /** A row taller than a page: its cells continue on the next pages at line boundaries. */
+  /**
+   * A row split across pages ("Allow row to break across pages"): every
+   * cell continues on the next page at a line boundary; rows of nested
+   * tables split the same way (their cells independently; a nested row
+   * that can not break, or a nested header row with the next row's first
+   * line, moves whole). Borders stay open at the cuts: the row is one
+   * element, the spacers sit inside its cells.
+   */
   const splitRow = (i: number) => {
     const u = units[i]!;
-    const cells = u.cells ?? [];
     vtop[i] = visual(u.top);
-    const cellShift = cells.map(() => shift);
-    const next = cells.map(() => 0);
     setNotes(page, withNotes(page, u.notes));
-    for (let guard = 0; guard < 500; guard++) {
-      const limit = bodyBottom(page) - page.notesHeight;
-      let advanced = false;
-      cells.forEach((c, k) => {
-        while (next[k]! < c.lines.length && origin + c.lines[next[k]!]!.bottom + cellShift[k]! <= limit + EPS) {
-          next[k]!++;
-          advanced = true;
-        }
-      });
-      if (cells.every((c, k) => next[k]! >= c.lines.length)) break;
-      if (!advanced) {
-        // A line taller than the page: it stays (overflows).
-        cells.forEach((c, k) => {
-          if (next[k]! < c.lines.length) next[k]!++;
-        });
-        if (cells.every((c, k) => next[k]! >= c.lines.length)) break;
+    const first = pages.length - 1;
+    const repeatOf = (): LayoutPage["repeat"] => {
+      if (u.table == null) return undefined;
+      const t = flow.tables[u.table]!;
+      return t.headerRows > 0 && (u.row ?? 0) >= t.headerRows ? { table: u.table, height: t.headerHeight } : undefined;
+    };
+    /** Page `k` (index into `pages`), started on demand. */
+    const pageAt = (k: number): LayoutPage => {
+      while (pages.length - 1 < k) {
+        const prev = pages[pages.length - 1]!;
+        prev.end = i + 1;
+        prev.contentEnd = Math.max(prev.contentEnd, bodyBottom(prev) - prev.notesHeight);
+        page = newPage(i, u.section);
+        page.end = i + 1;
+        startCarry(page);
+        const rep = repeatOf();
+        if (rep) page.repeat = rep;
       }
-      page.end = i + 1;
-      page.contentEnd = limit;
-      page = newPage(i, u.section);
-      page.end = i + 1;
-      startCarry(page);
-      let extra = 0;
-      if (u.table != null) {
-        const t = flow.tables[u.table]!;
-        if (t.headerRows > 0 && (u.row ?? 0) >= t.headerRows) {
-          page.repeat = { table: u.table, height: t.headerHeight };
-          extra = t.headerHeight;
-        }
-      }
-      cells.forEach((c, k) => {
-        const l = c.lines[next[k]!];
-        if (!l) return;
-        const h = Math.max(0, bodyTop(page) + extra - (origin + l.top + cellShift[k]!));
-        spacers.push({ at: l.at, height: h, kind: "page", unit: i });
-        cellShift[k]! += h;
-      });
+      return pages[k]!;
+    };
+    const limit = (k: number) => {
+      const p = pageAt(k);
+      return bodyBottom(p) - p.notesHeight;
+    };
+    const topOf = (k: number) => {
+      const p = pageAt(k);
+      return bodyTop(p) + (p.repeat?.height ?? 0);
+    };
+    interface Lane {
+      shift: number;
+      k: number;
+      /** Nothing of the lane placed on page `k` yet (a line that does not fit stays: it is taller than the page). */
+      fresh: boolean;
     }
-    // The row ends below its tallest cell; what follows moves by the row's growth.
-    const contentBottom = Math.max(...cells.map((c) => c.bottom), u.top);
-    const pad = Math.max(0, u.bottom - contentBottom);
-    const visualBottom = Math.max(...cells.map((c, k) => origin + c.bottom + cellShift[k]!), visual(u.top)) + pad;
-    shift = visualBottom - origin - u.bottom;
+    const moveOn = (at: Anchor, top: number, lane: Lane) => {
+      const h = Math.max(0, topOf(lane.k + 1) - (origin + top + lane.shift));
+      spacers.push({ at, height: h, kind: "page", unit: i });
+      lane.shift += h;
+      lane.k++;
+      lane.fresh = true;
+    };
+    const firstBottom = (c: CellContent | undefined): number | null => {
+      if (!c) return null;
+      if (c.kind === "line") return c.bottom;
+      let b: number | null = null;
+      for (const cell of c.cells) {
+        const x = firstBottom(contentOf(cell)[0]);
+        if (x != null) b = Math.max(b ?? x, x);
+      }
+      return b;
+    };
+    const flowRow = (r: NestedRow, lane: Lane, splittable: boolean): number => {
+      const row0 = { shift: lane.shift, k: lane.k, fresh: lane.fresh };
+      let bottom = origin + r.top + lane.shift;
+      let k = lane.k;
+      for (const c of r.cells) {
+        const l: Lane = { ...row0 };
+        if (splittable) flowSeq(contentOf(c), l);
+        bottom = Math.max(bottom, origin + c.bottom + l.shift);
+        k = Math.max(k, l.k);
+      }
+      const content = Math.max(r.top, ...r.cells.map((c) => c.bottom));
+      bottom += Math.max(0, r.bottom - content);
+      lane.shift = bottom - origin - r.bottom;
+      lane.k = k;
+      lane.fresh = false;
+      return bottom;
+    };
+    const flowSeq = (items: readonly CellContent[], lane: Lane): void => {
+      items.forEach((it, j) => {
+        if (it.kind === "line") {
+          if (!lane.fresh && origin + it.bottom + lane.shift > limit(lane.k) + EPS) moveOn(it.at, it.top, lane);
+          lane.fresh = false;
+          return;
+        }
+        const need = it.header ? (firstBottom(items[j + 1]) ?? it.bottom) : it.bottom;
+        if ((it.cantSplit || it.header) && !lane.fresh && origin + Math.max(need, it.bottom) + lane.shift > limit(lane.k) + EPS) moveOn(it.at, it.top, lane);
+        flowRow(it, lane, true);
+      });
+    };
+    const lane: Lane = { shift, k: first, fresh: false };
+    const row: NestedRow = { kind: "row", top: u.top, bottom: u.bottom, at: u.at, cells: u.cells ?? [] };
+    const visualBottom = flowRow(row, lane, true);
+    shift = lane.shift;
+    page = pageAt(lane.k);
+    for (let k = first; k <= lane.k; k++) {
+      const p = pages[k]!;
+      const win = { unit: i, top: k === first ? vtop[i]! : topOf(k), bottom: k === lane.k ? visualBottom : limit(k) };
+      (p.rowWindows ??= []).push(win);
+    }
     page.end = i + 1;
     page.contentEnd = Math.max(page.contentEnd, visualBottom);
+  };
+
+  /** Whether a row may split at the bottom of the current page: it can break and every cell's first line fits. */
+  const rowStartFits = (i: number): boolean => {
+    const u = units[i]!;
+    if (u.kind !== "row" || u.cantSplit || !u.cells?.length) return false;
+    if (u.table != null && (u.row ?? 0) < flow.tables[u.table]!.headerRows) return false;
+    const limit = bodyBottom(page) - areaHeight(withNotes(page, u.notes));
+    let lines = 0;
+    for (const c of u.cells) {
+      const l = c.lines[0];
+      if (!l) continue;
+      if (visual(l.bottom) > limit + EPS) return false;
+      lines += c.lines.length;
+    }
+    return lines > u.cells.length;
   };
 
   // ----- columns boxes -----
@@ -583,7 +717,8 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
       pages.length = 0;
       checkpoints.length = 0;
       for (let p = 0; p < k; p++) {
-        pages.push({ ...r.prev.pages[p]!, columns: [] });
+        // The pages before keep their fragments; the last one is ended again.
+        pages.push(p < k - 1 ? r.prev.pages[p]! : { ...r.prev.pages[p]!, columns: [] });
         checkpoints.push(r.prev.checkpoints[p]!);
       }
       const cp = r.prev.checkpoints[k]!;
@@ -598,7 +733,53 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
       i = start;
     }
   }
+  /**
+   * "Reuse unchanged pages": a page started at a unit of the flow's moved end
+   * (`flow.reuse`) exactly where the previous result started the same page
+   * (same index, sheet, shift, nothing carried) is the previous page again;
+   * so are all after it (moved by the reuse deltas).
+   */
+  const reuse = r && flow.reuse && r.from >= 0 ? flow.reuse : undefined;
+  const converge = (): boolean => {
+    if (!reuse || !r || i < reuse.same || i !== page.start || carry.length) return false;
+    const q = pages.length - 1;
+    const prev = r.prev;
+    const pp = prev.pages[q];
+    const pc = prev.checkpoints[q];
+    const cc = checkpoints[q];
+    if (q < 1 || !pp || !pc || !cc || pp.start !== i - reuse.du || pc.decided < 0 || pc.carry.length || pp.footnotes.some((n) => n.from > 0)) return false;
+    if (Math.abs(cc.shift - (pc.shift - reuse.dy)) > 0.01 || pp.value !== page.value || pp.section !== page.section || Math.abs(pp.sheetTop - page.sheetTop) > 0.01) return false;
+    if (cc.spacers !== spacers.length - 1 || prev.spacers[pc.spacers]?.unit !== pp.start || Math.abs(prev.spacers[pc.spacers]!.height - spacers[spacers.length - 1]!.height) > 0.01) return false;
+    if (!!pp.repeat !== !!page.repeat) return false;
+    const du = reuse.du;
+    pages.length = q;
+    checkpoints.length = q;
+    spacers.length = cc.spacers;
+    for (let p = q; p < prev.pages.length; p++) {
+      const o = prev.pages[p]!;
+      pages.push({
+        ...o,
+        start: o.start + du,
+        end: o.end + du,
+        columns: o.columns.map((c) => ({ ...c, fragments: c.fragments.map((f) => ({ ...f, block: f.block + reuse.db, from: f.from + du, to: f.to + du, top: f.top + reuse.dy, bottom: f.bottom + reuse.dy })) })),
+        ...(o.repeat ? { repeat: { ...o.repeat, table: o.repeat.table + reuse.dt } } : {}),
+        ...(o.sets ? { sets: o.sets.map((x) => ({ ...x, region: x.region + reuse.dr })) } : {}),
+        ...(o.regionColumns ? { regionColumns: o.regionColumns.map((x) => ({ ...x, region: x.region + reuse.dr, start: x.start + du, end: x.end + du })) } : {}),
+        ...(o.rowWindows ? { rowWindows: o.rowWindows.map((x) => ({ ...x, unit: x.unit + du })) } : {}),
+        ...(o.clips ? { clips: o.clips.map((x) => ({ ...x, unit: x.unit + du })) } : {}),
+      });
+      const c = prev.checkpoints[p]!;
+      checkpoints.push({ ...c, shift: c.shift - reuse.dy, spacers: c.spacers - pc.spacers + cc.spacers, decided: c.decided >= 0 ? c.decided + du : c.decided });
+    }
+    for (let k = pc.spacers; k < prev.spacers.length; k++) spacers.push({ ...prev.spacers[k]!, unit: prev.spacers[k]!.unit + du });
+    vtop.set(prev.vtop.subarray(pp.start), i);
+    page = pages[pages.length - 1]!;
+    carry = [];
+    i = units.length;
+    return true;
+  };
   while (i < units.length) {
+    if (converge()) break;
     const u = units[i]!;
     if (u.region != null && flow.regions[u.region]!.first === i) {
       i = layoutRegion(u.region);
@@ -620,7 +801,22 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
     if (atStart) {
       const tall = visual(u.bottom) - visual(u.anchorTop) > page.box.bodyHeight - (page.repeat?.height ?? 0) + EPS;
       if (u.kind === "row" && !u.cantSplit && tall && u.cells?.length) splitRow(i);
-      else place(i, withNotes(page, u.notes));
+      else {
+        place(i, withNotes(page, u.notes));
+        if (u.kind === "row" && tall) {
+          // Word clips a row that can not break and is taller than the page: the page shows its start.
+          const bottom = bodyBottom(page) - page.notesHeight;
+          (page.clips ??= []).push({ unit: i, bottom });
+          page.contentEnd = Math.min(page.contentEnd, bottom);
+          clipped = true;
+        }
+      }
+      i++;
+      continue;
+    }
+    if (rowStartFits(i)) {
+      splitRow(i);
+      rebreaks = 0;
       i++;
       continue;
     }
@@ -639,7 +835,7 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
     breakAt(b);
     i = b;
   }
-  page.end = units.length;
+  page.end = Math.max(page.end, units.length);
   if (carry.length) {
     // Notes still continuing after the last unit get pages of their own.
     for (let guard = 0; guard < 100 && carry.length; guard++) {
@@ -648,7 +844,7 @@ export function paginate(flow: Flow, o: PaginateOptions): PaginateResult {
       startCarry(page);
     }
   }
-  for (const p of pages) p.columns = columnsOf(flow, p, vtop);
+  for (const p of pages) if (!p.columns.length) p.columns = columnsOf(flow, p, vtop);
   const lastPage = pages[pages.length - 1]!;
   return { pages, spacers, origin, height: lastPage.sheetTop + lastPage.box.height, checkpoints, vtop };
 }
