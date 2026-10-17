@@ -530,6 +530,8 @@ fn apply_numbering_creates_one_list() {
         &mut h,
         C::ApplyNumbering {
             levels,
+            preset: None,
+            format: None,
             items: vec![(NodeId(1), 0), (NodeId(2), 1), (NodeId(3), 0)],
         },
     );

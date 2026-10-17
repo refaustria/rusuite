@@ -241,6 +241,8 @@ fn master_text_levels() {
             level: 1,
             run: Some(run.clone()),
             paragraph: None,
+            margin_left: None,
+            indent: None,
         },
     );
     assert_eq!(
@@ -275,6 +277,8 @@ fn master_text_levels() {
             level: 0,
             run: Some(run),
             paragraph: None,
+            margin_left: None,
+            indent: None,
         },
     );
     let m = &pres(&h).master;
@@ -293,6 +297,8 @@ fn master_text_levels() {
                 level: 9,
                 run: None,
                 paragraph: None,
+                margin_left: None,
+                indent: None,
             }
         ),
         "invalid_command"

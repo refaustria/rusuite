@@ -45,11 +45,10 @@ Sources: deferred items from the quality passes (`docs/qa/*`), the pre-release b
 - **S1 Rich in-place text editing and master text** – bullets/numbering/levels/alignment/run formatting while typing,
   Shift+Enter, `spAutoFit`/`normAutofit`, formatted prompt text, master/layout in-place editing, master indents per
   level, levels 2–9, rename layouts/add placeholders, Insert › Text box click-or-drag.
-- **S2 Tables round 2** – exact PowerPoint table style definitions + "Best match" row, `tableStyles.xml` written,
-  Light/Themed/Dark families, split cell rows×cols, Format Shape sections for table cells, 32 px border grips.
-- **S3 Shapes round 2** – freeform/scribble tool, remaining presets (bent/U-turn arrows, ribbons, callouts), core returns
-  text rectangle + adjust-handle positions in `shapePaths`, keyboard adjust handles, PowerPoint connector detour routing,
-  rotate handles with shapes.
+- **S2 Tables and shapes round 2** – table style fidelity + Best Match gallery, split/merge/distribute, cell margins and
+  alignment, Format Shape for cells, Draw Borders; freeform/scribble tool + Edit Points, remaining presets, adjust
+  handles/text rectangles from the core, keyboard handles, PowerPoint connector detour routing. (Brief P9-S2.)
+- **S3 Views and design round 2** → see S4 below (renumbered when started).
 - **S4 Views and design round 2** – outline view with rich text, slide sorter polish (Effect Options for sorter
   selection), custom shows, per-layout guides (p15), Selection pane, Format Background pane (gradient/picture/texture),
   lock-aspect + last view saved, Effects on the Design tab, picture/texture background fills, scale/fit on SetSlideSize,
@@ -102,8 +101,7 @@ Swedish `sv`. Catalog size today: ~200 KB English across ui-shared, Calc, Write,
   dialog filter names, `<html lang>`, per-language render test generator, e2e for a sample, overflow screenshots for
   long languages (Finnish, Hungarian, Greek, German).
 - **L1–L11 Translations** – two languages per task, all five catalogs each: terminology follows the Microsoft Office
-  localisation of that language (ribbon tabs, command names, dialog titles), register as Office uses in that language
-  **except German (informal "du", owner rule)** – owner may override per language; placeholders, plural forms and
+  localisation of that language (ribbon tabs, command names, dialog titles), **informal address in every language** (owner decision 2026-10-17: like the German "du" – French "tu", Spanish "tú", Italian "tu", Dutch "je", Polish "ty", Swedish/Danish "du", Finnish "sinä", Greek "εσύ" forms, …), imperatives in the familiar form, never the polite/formal pronoun ("vous", "usted", "Lei", "u", "Pan/Pani", "Ön", "Dumneavoastră", …); terminology still follows Office; placeholders, plural forms and
   shortcut combos untouched; glossary file per language (`docs/i18n-glossary/<lang>.md`) listing the Office terms used;
   a second agent reviews each language against the glossary (spot check 200 strings) before merge.
 - **L12 Portal and docs** – portal pages in all languages (menu, feature texts, Coming soon, Downloads), `docs/i18n.md`
@@ -121,7 +119,7 @@ Swedish `sv`. Catalog size today: ~200 KB English across ui-shared, Calc, Write,
 tag `v3.141.0`, release.yml run, Downloads page regenerated, signing if the Apple account exists by then.
 
 ## Owner decisions open for this cycle
-1. Register per language (default: as Microsoft Office does in that language; German stays "du").
-2. Whether the web keeps being deployed from `main` during the cycle (current assumption: yes) or waits for 3.141.
+1. ~~Register per language~~ decided 2026-10-17: informal in every language, like the German "du". L0 extends the `i18n-check` formal-form rule per language (a list of formal pronouns/verb forms per locale, allow-list for genuine third-person uses).
+2. ~~Web deployment during the cycle~~ decided 2026-10-17: the web keeps being deployed from `main` after each verified merge.
 3. Apple Developer Program (signing) – pulled into the cycle as soon as the secrets exist.
 4. A test API key for the AI desktop smoke (Block 3).

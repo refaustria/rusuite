@@ -217,6 +217,13 @@ pub struct ParagraphProperties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub contextual_spacing: Option<bool>,
+    /// Outline level (docx `w:outlineLvl`, 0-based: `0` = level 1 … `8` =
+    /// level 9, `9` = body text). Heading styles set it; a direct value
+    /// puts any paragraph into the Navigation pane and the table of
+    /// contents (or, `9`, takes a heading out).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub outline_level: Option<u8>,
     /// Paragraph borders (docx `w:pBdr`), merged side by side.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -276,6 +283,7 @@ impl ParagraphProperties {
             suppress_auto_hyphens,
             page_break_before,
             contextual_spacing,
+            outline_level,
             borders,
             shading,
             tabs,
@@ -296,6 +304,7 @@ impl ParagraphProperties {
         self.suppress_auto_hyphens = suppress_auto_hyphens.or(self.suppress_auto_hyphens);
         self.page_break_before = page_break_before.or(self.page_break_before);
         self.contextual_spacing = contextual_spacing.or(self.contextual_spacing);
+        self.outline_level = outline_level.or(self.outline_level);
         self.section_end = section_end.or(self.section_end);
         self.borders = merge_opt(self.borders, *borders, |a, b| a.merged_with(b));
         self.shading = shading.or(self.shading);

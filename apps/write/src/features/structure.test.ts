@@ -16,7 +16,7 @@ import {
   fieldValue, formatDateTime, formatNumber, goToNextRef, goToNote, goToRef, noteNumbers, structurePlugin, updateFieldsCommand,
   type FieldContext,
 } from "./structure";
-import { currentSection, presetLevels, withPreset } from "./structureCommands";
+import { currentSection } from "./structureCommands";
 
 let editor: Editor | null = null;
 afterEach(() => {
@@ -201,31 +201,6 @@ describe("section pagination", () => {
     select(e, 3, 0);
     expect(currentSection(e.state, sections)?.id).toBe(2);
     expect(currentSection(e.state, [])).toBeNull();
-  });
-});
-
-describe("multilevel presets", () => {
-  it("1 / 1.1 / 1.1.1", () => {
-    const l = presetLevels("decimal");
-    expect(l.slice(0, 3).map((x) => [x.kind, x.text])).toEqual([["decimal", "%1."], ["decimal", "%1.%2"], ["decimal", "%1.%2.%3"]]);
-  });
-
-  it("1 / a) / i", () => {
-    const l = presetLevels("outline");
-    expect(l.slice(0, 3).map((x) => [x.kind, x.text])).toEqual([["decimal", "%1."], ["lowerLetter", "%2)"], ["lowerRoman", "%3."]]);
-  });
-
-  it("legal: I. then 1.1 with legal numbering", () => {
-    const l = presetLevels("legal");
-    expect([l[0]!.kind, l[0]!.text, l[0]!.legal ?? false]).toEqual(["upperRoman", "%1.", false]);
-    expect([l[1]!.kind, l[1]!.text, l[1]!.legal]).toEqual(["decimal", "%1.%2", true]);
-  });
-
-  it("withPreset appends a standalone definition with a fresh id", () => {
-    const { numbering, id } = withPreset({ defs: [{ id: 3, levels: [] }] }, "decimal");
-    expect(id).toBe(4);
-    expect(numbering.defs.map((d) => d.id)).toEqual([3, 4]);
-    expect(numbering.defs[1]!.levels).toHaveLength(9);
   });
 });
 

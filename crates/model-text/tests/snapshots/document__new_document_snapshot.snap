@@ -85,6 +85,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 0,
           "spacing": {
             "after": 0,
             "before": 240
@@ -116,6 +117,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 1,
           "spacing": {
             "after": 0,
             "before": 40
@@ -148,6 +150,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 2,
           "spacing": {
             "after": 0,
             "before": 40
@@ -180,6 +183,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 3,
           "spacing": {
             "after": 0,
             "before": 40
@@ -212,6 +216,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 4,
           "spacing": {
             "after": 0,
             "before": 40
@@ -243,6 +248,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 5,
           "spacing": {
             "after": 0,
             "before": 40
@@ -274,6 +280,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 6,
           "spacing": {
             "after": 0,
             "before": 40
@@ -306,6 +313,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 7,
           "spacing": {
             "after": 0,
             "before": 40
@@ -338,6 +346,7 @@ expression: "serde_json::to_value(&doc).unwrap()"
         "next": "Normal",
         "paragraph": {
           "keepNext": true,
+          "outlineLevel": 8,
           "spacing": {
             "after": 0,
             "before": 40

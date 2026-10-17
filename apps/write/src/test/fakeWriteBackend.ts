@@ -27,6 +27,9 @@ import type { ReaderWarning } from "../generated/ReaderWarning";
 import { newAnchor } from "../features/floating";
 import { numberingDef } from "./fixtures";
 import { caseChar } from "../features/changeCase";
+import { MULTILEVEL_PRESETS, PRESET_FORMATS } from "../features/listGallery";
+import type { Level } from "../generated/Level";
+import type { ListPreset } from "../generated/ListPreset";
 
 class Fail extends Error {
   constructor(
@@ -1395,10 +1398,38 @@ export class FakeWriteBackend implements WriteBackend {
         return null;
       }
       case "applyNumbering": {
+        if (!c.items.length) throw new Fail("invalid_command", "no paragraphs");
+        const [first, at] = c.items[0]!;
+        let levels: Level[];
+        if (c.levels?.length) levels = c.levels;
+        else if (c.preset && fakeMultilevel(c.preset)) levels = fakeMultilevel(c.preset)!;
+        else {
+          const format = c.format ?? (c.preset ? fakeFormat(c.preset, at) : null);
+          if (!format) throw new Fail("invalid_command", "no levels, preset or format");
+          const cur = this.numberingOf(this.para(first));
+          const base = cur ? this.doc.numbering.defs.find((d) => d.id === cur.numId)?.levels : null;
+          levels = structuredClone(base ?? numberingDef(0, format.kind === "bullet" ? ["bullet"] : ["decimal", "lowerLetter", "lowerRoman"]).levels);
+          levels[at] = { ...format, indent: format.indent ?? levels[at]?.indent ?? null };
+        }
         const numId = Math.max(0, ...this.doc.numbering.defs.map((d) => d.id)) + 1;
-        this.doc.numbering.defs.push({ id: numId, levels: c.levels });
+        this.doc.numbering.defs.push({ id: numId, levels });
+        const linked = new Map<number, string>();
+        levels.forEach((l, i) => {
+          const st = l.style ? this.doc.styles.styles.find((x) => x.id === l.style) : null;
+          if (st) {
+            linked.set(i, st.id);
+            st.paragraph = { ...(st.paragraph ?? {}), numbering: { numId, level: i } };
+          }
+        });
+        const linkedStyles = new Set(linked.values());
         for (const [id, level] of c.items) {
           const p = this.para(id);
+          const style = p.props?.style ?? null;
+          if ((style && linkedStyles.has(style)) || linked.has(level)) {
+            const { numbering: _n, ...rest } = p.props ?? {};
+            p.props = { ...rest, style: style && linkedStyles.has(style) ? style : linked.get(level)! };
+            continue;
+          }
           p.props = { ...(p.props ?? {}), numbering: { numId, level } };
         }
         return null;
@@ -1524,11 +1555,14 @@ export class FakeWriteBackend implements WriteBackend {
   /** Headings `from..=to` of the body as TOC entries. */
   private tocEntries(from: number, to: number) {
     const out: { text: string; level: number; target: number }[] = [];
+    const labels = listLabels(this.doc);
     for (const b of walkBlocks(this.doc.body)) {
       if (b.kind !== "paragraph") continue;
       const m = /^Heading([1-9])$/.exec(b.value.props?.style ?? "");
       const level = m ? Number(m[1]) : 0;
-      const text = b.value.inlines.map((i) => (i.kind === "run" ? i.value.text : "")).join("").trim();
+      let text = b.value.inlines.map((i) => (i.kind === "run" ? i.value.text : "")).join("").trim();
+      const label = labels.get(b.value.id);
+      if (text && label && /[\p{L}\p{N}]/u.test(label)) text = `${label.trim()} ${text}`;
       if (level >= from && level <= to && text) out.push({ text, level, target: b.value.id });
     }
     return out;
@@ -1589,13 +1623,32 @@ function formatNumber(n: number, kind: string): string {
   }
 }
 
-/** List labels like `Document::list_numbers` (direct numbering only, default restarts). */
+/** The single-level presets of `ListPreset::level_format` (fake: kind and template). */
+function fakeFormat(preset: ListPreset, at: number): Level | null {
+  const f = PRESET_FORMATS[preset];
+  if (!f) return null;
+  return { kind: f.kind, text: f.kind === "bullet" ? f.text : f.text.replace("%1", `%${at + 1}`), start: 1 };
+}
+
+/** The multilevel presets (fake: chains like `1`, `1.1`; the heading presets linked to Heading 1–9). */
+function fakeMultilevel(preset: ListPreset): Level[] | null {
+  if (!MULTILEVEL_PRESETS.includes(preset)) return null;
+  const heading = ["articleSection", "headingDecimal", "headingOutline", "headingChapter"].includes(preset);
+  return Array.from({ length: 9 }, (_, i) => {
+    const chain = Array.from({ length: i + 1 }, (_x, n) => `%${n + 1}`).join(".");
+    const level: Level = { kind: "decimal", text: heading ? chain : `${chain}.`, start: 1, indent: { left: 432 + 144 * i, hanging: 432 + 144 * i } };
+    if (heading) level.style = `Heading${i + 1}`;
+    return level;
+  });
+}
+
+/** List labels like `Document::list_numbers` (direct or style numbering, default restarts). */
 export function listLabels(doc: Document): Map<number, string> {
   const out = new Map<number, string>();
   const counters = new Map<number, number[]>();
   for (const b of walkBlocks(doc.body)) {
     if (b.kind !== "paragraph") continue;
-    const n = b.value.props?.numbering;
+    const n = b.value.props?.numbering ?? doc.styles.styles.find((s) => s.id === (b.value.props?.style ?? "Normal"))?.paragraph?.numbering;
     if (!n || n.numId === 0) continue;
     const def = doc.numbering.defs.find((d) => d.id === n.numId);
     const level = def?.levels[n.level];

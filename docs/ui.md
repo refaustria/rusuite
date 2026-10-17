@@ -35,6 +35,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Show: master and layout editing, picture backgrounds, table styles, preset data (P8-32)](#show-master-and-layout-editing-picture-backgrounds-table-styles-preset-data-p8-32)
 - [Show: charts, links, action buttons, audio/video, Reuse Slides (P8-24)](#show-charts-links-action-buttons-audiovideo-reuse-slides-p8-24)
 - [Show: views, rulers, guides, Selection pane, text options, slide-show tools (P8-28)](#show-views-rulers-guides-selection-pane-text-options-slide-show-tools-p8-28)
+- [Show: rich in-place text, autofit text boxes, master text levels (P9-S1)](#show-rich-in-place-text-autofit-text-boxes-master-text-levels-p9-s1)
 - [Printing (P7-9)](#printing-p7-9)
 - [Logos and the portal (P7-10)](#logos-and-the-portal-p7-10)
 - [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
@@ -55,9 +56,9 @@ Contextual **Table** tab (insert/delete rows and columns, shading, borders, head
 - **Layout**: Margins / Orientation / Size act on the caret's section (`SetSection { page }`; `SetPage` for documents without
   sections); Breaks ▾ (Page break; section breaks Next page / Continuous / Even page / Odd page → `SplitParagraph` +
   `InsertSectionBreak`).
-- **Home › Paragraph › Multilevel list** ▾: 1 / 1.1 / 1.1.1, 1 / a) / i, Legal (I. / 1.1 with legal numbering): a new list
-  definition (`RestoreNumbering`) applied to the selected paragraphs, keeping their levels. Right-click in a list: **Restart
-  at 1** (`RestartList`) / **Continue numbering** (`ContinueList`).
+- **Home › Paragraph › Multilevel list** ▾: Word's list library (see "Write lists, numbering and Word shortcuts (P9-W1)"
+  below); right-click in a list: **Restart at 1** (`RestartList`) / **Continue numbering** (`ContinueList`) / **Set
+  Numbering Value…**.
 - **Header and footer** dialog: Different first page (`titlePage`), Different odd & even pages, one text per slot; each
   changed slot is stored as blocks of the caret's section (`SetHeaderFooter`, `{PAGE}` → a page field).
 - **Rendering**: fields are grey-shaded with their cached result, or the live value (page numbers from the pagination, date,
@@ -325,8 +326,8 @@ The deferred items of docs/qa/write-2026-10.md:
   indent. Turning bullets off keeps List Paragraph (and its 1.27 cm indent), as in Word.
 - **Backspace at a list item's start (W-28)**: the first press removes the number or bullet and keeps the text at the
   level's indent (`ListBackspace`: a direct left indent, no first-line outdent; the saved file has Word's values); the
-  paragraph is then an ordinary one and the next Backspace joins it to the previous paragraph. On screen the editor's
-  list rendering (CSS padding per level, the label inline) is an approximation, so the text can move by a few pixels.
+  paragraph is then an ordinary one (P9-W1: the next Backspace outdents it, the third joins it). The approximate CSS
+  list rendering of this round was replaced by the level indents in P9-W1.
 - **Captions (W-22)**: the Caption box of Insert Caption starts empty after "Figure 1"; the separator is typed by the user
   (Word), a caption without text is exactly "Figure 1".
 - **Shortcuts (W-30)**: Ctrl+] / Ctrl+[ (font size ±1 pt, each run from its own size), Ctrl+Shift+> / < (Word's size
@@ -341,6 +342,45 @@ The deferred items of docs/qa/write-2026-10.md:
   frame as wide as the widest page (the view scrolls sideways to it); the blocks of a section with another text width
   are moved and widened into its text column (node decorations), so a landscape section's lines are as long as on paper.
   File › Print and Export PDF still use the first section's paper size for every page.
+
+### Write lists, numbering and Word shortcuts (P9-W1)
+- **List placement like Word**: a list paragraph sits at its numbering level's real indent (`w:ind` left / hanging of
+  the level, overlaid by the paragraph's own direct indent) instead of a fixed CSS step per nesting level; the label hangs
+  at the first-line position, the tab after it (the level's `w:suff`: tab / space / nothing) reaches the text, and the
+  label is aligned left, centred or right at that position (`w:lvlJc`, `Level.alignment`). Node decorations
+  (`features/listIndent.ts`: `--li-left`, `--li-hang`; the list nodes lose the browser padding) give the editor, the
+  measured pagination and the print clones the same geometry. Paragraphs numbered through their style (heading
+  numbering) are placed the same way. New lists keep Word's List Paragraph style with contextual spacing (P8-46).
+- **Backspace at a list item's start** in Word's three steps: the number goes (indent kept, `ListBackspace`), the
+  second press moves the paragraph to the margin (left and first-line indent 0; 0 written explicitly where the style
+  indents, e.g. List Paragraph), the third joins it. Tab / Shift+Tab change the level.
+- **Galleries** (Home › Paragraph, next to the list buttons): **Bullet library ▾** (•, ○, ■, ➢, ✓, ◆, –, None,
+  Define New Bullet…), **Numbering library ▾** (1. 1) I. A. a) a. i., None, Define New Number Format…, Set Numbering
+  Value…) and **Multilevel list ▾** with Word's seven list-library presets: 1) a) i); 1. 1.1. 1.1.1.; ➢ ■ •; and the
+  four linked to Heading 1–9: Article I. / Section 1.01 / (a); 1 / 1.1 / 1.1.1; I. / A. / 1.; Chapter 1. Each choice is
+  one `ApplyNumbering` with a preset id (`ListPreset`, the levels are defined once in model-text) or an explicit level
+  `format`; a single-level choice replaces the caret's level of the current list (keeping its indent), a multilevel
+  one makes a new list; with the caret in a list (no selection) the whole list changes (W-27). None removes the
+  numbering (`ApplyList` none).
+- **Define New Number Format…**: number style (1, I, i, A, a, 1st, 01, none), the format text with `%1` for the number
+  ("Part %1:"; OK needs the `%1` unless the style is none), font, alignment, a preview. **Define New Bullet…**: a symbol
+  from a small table and a font (picture bullets are not offered). Both send `ApplyNumbering { format }`; `%1` becomes
+  the level's own token.
+- **Set Numbering Value…** (Numbering ▾ and the list item's context menu): Start new list + Set value to → `RestartList
+  { start }` (saved as `w:lvlOverride/w:startOverride`); Continue from previous list → `ContinueList`.
+- **Heading numbering**: the linked presets number the heading styles (`Level.style` ↔ `w:lvl/w:pStyle`; the style's
+  `numbering` points to its level) — every Heading N paragraph shows its number, a paragraph on a linked level gets the
+  style, a heading keeps its own. Table of contents entries start with the heading's number ("1.1 Scope", the core's
+  `build_toc`; bullets are left out), and the Navigation pane lists numbered headings with their numbers.
+- **Outline levels**: `ParagraphProperties.outlineLevel` (`w:outlineLvl`, 0–8, 9 = Body Text; the built-in Heading
+  styles carry Word's values) is read and written by fmt-docx; a paragraph with an outline level is in the Navigation
+  pane and the TOC, Body Text takes a heading out. Paragraph dialog › Outline level sets it.
+- **Word shortcuts (W-30, rest)**: Ctrl+Shift+W (word underline: the words underlined, not the spaces; the model has no
+  `words` underline kind, so the file holds underlined words), Shift+F3 with Sentence case for a selection that ends a
+  sentence and the word before the caret right after a period, Ctrl+Alt+1..3 bound in the editor's own keymap to the same
+  Heading style toggle as the shortcut map (one `SetStyle`, the paragraph keeps its id). The others (Ctrl+Shift+> / <,
+  Ctrl+] / [, Ctrl+Shift+K / A / D, Ctrl+T / Ctrl+Shift+T, Ctrl+M / Ctrl+Shift+M, Ctrl+Q, Ctrl+Space, Ctrl+Shift+N,
+  Ctrl+E / L / R / J, Ctrl+1 / 2 / 5, Ctrl+0) were bound in P8-46 / earlier and are covered by tests now.
 
 ## Building blocks (`@rusuite/ui-shared`)
 
@@ -1080,8 +1120,8 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   Enter's new paragraph keeps the level, bullet and alignment. IME composition is left to the browser and read back when it
   ends. Tab / Shift+Tab change the level, Ctrl+Shift+> / < the font size, Ctrl+Z / Ctrl+Y undo and redo the typing of the
   session; Ctrl+B / I / U / K go to the shortcut map as before. The session's body goes to the core as one `SetTextBody`
-  (ADR 0008; no ProseMirror). Not covered: tabs inside a paragraph (Tab always changes the level), Shift+Enter makes a new
-  paragraph (no line break), the slide number field shows its stored text while editing.
+  (ADR 0008; no ProseMirror). Not covered: tabs inside a paragraph (Tab always changes the level), the slide number field
+  shows its stored text while editing. (Shift+Enter inserts a line break since P9-S1.)
 - **Insert › Text box (S-14)** arms drawing like Shapes (the button stays pressed; a second click disarms it): a click on
   the slide inserts a text box of the default size with its top-left at the click, a drag draws it; the editor opens in it.
   Activated with Enter / Space it inserts at once in the slide centre (keyboard).
@@ -1096,6 +1136,39 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
   pipeline), so each duotone shows its accent colour.
 - **Group names (S-19)**: a new group is named "Group N" with N one more than the largest number in the slide's shape
   names (as PowerPoint), not after its id.
+
+## Show: rich in-place text, autofit text boxes, master text levels (P9-S1)
+
+- **Line breaks**: Shift+Enter in the in-place editor breaks the line inside the paragraph (`a:br`; U+000B in the
+  editor's text, `\n` in the run as the reader stores it); Enter starts a new paragraph with the same level, bullet,
+  alignment and spacing. The slide's layout and the editor break the line at it; copy writes it as a newline.
+- **Keys while editing**: Ctrl+A selects the shape's text (not the slide's shapes), Ctrl+] / Ctrl+[ and
+  Ctrl+Shift+> / < step the selection's font size from the caret run's size at its level; formatting from the ribbon or
+  Ctrl+B / I / U applies to the selection at once (the selection is taken from the DOM before the shortcut runs, so a
+  quick Shift+→ then Ctrl+B formats exactly what is selected). Each formatting change is its own undo step; typing stays
+  one step per session.
+- **Insert › Text box**: a click inserts a one-line box 2.5 cm wide that does not wrap (`wrap="none"`) and grows in width
+  while typing; a drag draws a box of the dragged width whose height fits the text. Both resize to fit (`spAutoFit`): the
+  editor's frame follows the text live and the commit stores the fitted box (grows and shrinks). Format Shape › Text box
+  offers Do not autofit / Shrink text on overflow / Resize shape to fit text; placeholders shrink on overflow
+  (`normAutofit` with the computed `fontScale`).
+- **Prompt text** ("Click to add title"): drawn on the stage in the layout placeholder's formatting (size, font, colour,
+  alignment, bullet; no longer faded); an empty placeholder in edit mode keeps the prompt under the caret until the first
+  keystroke. Never drawn in the slide show, print or export.
+- **Shape style text colour**: filled shapes from the Shapes gallery draw their text white (the shape's `textColor`,
+  written as `p:style/a:fontRef` with `bg1`); a run's own colour wins. Imported `fontRef` colours stay on the shape.
+- **Master and layout text**: the Slide Master view's placeholders are edited with the same in-place editor. Formatting
+  of a deeper sample paragraph of a layout's body, chart, table or picture placeholder (or of the Slide Master › Text level
+  chosen for a layout) goes to that level of the layout placeholder's own list style (`SetMasterPlaceholderProps` with
+  `level`; on the master: the master text style of the placeholder's class). Slides re-render from the changed master /
+  layout at once.
+- **Indents per level**: the text layout uses each level's `marL` / `indent` from the master text style and the layout's
+  own levels: the bullet hangs at `marL + indent`, the text starts at `marL` (a wider bullet pushes it on); a paragraph
+  without a bullet in a hanging level starts where the bullet would; a positive `indent` indents the first line. Text
+  boxes use the "other" style (0.5" per level). The core sets margins with `SetMasterTextStyle` / `SetMasterPlaceholderProps`
+  (`marginLeft`, `indent`); there is no Paragraph dialog for them yet.
+- **Insert Placeholder** adds Chart and Table (`p:ph type="chart"` / `"tbl"`, prompts "Click icon to add chart / table")
+  next to Content, Picture, Title and the footers; Rename and delete work as before.
 
 ## Printing (P7-9)
 

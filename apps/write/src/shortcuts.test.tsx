@@ -260,11 +260,48 @@ describe("Write shortcuts", () => {
       expect(applied(backend).at(-1)).toMatchObject({ type: "setStyle", style: "Normal" });
     });
 
+    it("Ctrl+Shift+W underlines the words, not the spaces (P9-W1)", async () => {
+      const { backend, editor } = await mount("one two");
+      selectAll(editor);
+      fireEvent.keyDown(editor, ctrl("W", { shiftKey: true, code: "KeyW" }));
+      const flatProps = () => JSON.stringify(applied(backend));
+      await waitFor(() => expect(flatProps()).toContain('"underline":"single"'));
+      await waitFor(() => expect(Array.from(editor.querySelectorAll("u"), (u) => u.textContent)).toEqual(["one", "two"]));
+    });
+
+    it("Shift+F3 on a whole sentence goes to Sentence case (P9-W1)", async () => {
+      const { backend, editor } = await mount("hello world.");
+      selectAll(editor);
+      fireEvent.keyDown(editor, { key: "F3", shiftKey: true });
+      await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "changeCase", case: "sentence" })));
+    });
+
+    it("Ctrl+M / Ctrl+Shift+M indent, Ctrl+1 / 2 / 5 line spacing, Ctrl+0 space before (P9-W1)", async () => {
+      const { backend, editor } = await mount();
+      fireEvent.keyDown(editor, ctrl("m"));
+      await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setParagraphProps", patch: { indent: { left: 720 } } })));
+      fireEvent.keyDown(editor, ctrl("M", { shiftKey: true }));
+      await waitFor(() => expect(applied(backend).filter((c) => c.type === "setParagraphProps")).toHaveLength(2));
+      for (const [k, v] of [["2", 2], ["5", 1.5], ["1", 1]] as const) {
+        fireEvent.keyDown(editor, ctrl(k, { code: `Digit${k}` }));
+        await waitFor(() => expect(JSON.stringify(applied(backend).at(-1))).toContain(`"value":${v}`));
+      }
+      fireEvent.keyDown(editor, ctrl("0", { code: "Digit0" }));
+      await waitFor(() => expect(JSON.stringify(applied(backend).at(-1))).toContain('"before":240'));
+    });
+
+    it("Ctrl+Alt+1 in the editor sets the Heading 1 style with SetStyle (one path with the shortcut map)", async () => {
+      const { backend, editor } = await mount();
+      fireEvent.keyDown(editor, ctrl("1", { altKey: true, code: "Digit1" }));
+      await waitFor(() => expect(applied(backend)).toContainEqual(expect.objectContaining({ type: "setStyle", style: "Heading1" })));
+      expect(applied(backend).some((c) => c.type === "replaceBlocks")).toBe(false);
+    });
+
     it("the help lists the new keys", async () => {
       const { editor } = await mount();
       fireEvent.keyDown(editor, ctrl("/"));
       const help = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
-      for (const label of ["Font size 1 pt larger", "Small caps", "Double underline", "Hanging indent", "Remove paragraph formatting", "Normal style"]) {
+      for (const label of ["Font size 1 pt larger", "Small caps", "Double underline", "Word underline (words only)", "Hanging indent", "Remove paragraph formatting", "Normal style"]) {
         expect(help.textContent).toContain(label);
       }
       expect(help.textContent).toContain("Shift+F3");

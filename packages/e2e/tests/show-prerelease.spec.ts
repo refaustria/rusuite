@@ -182,10 +182,12 @@ test.describe("Show pre-release fixes (P8-45)", () => {
     const slide1 = zipText(await saveViaBackstage(page), "ppt/slides/slide1.xml");
     const sp = slide1.match(/<p:sp>(?:(?!<\/p:sp>)[\s\S])*Drawn box[\s\S]*?<\/p:sp>/)?.[0] ?? "";
     expect(sp).toContain('txBox="1"');
-    // the dragged size: 40 % × 15 % of a 16:9 slide (12192000 × 6858000 EMU)
+    // the dragged width (40 % of a 16:9 slide, 12192000 EMU); the height fits the one line (spAutoFit, P9-S1)
     const ext = /<a:ext cx="(\d+)" cy="(\d+)"/.exec(sp)!;
     expect(Number(ext[1]) / 12192000).toBeCloseTo(0.4, 1);
-    expect(Number(ext[2]) / 6858000).toBeCloseTo(0.15, 1);
+    expect(Number(ext[2])).toBeGreaterThan(300000);
+    expect(Number(ext[2])).toBeLessThan(450000);
+    expect(sp).toContain("<a:spAutoFit/>");
     errors.expectNone();
   });
 

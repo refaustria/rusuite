@@ -52,6 +52,14 @@ expression: "pretty_part(&bytes, \"/ppt/slideLayouts/slideLayout12.xml\")"
       <a:prstDash val="solid"/>
      </a:ln>
     </p:spPr>
+    <p:style>
+     <a:lnRef idx="0"/>
+     <a:fillRef idx="0"/>
+     <a:effectRef idx="0"/>
+     <a:fontRef idx="minor">
+      <a:schemeClr val="bg1"/>
+     </a:fontRef>
+    </p:style>
    </p:sp>
    <p:sp>
     <p:nvSpPr>

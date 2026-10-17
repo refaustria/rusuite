@@ -60,6 +60,21 @@ export function setParagraphStyle(editor: Editor, style: string): boolean {
   return true;
 }
 
+/** Ctrl+Alt+1/2/3 (Word): the paragraph style Heading `level`; pressing it again returns to Normal. */
+export function toggleHeading(editor: Editor, level: number): boolean {
+  const id = `Heading${level}`;
+  const { $from } = editor.state.selection;
+  let current = "Normal";
+  for (let d = $from.depth; d > 0; d--) {
+    const n = $from.node(d);
+    if (n.type.name === "heading" || n.type.name === "paragraph" || n.type.name === "title") {
+      current = styleOf(n);
+      break;
+    }
+  }
+  return setParagraphStyle(editor, current === id ? "Normal" : id);
+}
+
 export function setAlignment(editor: Editor, align: Alignment): boolean {
   const tr = editor.state.tr;
   for (const [node, pos] of selectedTextblocks(editor)) tr.setNodeMarkup(pos, undefined, { ...node.attrs, align });

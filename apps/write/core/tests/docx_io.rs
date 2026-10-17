@@ -202,25 +202,29 @@ fn open_errors() {
 /// (the UI translates `reader.<code>`), the English text as the fallback.
 #[test]
 fn open_docx_reports_coded_warnings() {
-    let bytes = std::fs::read(testdata().join("provisional-56-images-floating.docx")).unwrap();
+    let bytes = std::fs::read(testdata().join("provisional-42-unicode.docx")).unwrap();
     let mut h = WriteHost::new(WriteDocument::new());
-    let opened = open(&mut h, &bytes, "provisional-56-images-floating.docx");
+    let opened = open(&mut h, &bytes, "provisional-42-unicode.docx");
     let warnings = opened["warnings"].as_array().unwrap();
     let w = warnings
         .iter()
-        .find(|w| w["code"] == "docx.numbering.levelStyleLink")
+        .find(|w| w["code"] == "docx.paragraph.rtl")
         .unwrap_or_else(|| panic!("{warnings:?}"));
     assert_eq!(
         w["text"],
-        "word/numbering.xml: list level linked to a style; link dropped"
+        "paragraph: right-to-left paragraph direction dropped"
     );
     assert!(w["count"].as_u64().unwrap() >= 1);
-    assert!(w["params"].as_object().unwrap().is_empty());
+    assert_eq!(w["params"]["ctx"], "paragraph");
     for w in warnings {
         assert!(w["code"].as_str().unwrap().starts_with("docx."), "{w}");
     }
     // The English lines stay available.
+    let (_, lines) = WriteDocument::open_docx(&bytes, "provisional-42-unicode.docx").unwrap();
+    assert!(lines[0].starts_with("paragraph: right-to-left"));
+    // P9-W1: list levels linked to styles are read now (no warning).
+    let bytes = std::fs::read(testdata().join("provisional-56-images-floating.docx")).unwrap();
     let (_, lines) =
         WriteDocument::open_docx(&bytes, "provisional-56-images-floating.docx").unwrap();
-    assert!(lines[0].starts_with("word/numbering.xml: list level linked"));
+    assert!(lines.is_empty(), "{lines:?}");
 }

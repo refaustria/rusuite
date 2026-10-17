@@ -58,7 +58,8 @@ pub use link::{
 };
 pub use media::{Base64Error, Media, MediaId, MediaStore};
 pub use numbering::{
-    AbstractNumbering, Level, LevelKind, LevelOverride, LevelSuffix, Numbering, NumberingDef,
+    AbstractNumbering, Level, LevelAlign, LevelKind, LevelOverride, LevelSuffix, ListPreset,
+    Numbering, NumberingDef,
 };
 pub use page::{Margins, Orientation, PageSetup, PAGE_FIELD};
 pub use properties::{CoreProperties, DocumentSettings};

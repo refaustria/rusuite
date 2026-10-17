@@ -265,7 +265,7 @@ test.describe("Write quality pass (P8-38)", () => {
     await k.press("Shift+Tab");
     await k.type("Two");
     await page.getByRole("button", { name: "Multilevel list" }).click();
-    await page.getByRole("menu").locator("[role^=menuitem]").first().click();
-    await expect.poll(() => editor(page).locator("p[data-label]").evaluateAll((els) => els.map((e) => e.getAttribute("data-label")))).toEqual(["1.", "1.1", "2."]);
+    await page.getByTestId("multilevel-gallery").getByRole("button", { name: "1. 1.1. 1.1.1." }).click();
+    await expect.poll(() => editor(page).locator("p[data-label]").evaluateAll((els) => els.map((e) => e.getAttribute("data-label")))).toEqual(["1.", "1.1.", "2."]);
   });
 });

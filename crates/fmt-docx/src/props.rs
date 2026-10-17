@@ -564,7 +564,6 @@ fn toggle_el(x: &mut XmlOut, name: &str, on: bool) {
 /// `w:pPr` children that are dropped silently (no visible effect in our
 /// layout, or defaults).
 const SILENT_PPR: &[&str] = &[
-    "outlineLvl",
     "snapToGrid",
     "autoSpaceDE",
     "autoSpaceDN",
@@ -692,6 +691,9 @@ pub(crate) fn read_ppr(ppr: &El, ctx: &str, w: &mut Warnings) -> ParagraphProper
             "suppressAutoHyphens" => p.suppress_auto_hyphens = Some(toggle(el)),
             "pageBreakBefore" => p.page_break_before = Some(toggle(el)),
             "contextualSpacing" => p.contextual_spacing = Some(toggle(el)),
+            "outlineLvl" => {
+                p.outline_level = el.val().and_then(parse_u32).map(|v| v.min(9) as u8);
+            }
             "numPr" => {
                 if el.child("ins").is_some() {
                     w.warn(
@@ -822,6 +824,9 @@ pub(crate) fn write_ppr_sect(
                 Alignment::Justify => "both",
             },
         );
+    }
+    if let Some(l) = p.outline_level {
+        x.val("w:outlineLvl", &l.min(9).to_string());
     }
     if let Some(r) = &p.run_defaults {
         write_rpr(x, r, scheme);
@@ -1489,6 +1494,33 @@ mod tests {
         );
         assert_eq!(w.into_vec().len(), 1);
         assert_eq!(rtl.alignment, Some(Alignment::Right), "mirrored");
+    }
+
+    #[test]
+    fn outline_level_roundtrip() {
+        let mut w = Warnings::default();
+        let p = read_ppr(
+            &el(
+                r#"<w:pPr><w:jc w:val="center"/><w:outlineLvl w:val="2"/><w:rPr><w:b/></w:rPr></w:pPr>"#,
+            ),
+            "t",
+            &mut w,
+        );
+        assert!(w.into_vec().is_empty(), "outlineLvl is read, not dropped");
+        assert_eq!(p.outline_level, Some(2));
+        let xml = out(|x| write_ppr(x, &p, &ColorScheme::default()));
+        // Word's order: after w:jc, before w:rPr.
+        assert_eq!(
+            xml,
+            "<w:pPr><w:jc w:val=\"center\"/><w:outlineLvl w:val=\"2\"/><w:rPr><w:b/><w:bCs/></w:rPr></w:pPr>"
+        );
+        assert_eq!(read_ppr(&el(&xml), "t", &mut Warnings::default()), p);
+        let body = read_ppr(
+            &el(r#"<w:pPr><w:outlineLvl w:val="12"/></w:pPr>"#),
+            "t",
+            &mut Warnings::default(),
+        );
+        assert_eq!(body.outline_level, Some(9), "clamped to body text");
     }
 
     #[test]

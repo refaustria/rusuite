@@ -404,14 +404,27 @@ export function outlineLevel(sheet: StyleSheet | null, id: string): number | nul
   return m ? Number(m[1]) : null;
 }
 
-/** Heading 1–3 paragraphs of the editor document (non-empty), in order. */
+/**
+ * The outline level (1-based) of a paragraph node: its own `w:outlineLvl`, else its style's, else the Heading N it
+ * is based on; null for body text.
+ */
+export function paragraphOutlineLevel(sheet: StyleSheet | null, node: PMNode): number | null {
+  const id = paragraphStyleId(sheet, node);
+  const direct = (node.attrs.extra as { outlineLevel?: number } | null)?.outlineLevel ?? resolveParagraph(sheet, id).outlineLevel;
+  if (direct != null) return direct < 9 ? direct + 1 : null;
+  return outlineLevel(sheet, id);
+}
+
+/** Heading 1–3 paragraphs (and paragraphs with outline levels 1–3) of the editor document (non-empty), in order; numbered headings with their numbers. */
 export function headingsOf(doc: PMNode, sheet: StyleSheet | null, maxLevel = 3): HeadingEntry[] {
   const out: HeadingEntry[] = [];
   doc.descendants((node) => {
     if (node.type.name === "notes") return false;
     if (!TEXTBLOCK_TYPES.has(node.type.name)) return true;
-    const level = outlineLevel(sheet, paragraphStyleId(sheet, node));
-    const text = node.textContent.trim();
+    const level = paragraphOutlineLevel(sheet, node);
+    const label = node.attrs.listLabel as string | null;
+    const body = node.textContent.trim();
+    const text = body && label && /[\p{L}\p{N}]/u.test(label) ? `${label.trim()} ${body}` : body;
     if (level && level <= maxLevel && text && node.attrs.id != null) out.push({ id: node.attrs.id as number, level, text });
     return false;
   });
