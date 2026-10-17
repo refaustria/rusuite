@@ -504,6 +504,7 @@
   "write.margins.narrow": "Narrow (1.27 cm)",
   "write.margins.normal": "Normal (2.54 cm)",
   "write.margins.wide": "Wide (2.54 / 5.08 cm)",
+  "write.markDecorative": "Mark as decorative",
   "write.merge": "Merge",
   "write.mergeCells": "Merge Cells",
   "write.moreStyles": "More styles",

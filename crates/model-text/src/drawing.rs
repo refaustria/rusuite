@@ -411,6 +411,15 @@ pub struct Drawing {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub picture: Option<DrawingPicture>,
+    /// The hyperlink of the shape (`wp:docPr/a:hlinkClick`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub link: Option<crate::link::Hyperlink>,
+    /// Marked as decorative (Alt Text › Mark as decorative; the
+    /// `adec:decorative` extension of `wp:docPr`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub decorative: bool,
 }
 
 fn is_zero_emu(v: &Emu) -> bool {
@@ -454,6 +463,8 @@ impl Drawing {
             x: Emu(0),
             y: Emu(0),
             picture: None,
+            link: None,
+            decorative: false,
         }
     }
 

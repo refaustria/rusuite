@@ -102,6 +102,7 @@ fn sample() -> Document {
         anchor: None,
         format: Default::default(),
         link: None,
+        decorative: false,
     }));
 
     doc.body = vec![
@@ -206,6 +207,7 @@ fn plain_text_with_image_break_and_tab() {
         anchor: None,
         format: Default::default(),
         link: None,
+        decorative: false,
     }));
     p.inlines.push(Inline::Break(BreakKind::Page));
     doc.body.push(Block::Paragraph(p));

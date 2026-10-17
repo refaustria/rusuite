@@ -11,7 +11,8 @@ import type { Anchor } from "../generated/Anchor";
 import type { Crop } from "../generated/Crop";
 import type { Indent } from "../generated/Indent";
 import type { PictureFormat } from "../generated/PictureFormat";
-import { colorCss, pictureFilterCss } from "../sync/schema";
+import type { Hyperlink } from "../generated/Hyperlink";
+import { colorCss, linkTitle, pictureFilterCss } from "../sync/schema";
 import { pathQuery, rectOutline, shapePaths } from "./drawings/paths";
 import { floatPlacement, lineTopAt, movedAnchor, placementStyle, type VerticalPage } from "./floating";
 import { bevelCss, cropMaskRects, imageRect, softEdgeCss } from "./pictures";
@@ -310,8 +311,10 @@ export function imageNodeView(node: PMNode, view: EditorView, getPos: () => numb
   const render = (n: PMNode) => {
     place(n);
     img.dataset.mediaId = String(n.attrs.mediaId);
-    img.alt = n.attrs.alt ?? "";
-    img.title = n.attrs.alt ?? "";
+    img.alt = n.attrs.decorative ? "" : (n.attrs.alt ?? "");
+    // A linked picture shows its ScreenTip (Word); otherwise its description.
+    img.title = n.attrs.link ? linkTitle(n.attrs.link as Hyperlink) : (n.attrs.alt ?? "");
+    wrap.classList.toggle("linked", !!n.attrs.link);
     const f = n.attrs.format as PictureFormat | null;
     size(Math.max(1, Math.round(n.attrs.width / opts.emuPerPx)), Math.max(1, Math.round(n.attrs.height / opts.emuPerPx)), cropping ?? f?.crop ?? null);
     if (media !== n.attrs.mediaId) {

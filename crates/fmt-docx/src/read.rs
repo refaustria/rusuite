@@ -532,6 +532,9 @@ struct OpenField {
     kind: Option<FieldKind>,
     cached: String,
     props: Option<RunProperties>,
+    /// A HYPERLINK field: its link and where its result runs start in the
+    /// paragraph's inlines.
+    link: Option<(Hyperlink, usize)>,
 }
 
 struct BodyReader<'a> {
@@ -641,7 +644,11 @@ impl<'a> BodyReader<'a> {
         } else {
             LinkTarget::Bookmark(el.attr("anchor").filter(|a| !a.is_empty())?.to_owned())
         };
-        Some(Hyperlink { target, tooltip })
+        Some(Hyperlink {
+            target,
+            tooltip,
+            field: false,
+        })
     }
 }
 
@@ -840,10 +847,19 @@ impl BodyReader<'_> {
                             out.push(Inline::Field(field));
                         }
                         _ => {
-                            if kind.is_none() {
+                            let link = el.attr("instr").and_then(Hyperlink::parse_field);
+                            if kind.is_none() && link.is_none() {
                                 self.w.warn("docx.field.flattened", FLATTENED, &[]);
                             }
+                            let start = out.len();
                             self.read_content(el, out);
+                            if let Some(link) = link {
+                                for inline in out.iter_mut().skip(start) {
+                                    if let Inline::Run(run) = inline {
+                                        run.link.get_or_insert_with(|| link.clone());
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -961,9 +977,13 @@ impl BodyReader<'_> {
                 kind: None,
                 cached: String::new(),
                 props: None,
+                link: None,
             }),
             Some("separate") => {
                 let outer = self.capturing().is_some();
+                // A HYPERLINK field: its result runs are the link's text (P9-W4).
+                flush(text, props, out);
+                let at = out.len();
                 if let Some(f) = self.fields.last_mut().filter(|f| !f.result) {
                     f.result = true;
                     f.kind = if outer {
@@ -972,7 +992,10 @@ impl BodyReader<'_> {
                         FieldKind::parse(&f.instr)
                     };
                     if f.kind.is_none() && !outer {
-                        self.w.warn("docx.field.flattened", FLATTENED, &[]);
+                        match Hyperlink::parse_field(&f.instr) {
+                            Some(h) => f.link = Some((h, at)),
+                            None => self.w.warn("docx.field.flattened", FLATTENED, &[]),
+                        }
                     }
                 }
             }
@@ -989,9 +1012,18 @@ impl BodyReader<'_> {
                         self.w.warn("docx.field.flattened", FLATTENED, &[]);
                     }
                 }
+                let link = f.link.take();
                 if f.kind.is_some() && self.capturing().is_none() {
                     flush(text, props, out);
                     push_field(f, out);
+                }
+                if let Some((link, start)) = link {
+                    flush(text, props, out);
+                    for inline in out.iter_mut().skip(start) {
+                        if let Inline::Run(run) = inline {
+                            run.link.get_or_insert_with(|| link.clone());
+                        }
+                    }
                 }
             }
             _ => {}
@@ -1186,6 +1218,7 @@ impl BodyReader<'_> {
             anchor: floating.then(|| read_anchor(shape, self.w)),
             format,
             link,
+            decorative: doc_pr.is_some_and(is_decorative),
         }))
     }
 
@@ -1242,7 +1275,11 @@ impl BodyReader<'_> {
             .attr("tooltip")
             .filter(|t| !t.is_empty())
             .map(str::to_owned);
-        Some(Hyperlink { target, tooltip })
+        Some(Hyperlink {
+            target,
+            tooltip,
+            field: false,
+        })
     }
 
     /// Size, name, alternative text and placement of a drawing from its
@@ -1267,6 +1304,10 @@ impl BodyReader<'_> {
         d.name = attr("name");
         d.alt = attr("descr");
         d.anchor = floating.then(|| read_anchor(frame, self.w));
+        d.decorative = doc_pr.is_some_and(is_decorative);
+        d.link = doc_pr
+            .and_then(|p| p.child("hlinkClick"))
+            .and_then(|h| self.drawing_link(h));
     }
 
     /// A `wps:wsp` (shape or text box) in `wp:inline` / `wp:anchor` `frame`.
@@ -1908,6 +1949,14 @@ fn read_anchor(a: &El, w: &mut Warnings) -> Anchor {
         );
     }
     anchor
+}
+
+/// Whether a `wp:docPr` carries Word's "decorative" mark (the
+/// `adec:decorative val="1"` extension).
+fn is_decorative(doc_pr: &El) -> bool {
+    doc_pr
+        .find("decorative")
+        .is_some_and(|d| d.attr("val").and_then(parse_bool).unwrap_or(true))
 }
 
 /// A number attribute (EMU) of `el` as `f64` (0 when absent).

@@ -154,7 +154,9 @@ function imageCommand(block: number, offset: number, a: Inline | undefined, b: I
     if (y.width <= 0 || y.height <= 0) return null;
     cmds.push({ type: "setImageSize", block, offset, width: y.width, height: y.height });
   }
-  if ((x.alt ?? null) !== (y.alt ?? null)) cmds.push({ type: "setImageAlt", block, offset, alt: y.alt ?? null });
+  if ((x.alt ?? null) !== (y.alt ?? null) || !!x.decorative !== !!y.decorative) {
+    cmds.push({ type: "setImageAlt", block, offset, alt: y.alt ?? null, ...(!!x.decorative !== !!y.decorative ? { decorative: !!y.decorative } : {}) });
+  }
   if (stableStringify(canonValue(x.anchor ?? null)) !== stableStringify(canonValue(y.anchor ?? null))) {
     cmds.push({ type: "setImageAnchor", block, offset, anchor: y.anchor ?? null });
   }

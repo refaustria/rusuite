@@ -83,7 +83,7 @@ export function inlinesFromPM(node: PMNode): Inline[] {
       const a = child.attrs;
       out.push({
         kind: "image",
-        value: canonValue({ media: a.mediaId, width: a.width, height: a.height, alt: a.alt, name: a.name, anchor: a.anchor, format: a.format, link: a.link }) as never,
+        value: canonValue({ media: a.mediaId, width: a.width, height: a.height, alt: a.alt, name: a.name, anchor: a.anchor, format: a.format, link: a.link, decorative: a.decorative || null }) as never,
       });
     } else if (child.type.name === "drawing") {
       out.push({ kind: "drawing", value: canonValue(child.attrs.value) as never });

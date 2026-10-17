@@ -212,3 +212,82 @@ fn picture_soft_edges_bevel_and_through_wrapping_roundtrip() {
     assert_eq!(got.format, img.format);
     assert_eq!(got.anchor.unwrap().wrap, WrapKind::Through);
 }
+
+#[test]
+fn shape_links_and_decorative_marks_roundtrip() {
+    let mut doc = Document::new();
+    let png = doc.media.insert("image/png", vec![0x89, b'P', b'N', b'G']);
+    let mut img = model_text::InlineImage::new(png, Emu(914_400), Emu(457_200));
+    img.decorative = true;
+    let mut shape = Drawing::shape(doc.alloc_id(), "heart", Emu(914_400), Emu(914_400));
+    shape.link = Some(model_text::Hyperlink {
+        target: model_text::LinkTarget::Url("https://rusuit.es/".into()),
+        tooltip: Some("Rusuite".into()),
+        field: false,
+    });
+    shape.decorative = true;
+    let mut d = doc_with(vec![Inline::Image(img), Inline::Drawing(Box::new(shape))]);
+    d.media = doc.media.clone();
+    let bytes = fmt_docx::write(&d).unwrap();
+    let xml = document_xml(&bytes);
+    assert!(xml.contains(r#"<a:ext uri="{C183D7F6-B498-43B3-948B-1728B52AA6E4}"><adec:decorative xmlns:adec="http://schemas.microsoft.com/office/drawing/2017/decorative" val="1"/>"#), "{xml}");
+    assert!(xml.contains(r#"tooltip="Rusuite"/>"#), "{xml}");
+    let back = reread(&d);
+    let p = back.body[0].as_paragraph().unwrap();
+    let Inline::Image(i) = &p.inlines[0] else {
+        panic!()
+    };
+    assert!(i.decorative);
+    let s = p.drawings().next().unwrap();
+    assert!(s.decorative);
+    let l = s.link.as_ref().unwrap();
+    assert_eq!(
+        l.target,
+        model_text::LinkTarget::Url("https://rusuit.es/".into())
+    );
+    assert_eq!(l.tooltip.as_deref(), Some("Rusuite"));
+}
+
+#[test]
+fn hyperlink_fields_are_read_as_links_and_written_back_as_fields() {
+    let doc = doc_with(vec![Inline::Run(Run::new("Before "))]);
+    let bytes = fmt_docx::write(&doc).unwrap();
+    let bytes = patched(&bytes, |x| {
+        x.replace(
+            "<w:t xml:space=\"preserve\">Before </w:t></w:r>",
+            concat!(
+                "<w:t xml:space=\"preserve\">Before </w:t></w:r>",
+                "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>",
+                "<w:r><w:instrText xml:space=\"preserve\"> HYPERLINK \"https://example.com/\" \\o \"Example site\" </w:instrText></w:r>",
+                "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>",
+                "<w:r><w:rPr><w:b/></w:rPr><w:t>the</w:t></w:r><w:r><w:t xml:space=\"preserve\"> site</w:t></w:r>",
+                "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>",
+                "<w:fldSimple w:instr=\" HYPERLINK \\l &quot;intro&quot; \"><w:r><w:t>back</w:t></w:r></w:fldSimple>",
+            ),
+        )
+    });
+    let out = fmt_docx::read_with_context(&bytes).unwrap();
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    let p = out.document.body[0].as_paragraph().unwrap().clone();
+    assert_eq!(p.text(), "Before the siteback");
+    let runs: Vec<&Run> = p.inlines.iter().filter_map(Inline::as_run).collect();
+    let link = runs[1].link.as_ref().unwrap();
+    assert!(link.field);
+    assert_eq!(link.tooltip.as_deref(), Some("Example site"));
+    assert_eq!(runs[2].link, runs[1].link);
+    assert_eq!(
+        runs[3].link.as_ref().unwrap().target,
+        model_text::LinkTarget::Bookmark("intro".into())
+    );
+    assert!(runs[0].link.is_none());
+    // Written back as fields (not w:hyperlink), the result runs keep their formatting.
+    let xml = document_xml(&fmt_docx::write(&out.document).unwrap());
+    assert!(xml.contains(r#"<w:instrText xml:space="preserve"> HYPERLINK "https://example.com/" \o "Example site" </w:instrText>"#), "{xml}");
+    assert!(
+        xml.contains(r#"<w:instrText xml:space="preserve"> HYPERLINK \l "intro" </w:instrText>"#),
+        "{xml}"
+    );
+    assert!(!xml.contains("<w:hyperlink"), "{xml}");
+    let again = reread(&out.document);
+    assert_eq!(again.body[0].as_paragraph().unwrap().inlines, p.inlines);
+}

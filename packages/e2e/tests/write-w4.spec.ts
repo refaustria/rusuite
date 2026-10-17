@@ -213,4 +213,38 @@ test.describe("Write pictures round 2 (P9-W4)", () => {
   });
 });
 
+test.describe("Write links on pictures (P9-W4)", () => {
+  test("a hyperlink on a picture saves as a:hlinkClick and Ctrl+click opens it", async ({ page, context }) => {
+    const errors = trackErrors(page);
+    await context.route("https://rusuite.example/**", (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>linked</title>" }));
+    await openWrite(page);
+    await page.keyboard.type("Click the logo: ");
+    const img = await insertPicture(page);
+    await page.keyboard.press("Control+k");
+    const dialog = page.getByRole("dialog", { name: "Insert Hyperlink" });
+    await dialog.getByRole("textbox", { name: "Address", exact: true }).fill("https://rusuite.example/logo");
+    await dialog.getByLabel("ScreenTip").fill("The logo page");
+    await dialog.getByTestId("link-ok").click();
+    await expect(img).toHaveAttribute("title", /The logo page[\s\S]*Ctrl\+Click to follow link/);
+    const docx = await saveViaBackstage(page);
+    const xml = zipText(docx, "word/document.xml");
+    const rid = /<wp:docPr [^>]*><a:hlinkClick xmlns:a="[^"]+" r:id="(rId\d+)" tooltip="The logo page"\/>/.exec(xml)?.[1];
+    expect(rid).toBeTruthy();
+    expect(zipText(docx, "word/_rels/document.xml.rels")).toMatch(new RegExp(`Id="${rid}"[^>]*Target="https://rusuite.example/logo" TargetMode="External"`));
+    // Ctrl+click follows the link (a new tab); the picture stays.
+    const [tab] = await Promise.all([context.waitForEvent("page"), img.click({ modifiers: ["Control"] })]);
+    await expect.poll(() => tab.url()).toBe("https://rusuite.example/logo");
+    await tab.close();
+    // Remove Link (context menu) keeps the picture.
+    await img.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Remove Link" }).click();
+    await expect(editor(page).locator(".inline-image-wrap")).toHaveCount(1);
+    await expect(img).not.toHaveAttribute("title", /Ctrl/);
+    const xml2 = zipText(await saveViaBackstage(page), "word/document.xml");
+    expect(xml2).not.toContain("a:hlinkClick");
+    expect(xml2).toContain("<pic:pic>");
+    errors.expectNone();
+  });
+});
+
 void testdata;

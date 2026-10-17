@@ -1297,6 +1297,7 @@ fn set_image_size_and_alt() {
             block: id(1),
             offset: 2,
             alt: Some("A red dot".into()),
+            decorative: None,
         },
     );
     assert_eq!(image_at(&h, 1, 2).alt.as_deref(), Some("A red dot"));
@@ -1306,9 +1307,12 @@ fn set_image_size_and_alt() {
             block: id(1),
             offset: 2,
             alt: Some(String::new()),
+            decorative: Some(true),
         },
     );
     assert_eq!(image_at(&h, 1, 2).alt, None);
+    // P9-W4: Mark as decorative.
+    assert!(image_at(&h, 1, 2).decorative);
 }
 
 #[test]

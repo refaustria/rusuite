@@ -41,4 +41,9 @@ format?: PictureFormat,
 /**
  * The hyperlink of the picture (docx `a:hlinkClick` in `wp:docPr`).
  */
-link?: Hyperlink, };
+link?: Hyperlink, 
+/**
+ * Marked as decorative (the `adec:decorative` extension of
+ * `wp:docPr`; screen readers skip the picture).
+ */
+decorative?: boolean, };

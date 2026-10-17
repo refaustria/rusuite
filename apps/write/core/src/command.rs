@@ -567,12 +567,16 @@ pub enum WriteCommand {
         height: Emu,
     },
     /// Sets (or with `null`/empty, removes) the alternative text of the
-    /// inline image at position `offset` of `block`.
+    /// inline image at position `offset` of `block`; `decorative` (when
+    /// given) sets Alt Text › Mark as decorative.
     SetImageAlt {
         block: NodeId,
         offset: u32,
         #[serde(default)]
         alt: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        decorative: Option<bool>,
     },
     /// Changes rows `rows` (indices) of `table`: `header` sets "repeat as
     /// header row", `height` sets the row height (a value `<= 0` makes it

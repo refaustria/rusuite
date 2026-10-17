@@ -233,6 +233,11 @@ pub struct InlineImage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub link: Option<Hyperlink>,
+    /// Marked as decorative (the `adec:decorative` extension of
+    /// `wp:docPr`; screen readers skip the picture).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub decorative: bool,
 }
 
 impl InlineImage {
@@ -247,6 +252,7 @@ impl InlineImage {
             anchor: None,
             format: crate::drawing::PictureFormat::default(),
             link: None,
+            decorative: false,
         }
     }
 }

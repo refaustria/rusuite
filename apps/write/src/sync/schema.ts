@@ -557,6 +557,8 @@ export const InlineImageNode = Node.create<ImageOptions>({
       height: { default: 952500 },
       alt: { default: null },
       name: { default: null },
+      // Alt Text › Mark as decorative (`InlineImage.decorative`).
+      decorative: { default: false, parseHTML: () => false, renderHTML: () => ({}) },
       // Floating placement (`Anchor`), null = inline.
       anchor: { default: null, parseHTML: () => null, renderHTML: () => ({}) },
       // Crop, border, outline shape, shadow, corrections (`PictureFormat`), null = none.

@@ -4,6 +4,7 @@ import type { Anchor } from "./Anchor";
 import type { DrawingKind } from "./DrawingKind";
 import type { DrawingPicture } from "./DrawingPicture";
 import type { DrawingText } from "./DrawingText";
+import type { Hyperlink } from "./Hyperlink";
 import type { NodeId } from "./NodeId";
 import type { ShapeFill } from "./ShapeFill";
 import type { ShapeLine } from "./ShapeLine";
@@ -103,4 +104,13 @@ y?: number,
 /**
  * The picture of a [`DrawingKind::Picture`] member.
  */
-picture?: DrawingPicture, };
+picture?: DrawingPicture, 
+/**
+ * The hyperlink of the shape (`wp:docPr/a:hlinkClick`).
+ */
+link?: Hyperlink, 
+/**
+ * Marked as decorative (Alt Text › Mark as decorative; the
+ * `adec:decorative` extension of `wp:docPr`).
+ */
+decorative?: boolean, };

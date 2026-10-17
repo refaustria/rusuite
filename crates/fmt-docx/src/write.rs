@@ -573,8 +573,8 @@ impl<'a> PartWriter<'a> {
         let mut open_link: Option<&Hyperlink> = None;
         for inline in &p.inlines {
             let link = inline.as_run().and_then(|r| r.link.as_ref());
-            if open_link.is_some() && open_link != link && !inline.is_marker() {
-                self.x.end("w:hyperlink");
+            if let Some(l) = open_link.filter(|l| Some(*l) != link && !inline.is_marker()) {
+                self.hyperlink_end(l);
                 open_link = None;
             }
             if let (None, Some(l)) = (open_link, link) {
@@ -603,8 +603,8 @@ impl<'a> PartWriter<'a> {
                     .empty("w:bookmarkEnd", &[("w:id", &id.0.to_string())]),
             }
         }
-        if open_link.is_some() {
-            self.x.end("w:hyperlink");
+        if let Some(l) = open_link {
+            self.hyperlink_end(l);
         }
         if let Some((id, _)) = &bookmark {
             self.x.empty("w:bookmarkEnd", &[("w:id", &id.to_string())]);
@@ -764,10 +764,26 @@ impl<'a> PartWriter<'a> {
         }
     }
 
+    /// Closes what [`hyperlink_start`](Self::hyperlink_start) opened.
+    fn hyperlink_end(&mut self, l: &Hyperlink) {
+        if l.field {
+            self.fld_char("end");
+        } else {
+            self.x.end("w:hyperlink");
+        }
+    }
+
     /// Opens a `w:hyperlink`: an external relationship for web and e-mail
     /// targets (`r:id`), `w:anchor` for a bookmark; `w:history="1"` as
-    /// Word writes it.
+    /// Word writes it. A link read from a HYPERLINK field is written as
+    /// that field (begin, instruction, separate; the runs are its result).
     fn hyperlink_start(&mut self, l: &Hyperlink) {
+        if l.field {
+            self.fld_char("begin");
+            self.instr_text(&format!(" {} ", l.field_instruction()));
+            self.fld_char("separate");
+            return;
+        }
         let mut attrs: Vec<(&str, String)> = Vec::new();
         match &l.target {
             LinkTarget::Bookmark(b) => attrs.push(("w:anchor", b.clone())),
@@ -1045,19 +1061,8 @@ impl<'a> PartWriter<'a> {
             doc_pr.push(("descr", alt));
         }
         let link = img.link.as_ref().map(|l| self.drawing_link(l));
+        write_doc_pr(&mut self.x, &doc_pr, link.as_ref(), img.decorative);
         let x = &mut self.x;
-        match &link {
-            None => x.empty("wp:docPr", &doc_pr),
-            Some((rid, tooltip)) => {
-                x.start("wp:docPr", &doc_pr);
-                let mut attrs = vec![("xmlns:a", NS_A), ("r:id", rid.as_str())];
-                if let Some(t) = tooltip {
-                    attrs.push(("tooltip", t.as_str()));
-                }
-                x.empty("a:hlinkClick", &attrs);
-                x.end("wp:docPr");
-            }
-        }
         x.start("wp:cNvGraphicFramePr", &[]);
         x.empty("a:graphicFrameLocks", &[("noChangeAspect", "1")]);
         x.end("wp:cNvGraphicFramePr");
@@ -1159,7 +1164,8 @@ impl<'a> PartWriter<'a> {
         if let Some(alt) = &d.alt {
             doc_pr.push(("descr", alt));
         }
-        self.x.empty("wp:docPr", &doc_pr);
+        let link = d.link.as_ref().map(|l| self.drawing_link(l));
+        write_doc_pr(&mut self.x, &doc_pr, link.as_ref(), d.decorative);
         self.x.empty("wp:cNvGraphicFramePr", &[]);
         self.x.start("a:graphic", &[]);
         if group {
@@ -1612,6 +1618,41 @@ pub(crate) fn write_tc_pr(
         x.val("w:vAlign", v);
     }
     x.end("w:tcPr");
+}
+
+/// URI of Word's "decorative" extension of `wp:docPr`.
+const DECORATIVE_EXT: &str = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}";
+const NS_ADEC: &str = "http://schemas.microsoft.com/office/drawing/2017/decorative";
+
+/// Writes `wp:docPr` with its link (`a:hlinkClick`: relationship id and
+/// ScreenTip) and the decorative mark (`a:extLst`, Word's
+/// `adec:decorative`).
+fn write_doc_pr(
+    x: &mut XmlOut,
+    attrs: &[(&str, &str)],
+    link: Option<&(String, Option<String>)>,
+    decorative: bool,
+) {
+    if link.is_none() && !decorative {
+        x.empty("wp:docPr", attrs);
+        return;
+    }
+    x.start("wp:docPr", attrs);
+    if let Some((rid, tooltip)) = link {
+        let mut a = vec![("xmlns:a", NS_A), ("r:id", rid.as_str())];
+        if let Some(t) = tooltip {
+            a.push(("tooltip", t.as_str()));
+        }
+        x.empty("a:hlinkClick", &a);
+    }
+    if decorative {
+        x.start("a:extLst", &[("xmlns:a", NS_A)]);
+        x.start("a:ext", &[("uri", DECORATIVE_EXT)]);
+        x.empty("adec:decorative", &[("xmlns:adec", NS_ADEC), ("val", "1")]);
+        x.end("a:ext");
+        x.end("a:extLst");
+    }
+    x.end("wp:docPr");
 }
 
 /// Writes the start of `wp:anchor` up to the wrapping element (the
@@ -2105,6 +2146,7 @@ mod tests {
                     anchor: None,
                     format: Default::default(),
                     link: None,
+                    decorative: false,
                 }),
                 Inline::Break(BreakKind::Page),
             ],
@@ -2222,6 +2264,7 @@ mod tests {
                 anchor: None,
                 format: Default::default(),
                 link: None,
+                decorative: false,
             })],
         );
         doc.body = vec![p];

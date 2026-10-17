@@ -7,12 +7,13 @@
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
+import type { Drawing } from "../generated/Drawing";
 import type { Hyperlink } from "../generated/Hyperlink";
 import type { LinkTarget } from "../generated/LinkTarget";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { charOffsetOf, findPos, pmOffsetOf } from "../sync/SyncPlugin";
 import { linkHref, TEXTBLOCK_TYPES } from "../sync/schema";
-import { stableStringify } from "../sync/model";
+import { canonDrawing, stableStringify } from "../sync/model";
 import { currentLayout } from "./pagination";
 
 // ----- links at the caret ---------------------------------------------------------------
@@ -82,6 +83,41 @@ export interface LinkDialogInit {
   textFixed: boolean;
   /** A selected picture: the link goes on the picture (`SetImageLink` at `from`). */
   picture?: boolean;
+  /** A selected shape or text box: the link goes on it (`SetDrawingProps` at `from`). */
+  drawing?: Drawing;
+}
+
+/** A shape's value without its text blocks (what `SetDrawingProps` carries). */
+export const shellOf = (d: Drawing): Drawing => {
+  const out = canonDrawing(d);
+  return out.text ? { ...out, text: { ...out.text, blocks: [] } } : out;
+};
+
+/** The link of the selected picture or shape, with the commands that change it. */
+export function objectLink(state: EditorState): { link: Hyperlink | null; set: (link: Hyperlink | null) => WriteCommand } | null {
+  const sel = state.selection;
+  if (!(sel instanceof NodeSelection)) return null;
+  const node = sel.node;
+  const $from = sel.$from;
+  if (!$from.parent.isTextblock || $from.parent.attrs.id == null) return null;
+  const block = $from.parent.attrs.id as number;
+  const offset = charOffsetOf($from.parent, $from.parentOffset);
+  if (node.type.name === "image") {
+    return { link: (node.attrs.link as Hyperlink | null) ?? null, set: (link) => ({ type: "setImageLink", block, offset, link }) };
+  }
+  if (node.type.name === "drawing" && node.attrs.value) {
+    const d = node.attrs.value as Drawing;
+    return {
+      link: d.link ?? null,
+      set: (link) => {
+        const next = { ...d };
+        if (link) next.link = link;
+        else delete next.link;
+        return { type: "setDrawingProps", block, offset, drawing: shellOf(next) };
+      },
+    };
+  }
+  return null;
 }
 
 export function linkDialogInit(state: EditorState): LinkDialogInit | null {
@@ -91,6 +127,12 @@ export function linkDialogInit(state: EditorState): LinkDialogInit | null {
   if (node?.type.name === "image" && $from.parent.isTextblock && $from.parent.attrs.id != null) {
     const off = charOffsetOf($from.parent, $from.parentOffset);
     return { block: $from.parent.attrs.id as number, from: off, to: off + 1, text: "", link: (node.attrs.link as Hyperlink | null) ?? null, textFixed: true, picture: true };
+  }
+  // A selected shape or text box gets the link itself (P9-W4).
+  if (node?.type.name === "drawing" && node.attrs.value && $from.parent.isTextblock && $from.parent.attrs.id != null) {
+    const off = charOffsetOf($from.parent, $from.parentOffset);
+    const d = node.attrs.value as Drawing;
+    return { block: $from.parent.attrs.id as number, from: off, to: off + 1, text: "", link: d.link ?? null, textFixed: true, drawing: d };
   }
   const at = linkAt(state, from);
   if (at && (from === to || (from >= at.from && to <= at.to))) {
@@ -113,15 +155,20 @@ export function linkDialogInit(state: EditorState): LinkDialogInit | null {
 
 /** `SetHyperlink` for the dialog's result (the text only when it changed or nothing was selected). */
 export function hyperlinkCommand(init: LinkDialogInit, link: Hyperlink, text: string): WriteCommand {
+  // An edited HYPERLINK field stays a field (Word).
+  if (init.link?.field) link = { ...link, field: true };
   if (init.picture) return { type: "setImageLink", block: init.block, offset: init.from, link };
+  if (init.drawing) return { type: "setDrawingProps", block: init.block, offset: init.from, drawing: shellOf({ ...init.drawing, link }) };
   const shown = text.length ? text : addressOf(link.target);
   const cmd: WriteCommand = { type: "setHyperlink", block: init.block, from: init.from, to: init.to, link };
   if (!init.textFixed && (init.from === init.to || shown !== init.text)) cmd.text = shown;
   return cmd;
 }
 
-/** Remove Link: the link around the caret (or the selected text's links). */
+/** Remove Link: the link around the caret (or the selected text's links); a picture or shape keeps itself and loses its link. */
 export function removeLinkCommand(state: EditorState): WriteCommand | null {
+  const obj = objectLink(state);
+  if (obj) return obj.link ? obj.set(null) : null;
   const init = linkDialogInit(state);
   if (!init || init.from === init.to) return null;
   return { type: "removeHyperlink", block: init.block, from: init.from, to: init.to };
@@ -310,10 +357,39 @@ export function blockStart(doc: PMNode, id: number): number {
 
 export const linksKey = new PluginKey("rusuiteLinks");
 
+/** The link of a picture or shape node. */
+export function objectLinkOf(node: PMNode | null | undefined): Hyperlink | null {
+  if (!node) return null;
+  if (node.type.name === "image") return (node.attrs.link as Hyperlink | null) ?? null;
+  if (node.type.name === "drawing") return ((node.attrs.value as Drawing | null)?.link as Hyperlink | undefined) ?? null;
+  return null;
+}
+
 /** Ctrl+click (Cmd+click) follows a link; a plain click edits like Word. */
 export function linksPlugin(open: (href: string) => void = openExternal): Plugin {
   return new Plugin({
     key: linksKey,
+    view(view) {
+      // Selected floating pictures and shapes take their own clicks (moving): Ctrl+click on them follows their link first.
+      const onClick = (e: MouseEvent) => {
+        if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
+        const el = (e.target as HTMLElement | null)?.closest?.(".inline-image-wrap, .drawing-wrap") as HTMLElement | null;
+        if (!el || (e.target as HTMLElement).closest(".drawing-text .ProseMirror")) return;
+        let pos: number;
+        try {
+          pos = view.posAtDOM(el, 0);
+        } catch {
+          return;
+        }
+        const link = objectLinkOf(view.state.doc.nodeAt(pos));
+        if (!link) return;
+        e.preventDefault();
+        e.stopPropagation();
+        followLink(view, link, open);
+      };
+      view.dom.addEventListener("click", onClick, true);
+      return { destroy: () => view.dom.removeEventListener("click", onClick, true) };
+    },
     props: {
       handleClick(view, pos, event) {
         if (!(event.ctrlKey || event.metaKey)) return false;
@@ -321,6 +397,14 @@ export function linksPlugin(open: (href: string) => void = openExternal): Plugin
         if (!r) return false;
         event.preventDefault();
         followLink(view, r.link, open);
+        return true;
+      },
+      handleClickOn(view, _pos, node, _nodePos, event) {
+        if (!(event.ctrlKey || event.metaKey)) return false;
+        const link = objectLinkOf(node);
+        if (!link) return false;
+        event.preventDefault();
+        followLink(view, link, open);
         return true;
       },
       handleDOMEvents: {

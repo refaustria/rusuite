@@ -26,7 +26,7 @@ import type { Indent } from "../../generated/Indent";
 import { nodesToBlocks } from "../../sync/fromPM";
 import { blockKey, canonDrawing } from "../../sync/model";
 import { blocksToPM } from "../../sync/toPM";
-import { colorCss, pictureFilterCss } from "../../sync/schema";
+import { colorCss, linkTitle, pictureFilterCss } from "../../sync/schema";
 import { floatPlacement, lineTopAt, movedAnchor, placementStyle, renderedOffset, zoomOf } from "../floating";
 import { HANDLES, pictureFrameCss, shapeClip, verticalPage, visibleFraction, type Handle } from "../imageView";
 import { bevelCss } from "../pictures";
@@ -492,7 +492,8 @@ export function drawingNodeView(node: PMNode, view: EditorView, getPos: () => nu
     wrap.dataset.drawingId = String(d.id);
     wrap.dataset.kind = d.kind ?? "shape";
     wrap.dataset.preset = d.preset;
-    wrap.title = d.alt ?? "";
+    wrap.title = d.link ? linkTitle(d.link) : (d.alt ?? "");
+    wrap.classList.toggle("linked", !!d.link);
     place(d);
     const { w, h } = size(d);
     drawShape(d, w, h);
