@@ -4,6 +4,7 @@ import type { CellStyle } from "./CellStyle";
 import type { NameInfo } from "./NameInfo";
 import type { Person } from "./Person";
 import type { SheetInfo } from "./SheetInfo";
+import type { TableStyles } from "./TableStyles";
 import type { WorkbookProtection } from "./WorkbookProtection";
 
 /**
@@ -39,4 +40,8 @@ workbookProtection?: WorkbookProtection,
 /**
  * The sheet the file opened on (`<workbookView activeTab>`).
  */
-activeSheet: number, };
+activeSheet: number, 
+/**
+ * Custom table styles and the default table style; absent = none.
+ */
+tableStyles?: TableStyles, };

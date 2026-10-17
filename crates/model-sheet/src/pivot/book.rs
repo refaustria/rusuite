@@ -719,13 +719,22 @@ impl Workbook {
         let cache = self
             .pivot_cache(old.cache_id)
             .ok_or_else(|| Error::InvalidPivot("no cache".into()))?;
-        let new = PivotTable {
+        let mut new = PivotTable {
             id,
             cache_id: old.cache_id,
             location: old.location,
             raw: None,
             ..def
         };
+        // A slicer's field filter goes when its field moves onto an axis.
+        let on_axis: BTreeSet<u32> = new
+            .rows
+            .iter()
+            .chain(&new.cols)
+            .map(|a| a.field)
+            .chain(new.filters.iter().map(|p| p.field))
+            .collect();
+        new.field_filters.retain(|f| !on_axis.contains(&f.field));
         new.validate(cache)?;
         let lower = new.name.to_lowercase();
         if self

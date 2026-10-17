@@ -36,6 +36,7 @@ mod dynarray;
 mod pivot;
 mod protection;
 mod read;
+mod slicer;
 mod styles;
 mod tables;
 mod theme;

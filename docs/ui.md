@@ -690,6 +690,51 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   the selection. Typing a number (a constant, not a formula) into a column nobody sized widens the column to fit the
   displayed number (`state/autoWiden.ts`, a separate `setColWidth` after the entry), as Excel; columns never get
   narrower, wrapped and merged cells are left alone.
+- **Calc structured references follow table edits** (P9-C2): deleting table columns (right-click › Delete Table
+  Columns, the new Insert Table Rows Above / Insert Table Columns to the Left / Delete Table Rows entries of the cell
+  menu inside a table, sheet column deletes through a table, Resize Table to fewer columns) turns every reference to a
+  deleted column into `#REF!` (`Table1[Qty]`, `[@Qty]`, `Table1[[#Headers],[Qty]]`) and shrinks column ranges whose end
+  column goes (`[[Qty]:[Tax]]` → `[[Price]:[Tax]]`) in cell formulas, defined names, conditional formatting and data
+  validation formulas and the tables' calculated columns; renames reach the rules too. Undo restores every text.
+- **Calc custom table styles** (P9-C2, `tables/TableStyleDialog.tsx`): Table Design › Quick Styles lists Custom first
+  (named previews), then Light, Medium, Dark, then New Table Style… and Clear. The dialog has Name, the element list
+  (Whole Table, First / Second Column Stripe, First / Second Row Stripe, Last Column, First Column, Header Row, Total
+  Row; formatted ones in bold), Fill, Font color, Bold, Italic, Border (style and colour around the element), Stripe Size
+  1–9 for stripes, Clear, a preview and "Set as default table style for this document". Right-click on a gallery item:
+  Apply, Modify… / Duplicate… (built-in styles duplicate as their elements) / Delete (custom), Set As Default (new tables
+  get it). One `setTableStyles` command each; tables of a deleted style get the default style, a renamed style's tables
+  follow it. Later elements win over earlier ones (Excel's order); borders sit on the element's outer edges.
+- **Calc slicers** (P9-C2, `apps/calc/src/slicers`): Insert › Filters › Slicer, Table Design › Insert Slicer and
+  PivotTable Analyze › Filter › Insert Slicer open Insert Slicers (a checkbox per column / field; outside a table or
+  pivot table a message explains). Each slicer is a floating panel right of its data: caption with Multi-Select (Alt+S)
+  and Clear Filter (Alt+C), buttons per item (selected, unselected, no data dimmed; `(blank)` last). A click selects that
+  item alone; Ctrl+click or Multi-Select toggles (with nothing filtered it deselects the clicked item; the last item
+  cannot be deselected). Table slicers set the table's value filter (the filter dropdown shows it); pivot slicers filter
+  every connected pivot table (row / column / page fields or a field on no axis). Drag to move, corner handles to
+  resize, Delete removes it (with its filter). The contextual Slicer tab: Slicer Caption, Report Connections (pivot
+  tables of the same cache), Slicer Settings (name, caption, Display header, ascending / descending), Slicer Styles
+  (Light 1–6, Other 1–2, Dark 1–6), Buttons (Columns, Height), Size (Height, Width).
+- **Calc Flash Fill** (P9-C2, `datatools/flashFill.ts`): Data › Data Tools › Flash Fill and Ctrl+E fill the active
+  column's empty cells from the examples typed into it, learning from the other columns of the current region (tokens
+  from the start or the end, one delimiter's parts, initials, fixed substrings, literals, UPPER / lower / Proper, number
+  formats through the core's formatter); "Flash Fill changed N cells" (one undo step) or a message when no pattern fits.
+  After a second example is entered the suggestions show greyed in the cells below with "Enter: Flash Fill"; Enter fills
+  them, Esc or any other action drops them.
+- **Calc Consolidate** (P9-C2, `datatools/ConsolidateDialog.tsx`): Data › Data Tools › Consolidate: Function (Sum,
+  Count, Average, Max, Min, Product, Count Numbers, StdDev, StdDevp, Var, Varp), Reference with the range picker, Add,
+  All references, Delete, Use labels in Top row / Left column, Create links to source data (formulas such as
+  `=SUM(Q1!$B$2,Q2!$B$2)`; not on a source's own sheet). The result starts at the active cell (one undo step); the
+  references stay for the session; the destination is named `Consolidate_Area`.
+- **Calc Auto Outline** (P9-C2): Data › Outline › Group ▾ › Auto Outline groups the rows (and columns) whose formulas a
+  summary row right below (column right of) them refers to – nested summaries nest the groups; "Cannot create an
+  outline." when no formula summarizes; Ungroup ▾ › Clear Outline removes it. Outline Settings: Summary rows below
+  detail, Summary columns to right of detail, Create (Auto Outline with them).
+- **Calc print titles and print areas** (P9-C2): the print preview and PDF repeat the Print Titles rows on the pages
+  after them (anywhere on the sheet, not only `$1:$k`) and the columns to repeat at left on the page columns after them,
+  with the corner cells; title lines above / left of a print area print with it. A print area of several ranges
+  (`A1:C9,E1:F4` in Page Layout › Print Titles) prints each range on its own pages. The desktop Open dialog lists
+  "Excel workbook, CSV, TXT" (and each type alone); text files open in the Text Import Wizard as on the web, as an
+  untitled workbook.
 - **Write**: Home (Undo; Clipboard; Font; Paragraph: lists, indent, line spacing, alignment; Styles gallery Normal/Title/Heading
   1–6; Editing: Find and replace), Insert (Table picker, Picture, Page break, Line break), Layout (Margins, Orientation, Size →
   `SetPage`), View (zoom, shortcuts help).

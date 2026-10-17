@@ -35,6 +35,8 @@ import { paintArrows } from "../audit/trace";
 import { chartMenu } from "../charts/menus";
 import { ChartTextEditor } from "../charts/ChartTextEditor";
 import { AnnotationLayer } from "../comments/AnnotationLayer";
+import { SlicerLayer } from "../slicers/SlicerLayer";
+import { FlashPreviewLayer } from "../datatools/FlashPreview";
 import { drawIndicators, indicators } from "../comments/model";
 import { drawPivotButtons, drawPlaceholder, type PivotButton } from "../pivot/buttons";
 import { drawOutlineBar, gutterSize, outlineGroups, outlineHitAt, type BarLayout, type OutlineGroup, type OutlineHit } from "../outline/bar";
@@ -468,6 +470,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     // The annotation layer (note boxes, cards) follows the scroll position.
     store.comments.screen = (x, y) => ({ x: screenX(l, x), y: screenY(l, y) });
     store.comments.positioner?.();
+    store.slicers.positioner?.();
+    store.flashPositioner?.();
 
     const tag = spillBox.current;
     if (tag) {
@@ -793,6 +797,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.kind === "chart" || hit.kind === "chartHandle") {
       store.pictures.deselect();
+      store.slicers.deselect();
       e.preventDefault();
       chartPointer(hit, e);
       return;
@@ -915,6 +920,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     if (hit.kind === "pivotButton") hit = { kind: "cell", cell: { row: hit.button.row, col: hit.button.col } };
     e.preventDefault();
     store.pictures.deselect();
+    store.slicers.deselect();
     const edit = store.getState().edit;
     if (store.comments.selectedNote) {
       store.comments.selectedNote = null;
@@ -1154,6 +1160,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       store.comments.cancelCompose();
       return;
     }
+    // Flash Fill's greyed suggestions: Enter fills them, Esc drops them.
+    if (store.flash.preview && !ctrl && !e.shiftKey && (key === "Enter" || key === "Escape")) {
+      e.preventDefault();
+      if (key === "Enter") void store.flash.accept();
+      else store.flash.dismiss();
+      return;
+    }
     if (key === "Escape" && store.getState().clipMark) {
       e.preventDefault();
       store.clearClip();
@@ -1248,7 +1261,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       [items, label] = [rowHeaderMenu(actions), t("calc.row")];
     } else {
       if (hit.kind === "cell" && !contains(sel, hit.cell.row, hit.cell.col)) store.select(cellSelection(hit.cell.row, hit.cell.col));
-      [items, label] = [cellMenu(actions, store.selectionHasMerge(), actions.annotationState()), t("calc.cell")];
+      [items, label] = [cellMenu(actions, store.selectionHasMerge(), actions.annotationState(), !!store.tables.active()), t("calc.cell")];
     }
     setMenu({ at: { x: e.clientX, y: e.clientY }, items, label });
   };
@@ -1295,6 +1308,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         <ValidationOverlay store={store} boxRef={validationBox} onMount={draw} />
         {chartTextEdit && <ChartTextEditor store={store} boxRef={chartTextBox} onMount={draw} />}
         <AnnotationLayer store={store} />
+        <SlicerLayer store={store} />
+        <FlashPreviewLayer store={store} />
         {showPerf && (
           <div
             ref={perfBox}

@@ -173,6 +173,10 @@ pub struct SheetInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<crate::wire::SheetProtection>")]
     pub protection: Option<model_sheet::SheetProtection>,
+    /// The slicers of the sheet with their buttons; absent = none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<crate::slicers::SlicerView>>")]
+    pub slicers: Vec<crate::slicers::SlicerView>,
 }
 
 fn no_outline(m: &(u8, u8)) -> bool {
@@ -379,6 +383,10 @@ pub struct CalcPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<crate::wire::WorkbookProtection>")]
     pub workbook_protection: Option<Box<model_sheet::WorkbookProtection>>,
+    /// The custom table styles and default style, when they changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire_data::TableStyles>")]
+    pub table_styles: Option<Box<model_sheet::TableStyles>>,
 }
 
 /// Merges `other` into `list`, replacing entries with the same key.
@@ -419,6 +427,9 @@ impl app_common::Patch for CalcPatch {
         }
         if other.workbook_protection.is_some() {
             self.workbook_protection = other.workbook_protection;
+        }
+        if other.table_styles.is_some() {
+            self.table_styles = other.table_styles;
         }
         for s in other.picture_sheets {
             if !self.picture_sheets.contains(&s) {
@@ -558,4 +569,8 @@ pub struct WorkbookInfo {
     pub workbook_protection: Option<model_sheet::WorkbookProtection>,
     /// The sheet the file opened on (`<workbookView activeTab>`).
     pub active_sheet: u32,
+    /// Custom table styles and the default table style; absent = none.
+    #[serde(default, skip_serializing_if = "model_sheet::TableStyles::is_default")]
+    #[ts(optional, as = "Option<crate::wire_data::TableStyles>")]
+    pub table_styles: model_sheet::TableStyles,
 }

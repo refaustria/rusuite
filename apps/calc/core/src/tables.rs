@@ -723,12 +723,12 @@ impl CalcDocument {
                 }
                 self.workbook().check_table_name(name, Some(*id))?;
                 let old = std::mem::replace(&mut t.name, name.clone());
-                let recalc = self
-                    .workbook_mut()
-                    .engine_mut()
-                    .rename_table_refs(&old, name);
+                let rules = self.rules_state();
+                let recalc = self.workbook_mut().rename_table_refs(&old, name);
+                let (_, cf_sheets) = self.rules_changed(rules);
                 let mut acc = self.set_table(s, t)?;
                 acc.patch.merge(self.content_patch([], &recalc));
+                acc.patch.cf_sheets.extend(cf_sheets);
                 acc.patch.names = Some(self.name_infos());
                 prepend_inverse(&mut acc, vec![C::RenameTable { id: *id, name: old }]);
                 Ok(acc)
@@ -738,12 +738,21 @@ impl CalcDocument {
                 let i = *index as usize;
                 let col = t.columns.get_mut(i).ok_or(CalcError::InvalidRange)?;
                 let old = std::mem::replace(&mut col.name, name.clone());
+                let rules = self.rules_state();
                 let recalc = self
                     .workbook_mut()
-                    .engine_mut()
                     .rename_table_column_refs(&t.name, &old, name);
+                let (_, cf_sheets) = self.rules_changed(rules);
+                // The calculated column formulas were rewritten in the model's table.
+                if let Some(cur) = self.workbook().table(*id).map(|(_, x)| x.clone()) {
+                    for (c, n) in t.columns.iter_mut().zip(&cur.columns) {
+                        c.calculated_formula.clone_from(&n.calculated_formula);
+                        c.totals.clone_from(&n.totals);
+                    }
+                }
                 let mut acc = self.set_table(s, t)?;
                 acc.patch.merge(self.content_patch([], &recalc));
+                acc.patch.cf_sheets.extend(cf_sheets);
                 prepend_inverse(
                     &mut acc,
                     vec![C::RenameTableColumn {
@@ -809,23 +818,8 @@ impl CalcDocument {
                     }),
                 };
                 // The rewritten formulas' texts come back on undo.
-                let mut restore: std::collections::BTreeMap<u32, Vec<(u32, u32, String, u32)>> =
-                    Default::default();
-                for (c, text, style) in formulas_before {
-                    if self.workbook().formula_text(c) != Some(text.as_str()) {
-                        restore
-                            .entry(c.sheet.0)
-                            .or_default()
-                            .push((c.row, c.col, text, style.0));
-                    }
-                }
-                append_inverse(
-                    &mut acc,
-                    restore
-                        .into_iter()
-                        .map(|(sheet, cells)| C::RestoreCells { sheet, cells })
-                        .collect(),
-                );
+                let restore = self.formulas_restore(formulas_before);
+                append_inverse(&mut acc, restore);
                 for f in formats {
                     let a = self.apply_cmd(&C::ApplyStyle {
                         sheet: s.0,
@@ -921,8 +915,8 @@ impl CalcDocument {
                 if count == 0 || at < t.c0 || at + count - 1 > t.c1 {
                     return Err(CalcError::InvalidRange);
                 }
-                let mut acc = empty_applied();
                 if count == t.c1 - t.c0 + 1 {
+                    let mut acc = empty_applied();
                     // Every column: the table goes with its cells.
                     let rest: Vec<Table> = self
                         .workbook()
@@ -937,8 +931,15 @@ impl CalcDocument {
                     chain(&mut acc, a);
                     return Ok(acc);
                 }
-                let mut new = t.clone();
                 let pos = (at - t.c0) as usize;
+                let deleted: Vec<String> = t.columns[pos..pos + count as usize]
+                    .iter()
+                    .map(|c| c.name.clone())
+                    .collect();
+                let mut acc = self.delete_column_refs(&t.name, &deleted);
+                // The model's copy has the rewritten calculated formulas.
+                let (_, t) = self.table_of(id)?;
+                let mut new = t.clone();
                 new.columns.drain(pos..pos + count as usize);
                 new.c1 -= count;
                 if let Some(af) = new.auto_filter.as_mut() {
@@ -965,6 +966,39 @@ impl CalcDocument {
                     wb.apply_table_filter(s, tid)
                 })
             }
+            C::SetTableStyles { styles, renamed } => {
+                let old = self.workbook().table_styles().clone();
+                let tables = self.tables_state();
+                self.workbook_mut().set_table_styles(styles.clone())?;
+                let pairs: Vec<(String, String)> = renamed
+                    .iter()
+                    .map(|r| (r.from.clone(), r.to.clone()))
+                    .collect();
+                let changed = self.workbook_mut().retarget_table_styles(&pairs)?;
+                let mut inverse = vec![C::SetTableStyles {
+                    styles: old,
+                    renamed: Vec::new(),
+                }];
+                for (sheet, list) in tables {
+                    if changed.contains(&SheetId(sheet)) {
+                        inverse.push(C::RestoreTables {
+                            sheet,
+                            tables: list,
+                        });
+                    }
+                }
+                let mut patch = CalcPatch {
+                    table_styles: Some(Box::new(styles.clone())),
+                    ..Default::default()
+                };
+                if !changed.is_empty() {
+                    patch.sheets = Some(self.sheet_infos());
+                }
+                Ok(Applied {
+                    patch,
+                    inverse: Some(C::Compound { commands: inverse }),
+                })
+            }
             C::RestoreTables { sheet, tables } => {
                 // A deleted sheet without tables: nothing to restore.
                 if tables.is_empty() && self.sheet(*sheet).is_err() {
@@ -985,6 +1019,44 @@ impl CalcDocument {
             }
             _ => Err(CalcError::InvalidRange),
         }
+    }
+
+    /// The inverse commands bringing back the formula texts of
+    /// `before` that changed (structured reference rewrites).
+    pub(crate) fn formulas_restore(
+        &self,
+        before: Vec<(CellCoord, String, StyleId)>,
+    ) -> Vec<CalcCommand> {
+        let mut restore: std::collections::BTreeMap<u32, Vec<(u32, u32, String, u32)>> =
+            Default::default();
+        for (c, text, style) in before {
+            if self.workbook().formula_text(c) != Some(text.as_str()) {
+                restore
+                    .entry(c.sheet.0)
+                    .or_default()
+                    .push((c.row, c.col, text, style.0));
+            }
+        }
+        restore
+            .into_iter()
+            .map(|(sheet, cells)| CalcCommand::RestoreCells { sheet, cells })
+            .collect()
+    }
+
+    /// References to the columns `deleted` of table `table` become
+    /// `#REF!` (formulas, names, rules; Excel), as an undoable step.
+    pub(crate) fn delete_column_refs(&mut self, table: &str, deleted: &[String]) -> CalcApplied {
+        let formulas = self.formulas();
+        let rules = self.rules_state();
+        let recalc = self.workbook_mut().delete_table_column_refs(table, deleted);
+        let mut acc = empty_applied();
+        acc.patch = self.content_patch([], &recalc);
+        let restore = self.formulas_restore(formulas);
+        append_inverse(&mut acc, restore);
+        let (restore, cf_sheets) = self.rules_changed(rules);
+        append_inverse(&mut acc, restore);
+        acc.patch.cf_sheets = cf_sheets;
+        acc
     }
 
     /// [`CalcCommand::CreateTable`].
@@ -1046,9 +1118,7 @@ impl CalcDocument {
         let id = wb.next_table_id();
         let name = wb.fresh_table_name();
         let mut t = Table::new(id, &name, r0, c0, r1, c1, &names);
-        if let Some(st) = style {
-            t.style = st;
-        }
+        t.style = style.unwrap_or_else(|| wb.table_styles().default_name().to_string());
         self.check_table_area(s, &t, None)?;
         let _ = &mut r0;
         let headers: Vec<(u32, u32, String, u32)> = names
@@ -1249,6 +1319,14 @@ impl CalcDocument {
         if !t.intersects(r.r0, r.c0, r.r1, r.c1) {
             return Err(bad("the new range must overlap the table"));
         }
+        // Columns the new range leaves out: references to them become `#REF!`.
+        let dropped: Vec<String> = t
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !(r.c0..=r.c1).contains(&(t.c0 + *i as u32)))
+            .map(|(_, c)| c.name.clone())
+            .collect();
         let mut new = t.clone();
         new.r0 = r.r0;
         new.c0 = r.c0;
@@ -1328,7 +1406,20 @@ impl CalcDocument {
         }
         let (_, old_last) = t.data_rows();
         let (_, new_last) = new.data_rows();
-        let mut acc = self.set_table(s, new.clone())?;
+        let mut acc = empty_applied();
+        if !dropped.is_empty() {
+            acc = self.delete_column_refs(&t.name, &dropped);
+            // The kept columns' formulas as rewritten in the model.
+            let (_, cur) = self.table_of(id)?;
+            for c in &mut new.columns {
+                if let Some(o) = cur.columns.iter().find(|o| o.id == c.id) {
+                    c.calculated_formula.clone_from(&o.calculated_formula);
+                    c.totals.clone_from(&o.totals);
+                }
+            }
+        }
+        let a = self.set_table(s, new.clone())?;
+        chain(&mut acc, a);
         if new_last > old_last {
             writes.extend(self.calc_writes(s, &new, old_last + 1, new_last));
         }

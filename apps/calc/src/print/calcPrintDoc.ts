@@ -7,7 +7,9 @@ import { anchorRect, rectsIntersect, type PxRect } from "../charts/anchor";
 import { isWholeCols, isWholeRows, normalize, type Range } from "../grid/Selection";
 import type { CalcStore } from "../state/store";
 import { loadUsedRange } from "./loadUsed";
-import { CALC_MARGINS, HEADING_COL_PX, HEADING_ROW_PX, colLetters, paginate, printableArea, type CalcPrintOptions, type PageSlice } from "./layout";
+import { CALC_MARGINS, HEADING_COL_PX, HEADING_ROW_PX, colLetters, paginate, printableArea, type CalcPrintOptions, type PageSlice, type PrintTitlesSpec } from "./layout";
+import { parseRange } from "../charts/refs";
+import { lettersToCol } from "../formula/refs";
 import { buildPrintTable, type PrintLook, type PrintTable } from "./printTable";
 import type { IconSetKind } from "../generated/IconSetKind";
 import type { NameInfo } from "../generated/NameInfo";
@@ -42,6 +44,8 @@ export interface CalcPrintPart {
   annotations?: PrintAnnotation[];
   /** Manual page breaks: indices into the table's rows / columns that start a page. */
   breaks?: { rows: number[]; cols: number[] };
+  /** Print titles (table indices): repeated on the pages after them. */
+  titles?: PrintTitlesSpec;
 }
 
 /** Inline CSS text of React style properties (`fontWeight` → `font-weight`; numbers as px). */
@@ -72,30 +76,45 @@ export function iconHtml(set: IconSetKind, index: number): string {
   return `<svg class="rs-cf-icon" width="14" height="14" viewBox="0 0 16 16" style="float:left;margin-top:1px">${paths}</svg>`;
 }
 
+/** The table rows of a slice: repeated rows first, then the page's own. */
+export function sliceRows(slice: PageSlice): number[] {
+  const range = (a: number, b: number) => Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
+  const titles = slice.titleRows ? range(slice.titleRows[0], slice.titleRows[1]) : range(0, slice.repeat);
+  return [...titles, ...range(slice.rows[0], slice.rows[1])];
+}
+
+/** The table columns of a slice: repeated title columns first, then the page's own. */
+export function sliceCols(slice: PageSlice): number[] {
+  const range = (a: number, b: number) => Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
+  return [...(slice.titleCols ? range(slice.titleCols[0], slice.titleCols[1]) : []), ...range(slice.cols[0], slice.cols[1])];
+}
+
 /** The `<table>` of one page slice. */
 export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<CalcPrintOptions, "gridlines" | "headings">): string {
-  const cols = table.cols.slice(slice.cols[0], slice.cols[1]);
+  const colIdx = sliceCols(slice);
+  const cols = colIdx.map((i) => table.cols[i]!);
   const width = cols.reduce((s, c) => s + c.width, 0) + (o.headings ? HEADING_COL_PX : 0);
   const colgroup = `${o.headings ? `<col style="width:${HEADING_COL_PX}px">` : ""}${cols.map((c) => `<col style="width:${c.width}px">`).join("")}`;
   const head = o.headings ? `<tr style="height:${HEADING_ROW_PX}px"><th></th>${cols.map((c) => `<th>${colLetters(c.col)}</th>`).join("")}</tr>` : "";
-  const rowIdx = [...Array.from({ length: slice.repeat }, (_, i) => i), ...Array.from({ length: slice.rows[1] - slice.rows[0] }, (_, i) => slice.rows[0] + i)];
+  const rowIdx = sliceRows(slice);
   // Merged cells: colspan/rowspan cut to the page; covered cells whose
   // top-left cell is on another page print as empty cells.
   const taken = new Set<string>();
   const body = rowIdx
     .map((ri, p) => {
       const r = table.rows[ri]!;
-      const cells = r.cells
-        .slice(slice.cols[0], slice.cols[1])
-        .map((c, k) => {
-          const ci = slice.cols[0] + k;
-          if (c.covered) return taken.has(`${p}:${ci}`) ? "" : "<td></td>";
+      const cells = colIdx
+        .map((ci, k) => {
+          const c = r.cells[ci];
+          if (!c) return "<td></td>";
+          if (c.covered) return taken.has(`${p}:${k}`) ? "" : "<td></td>";
           let attrs = "";
           if (c.span) {
-            const cols = Math.min(c.span.cols, slice.cols[1] - ci);
+            let cols = 1;
+            while (cols < c.span.cols && colIdx[k + cols] === ci + cols) cols++;
             let rows = 1;
             while (rows < c.span.rows && rowIdx[p + rows] === ri + rows) rows++;
-            for (let dr = 0; dr < rows; dr++) for (let dc = 0; dc < cols; dc++) if (dr || dc) taken.add(`${p + dr}:${ci + dc}`);
+            for (let dr = 0; dr < rows; dr++) for (let dc = 0; dc < cols; dc++) if (dr || dc) taken.add(`${p + dr}:${k + dc}`);
             attrs = `${cols > 1 ? ` colspan="${cols}"` : ""}${rows > 1 ? ` rowspan="${rows}"` : ""}`;
           }
           // Rotated text turns around the cell centre and stays inside the cell (as on the canvas).
@@ -121,11 +140,13 @@ export function sliceChartsHtml(part: CalcPrintPart, slice: PageSlice, o: Pick<C
   const rowY0 = sum(table.rows.slice(0, slice.rows[0]).map((r) => r.height));
   const w = sum(table.cols.slice(slice.cols[0], slice.cols[1]).map((c) => c.width));
   const h = sum(table.rows.slice(slice.rows[0], slice.rows[1]).map((r) => r.height));
-  const repeatH = sum(table.rows.slice(0, slice.repeat).map((r) => r.height));
+  const titleRows = slice.titleRows ?? [0, slice.repeat];
+  const repeatH = sum(table.rows.slice(titleRows[0], titleRows[1]).map((r) => r.height));
+  const repeatW = slice.titleCols ? sum(table.cols.slice(slice.titleCols[0], slice.titleCols[1]).map((c) => c.width)) : 0;
   const area = { x: colX0, y: rowY0, w, h };
   const shown = charts.filter((c) => rectsIntersect(c, area));
   if (!shown.length) return "";
-  const left = o.headings ? HEADING_COL_PX : 0;
+  const left = (o.headings ? HEADING_COL_PX : 0) + repeatW;
   const top = (o.headings ? HEADING_ROW_PX : 0) + repeatH;
   const body = shown
     .map((c) => `<div class="rs-calc-chart" style="position:absolute;left:${c.x - colX0}px;top:${c.y - rowY0}px;width:${c.w}px;height:${c.h}px">${c.svg}</div>`)
@@ -141,7 +162,7 @@ export function calcPrintDocument(parts: CalcPrintPart[], o: CalcPrintOptions, c
   const size = paperSize(o.paper, o.orientation);
   const m = CALC_MARGINS[o.margins];
   const area = printableArea(o);
-  const laid = parts.map((p) => ({ part: p, ...paginate(p.table.cols.map((c) => c.width), p.table.rows.map((r) => r.height), o, area, p.breaks) }));
+  const laid = parts.map((p) => ({ part: p, ...paginate(p.table.cols.map((c) => c.width), p.table.rows.map((r) => r.height), o, area, p.breaks, p.titles) }));
   const total = laid.reduce((s, l) => s + (l.part.table.rows.length && l.part.table.cols.length ? l.pages.length : 0), 0);
   const date = ctx.date ?? new Date();
   const pages: string[] = [];
@@ -221,48 +242,97 @@ export function tableBreaks(store: CalcStore, sheet: number, table: PrintTable):
   return { rows: idx(table.rows, "row", info?.rowBreaks ?? []), cols: idx(table.cols, "col", info?.colBreaks ?? []) };
 }
 
-/** Loads what the options print from the store and builds the document. */
-/**
- * A sheet's Page Layout names (P8-35): the print area (`Print_Area`, a
- * single area) and the number of rows repeated at the top
- * (`Print_Titles` rows `$1:$k`; titles further down are not supported by
- * the layout and ignored).
- */
-export function sheetPrintNames(names: readonly NameInfo[], sheet: number): { area: Range | null; titleRows: number } {
-  const own = (b: string) => names.find((n) => n.builtin === b && n.sheet === sheet);
-  const a = own("printArea")?.range;
-  const area = a && a.sheet === sheet ? { r0: a.r0, c0: a.c0, r1: a.r1, c1: a.c1 } : null;
-  let titleRows = 0;
-  for (const part of (own("printTitles")?.refersTo ?? "").split(",")) {
-    const m = /(?:^|!)\$?(\d+):\$?(\d+)$/.exec(part.trim());
-    if (m && Number(m[1]) === 1) titleRows = Number(m[2]);
-  }
-  return { area, titleRows };
+/** A sheet's Page Layout names: every print area and the print titles (sheet rows / columns, inclusive). */
+export interface SheetPrintNames {
+  /** `Print_Area` (several areas print one after the other). */
+  areas: Range[];
+  /** `Print_Titles`: rows repeated at the top, columns repeated at the left. */
+  rows: [number, number] | null;
+  cols: [number, number] | null;
 }
 
+/**
+ * Reads a sheet's `Print_Area` (a union of areas: `$A$1:$C$9,$E$1:$F$4`)
+ * and `Print_Titles` (`$1:$2` rows and / or `$A:$B` columns).
+ */
+export function sheetPrintNames(names: readonly NameInfo[], sheet: number): SheetPrintNames {
+  const own = (b: string) => names.find((n) => n.builtin === b && n.sheet === sheet);
+  const parts = (text: string | undefined) => (text ?? "").split(",").map((p) => p.trim().replace(/^=/, "")).filter(Boolean);
+  const areas: Range[] = [];
+  for (const part of parts(own("printArea")?.refersTo)) {
+    const r = parseRange(part);
+    if (r) areas.push({ r0: r.r0, c0: r.c0, r1: r.r1, c1: r.c1 });
+  }
+  let rows: [number, number] | null = null;
+  let cols: [number, number] | null = null;
+  for (const part of parts(own("printTitles")?.refersTo)) {
+    const body = part.replace(/^.*!/, "");
+    const mr = /^\$?(\d+):\$?(\d+)$/.exec(body);
+    if (mr) rows = [Number(mr[1]) - 1, Number(mr[2]) - 1];
+    const mc = /^\$?([A-Za-z]{1,3}):\$?([A-Za-z]{1,3})$/.exec(body);
+    if (mc) {
+      const a = lettersToCol(mc[1]!.toUpperCase());
+      const b = lettersToCol(mc[2]!.toUpperCase());
+      if (a !== null && b !== null) cols = [Math.min(a, b), Math.max(a, b)];
+    }
+  }
+  return { areas, rows, cols };
+}
+
+/** The table index range of the sheet lines `lines` (inclusive) in `list` (`undefined`: none printed). */
+function indexRange<T>(list: readonly T[], key: (x: T) => number, lines: [number, number] | null): [number, number] | undefined {
+  if (!lines) return undefined;
+  const idx = list.map((x, i) => [key(x), i] as const).filter(([v]) => v >= lines[0] && v <= lines[1]).map(([, i]) => i);
+  return idx.length ? [idx[0]!, idx[idx.length - 1]! + 1] : undefined;
+}
+
+/** The table without the rows / columns `keepRow` / `keepCol` reject (title lines outside a print area). */
+export function filterTable(table: PrintTable, keepRow: (row: number) => boolean, keepCol: (col: number) => boolean): PrintTable {
+  const colIdx = table.cols.map((c, i) => (keepCol(c.col) ? i : -1)).filter((i) => i >= 0);
+  const cols = colIdx.map((i) => table.cols[i]!);
+  const rows = table.rows.filter((r) => keepRow(r.row)).map((r) => ({ ...r, cells: colIdx.map((i) => r.cells[i]!).filter(Boolean) }));
+  return { cols, rows, width: cols.reduce((a, c) => a + c.width, 0), height: rows.reduce((a, r) => a + r.height, 0) };
+}
+
+/** Loads what the options print from the store and builds the document. */
 export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): Promise<PrintDoc> {
   const st = store.getState();
   const printNames = (id: number) => sheetPrintNames(st.info?.names ?? [], id);
   const sheets = st.info?.sheets ?? [{ id: st.activeSheet, name: "Sheet1" }];
   const nameOf = (id: number) => sheets.find((s) => s.id === id)?.name ?? "";
   const parts: CalcPrintPart[] = [];
-  const rangePart = async (id: number, r: Range) => {
-    await store.ensureRegion(id, r.r0, r.c0, r.r1, r.c1);
+  /** A range with the sheet's print titles (title lines above / left of it are printed with it). */
+  const rangePart = async (id: number, r: Range, titles: SheetPrintNames | null) => {
+    const up = titles?.rows && titles.rows[0] < r.r0 ? titles.rows : null;
+    const left = titles?.cols && titles.cols[0] < r.c0 ? titles.cols : null;
+    const box0 = { r0: up ? up[0] : r.r0, c0: left ? left[0] : r.c0 };
+    await store.ensureRegion(id, box0.r0, box0.c0, r.r1, r.c1);
     // Charts intersecting the range print with it (cut at its edges).
     const geo = store.geometry(id);
     const x0 = geo.col.offset(r.c0);
     const y0 = geo.row.offset(r.r0);
     const box = { x: x0, y: y0, w: geo.col.offset(r.c1 + 1) - x0, h: geo.row.offset(r.r1 + 1) - y0 };
+    let table = buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, box0.r0, box0.c0, printLooks(store, id));
+    const inRows = (row: number) => (row >= r.r0 && row <= r.r1) || (!!up && row >= up[0] && row <= Math.min(up[1], r.r0 - 1));
+    const inCols = (col: number) => (col >= r.c0 && col <= r.c1) || (!!left && col >= left[0] && col <= Math.min(left[1], r.c0 - 1));
+    if (up || left) table = filterTable(table, inRows, inCols);
+    // Title lines printed before the range shift the charts.
+    const before = <T,>(list: readonly T[], key: (x: T) => number, size: (x: T) => number, at: number) => list.filter((x) => key(x) < at).reduce((a, x) => a + size(x), 0);
+    const dy = before(table.rows, (x) => x.row, (x) => x.height, r.r0);
+    const dx = before(table.cols, (x) => x.col, (x) => x.width, r.c0);
     const charts = (await printCharts(store, id, { x: 0, y: 0 }))
       .filter((c) => rectsIntersect(c, box))
-      .map((c) => ({ ...c, x: c.x - x0, y: c.y - y0 }));
-    const table = buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, r.r0, r.c0, printLooks(store, id));
-    parts.push({ sheetName: nameOf(id), table, charts, breaks: tableBreaks(store, id, table) });
+      .map((c) => ({ ...c, x: c.x - x0 + dx, y: c.y - y0 + dy }));
+    const spec: PrintTitlesSpec = titles ? { rows: indexRange(table.rows, (x) => x.row, titles.rows), cols: indexRange(table.cols, (x) => x.col, titles.cols) } : {};
+    parts.push({ sheetName: nameOf(id), table, charts, breaks: tableBreaks(store, id, table), titles: spec });
   };
   const sheetPart = async (id: number) => {
-    // Page Layout › Print Area.
-    const area = printNames(id).area;
-    if (area) return rangePart(id, area);
+    const names = printNames(id);
+    // Page Layout › Print Area: each area on its own pages.
+    if (names.areas.length) {
+      for (const area of names.areas) await rangePart(id, area, names);
+      return;
+    }
     const used = await loadUsedRange(store, id);
     const charts = await printCharts(store, id);
     // The printed area reaches the charts' bottom-right cells.
@@ -280,7 +350,8 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     }
     if (lastRow > used.lastRow || lastCol > used.lastCol) await store.ensureRegion(id, 0, 0, lastRow, lastCol);
     const table = buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol, 0, 0, printLooks(store, id));
-    parts.push({ sheetName: nameOf(id), table, charts: [...charts, ...annots.boxes], annotations: annots.list, breaks: tableBreaks(store, id, table) });
+    const titles: PrintTitlesSpec = { rows: indexRange(table.rows, (x) => x.row, names.rows), cols: indexRange(table.cols, (x) => x.col, names.cols) };
+    parts.push({ sheetName: nameOf(id), table, charts: [...charts, ...annots.boxes], annotations: annots.list, breaks: tableBreaks(store, id, table), titles });
   };
   if (o.what === "workbook") {
     // Hidden sheets are not printed (Excel).
@@ -289,12 +360,9 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     const id = st.activeSheet;
     const used = await loadUsedRange(store, id);
     const r = selectionRange(normalize(st.selection), used);
-    if (r) await rangePart(id, r);
+    if (r) await rangePart(id, r, null);
   } else await sheetPart(st.activeSheet);
-  // Print Titles: rows repeated at the top (the active sheet's, when printing it alone from row 1).
-  const titles = o.what === "workbook" ? 0 : printNames(st.activeSheet);
-  const repeat = typeof titles === "number" || (titles.area && titles.area.r0 > 0) ? 0 : titles.titleRows;
-  return calcPrintDocument(parts, o.repeatRows || o.what === "selection" ? o : { ...o, repeatRows: repeat }, { file: st.name ?? undefined });
+  return calcPrintDocument(parts, o, { file: st.name ?? undefined });
 }
 
 /** The notes and comments to print for a sheet: visible note boxes (As displayed) or the list (At end of sheet). */

@@ -423,3 +423,144 @@ pub fn find_table<'a>(tables: &'a [TableDef], name: &str) -> Option<&'a TableDef
     let lower = name.to_lowercase();
     tables.iter().find(|t| t.name.to_lowercase() == lower)
 }
+
+/// A rewrite of formula nodes for [`Engine::rewrite_formulas_with`](crate::Engine::rewrite_formulas_with):
+/// `Some(replacement)` for the nodes it rewrites, at the formula's cell.
+pub type ExprRewrite<'a> = dyn Fn(&crate::ast::Expr, CellCoord) -> Option<crate::ast::Expr> + 'a;
+
+fn same(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
+}
+
+impl TableDef {
+    /// Whether the structured reference `s` in a formula at `at` names
+    /// this table (qualified, or unqualified inside it).
+    pub fn is_referenced_by(&self, s: &StructRef, at: CellCoord) -> bool {
+        match &s.table {
+            Some(t) => same(t, &self.name),
+            None => self.contains(at),
+        }
+    }
+}
+
+/// The rewrite for renaming table `old` to `new`: structured references
+/// and plain uses of the name follow.
+pub fn rename_table_rewrite(
+    old: &str,
+    new: &str,
+) -> impl Fn(&crate::ast::Expr, CellCoord) -> Option<crate::ast::Expr> {
+    use crate::ast::Expr;
+    let (old, new) = (old.to_string(), new.to_string());
+    move |x, _| match x {
+        Expr::Structured(s) if s.table.as_deref().is_some_and(|t| same(t, &old)) => {
+            Some(Expr::Structured(StructRef {
+                table: Some(new.clone()),
+                ..s.clone()
+            }))
+        }
+        Expr::Name(n) if same(n, &old) => Some(Expr::Name(new.clone())),
+        _ => None,
+    }
+}
+
+/// The rewrite for renaming column `old` of `def` to `new` (references
+/// to other columns or tables stay).
+pub fn rename_column_rewrite(
+    def: &TableDef,
+    old: &str,
+    new: &str,
+) -> impl Fn(&crate::ast::Expr, CellCoord) -> Option<crate::ast::Expr> {
+    use crate::ast::Expr;
+    let def = def.clone();
+    let (old, new) = (old.to_lowercase(), new.to_string());
+    move |x, at| {
+        let Expr::Structured(s) = x else {
+            return None;
+        };
+        if !def.is_referenced_by(s, at) {
+            return None;
+        }
+        let rename = |c: &String| {
+            if c.to_lowercase() == old {
+                new.clone()
+            } else {
+                c.clone()
+            }
+        };
+        let (a, b) = s.columns.as_ref()?;
+        let renamed = (rename(a), b.as_ref().map(rename));
+        (renamed.0 != *a || renamed.1 != *b).then(|| {
+            Expr::Structured(StructRef {
+                columns: Some(renamed),
+                ..s.clone()
+            })
+        })
+    }
+}
+
+/// The rewrite for deleting the columns `deleted` of `def` (the table
+/// before the delete), like Excel: a reference to a deleted column
+/// becomes `#REF!`; a column range (`[Q1]:[Q3]`) whose end column goes
+/// shrinks to the nearest remaining column inside it and becomes
+/// `#REF!` only when every column of the range is deleted. References
+/// to the remaining columns, to the whole table and to other tables
+/// stay.
+pub fn delete_columns_rewrite(
+    def: &TableDef,
+    deleted: &[String],
+) -> impl Fn(&crate::ast::Expr, CellCoord) -> Option<crate::ast::Expr> {
+    use crate::ast::Expr;
+    let def = def.clone();
+    let gone: Vec<String> = deleted.iter().map(|d| d.to_lowercase()).collect();
+    move |x, at| {
+        let Expr::Structured(s) = x else {
+            return None;
+        };
+        if !def.is_referenced_by(s, at) {
+            return None;
+        }
+        let (a, b) = s.columns.as_ref()?;
+        let is_gone = |c: &str| gone.contains(&c.to_lowercase());
+        let pos = |c: &str| {
+            def.columns
+                .iter()
+                .position(|n| n.to_lowercase() == c.to_lowercase())
+        };
+        match b {
+            None => is_gone(a).then_some(Expr::Error(ErrorKind::Ref)),
+            Some(b) => {
+                if !is_gone(a) && !is_gone(b) {
+                    return None;
+                }
+                let (Some(i), Some(j)) = (pos(a), pos(b)) else {
+                    return Some(Expr::Error(ErrorKind::Ref));
+                };
+                let (lo, hi) = (i.min(j), i.max(j));
+                let left: Vec<&String> = def.columns[lo..=hi]
+                    .iter()
+                    .filter(|c| !is_gone(c))
+                    .collect();
+                let (Some(first), Some(last)) = (left.first(), left.last()) else {
+                    return Some(Expr::Error(ErrorKind::Ref));
+                };
+                // Keep the written direction (`[Q3]:[Q1]` stays reversed).
+                let (na, nb) = if i <= j {
+                    ((*first).clone(), (*last).clone())
+                } else {
+                    ((*last).clone(), (*first).clone())
+                };
+                let columns = if na.eq_ignore_ascii_case(&nb) && left.len() == 1 {
+                    (na, None)
+                } else {
+                    (na, Some(nb))
+                };
+                Some(Expr::Structured(StructRef {
+                    columns: Some(columns),
+                    ..s.clone()
+                }))
+            }
+        }
+    }
+}

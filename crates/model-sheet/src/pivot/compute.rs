@@ -384,13 +384,19 @@ impl<'a> Ctx<'a> {
         };
         let recs = (0..c.records.len())
             .filter(|&r| {
-                t.filters.iter().all(|p| match &p.selected {
-                    PageSelection::All => true,
-                    PageSelection::Items { items } => field_ok(p.field, r, &|i| items.contains(&i)),
-                }) && t.rows.iter().chain(&t.cols).all(|a| {
-                    a.hidden_items.is_empty()
-                        || field_ok(a.field, r, &|i| !a.hidden_items.contains(&i))
-                })
+                t.filters
+                    .iter()
+                    .chain(&t.field_filters)
+                    .all(|p| match &p.selected {
+                        PageSelection::All => true,
+                        PageSelection::Items { items } => {
+                            field_ok(p.field, r, &|i| items.contains(&i))
+                        }
+                    })
+                    && t.rows.iter().chain(&t.cols).all(|a| {
+                        a.hidden_items.is_empty()
+                            || field_ok(a.field, r, &|i| !a.hidden_items.contains(&i))
+                    })
             })
             .map(|r| r as u32)
             .collect();

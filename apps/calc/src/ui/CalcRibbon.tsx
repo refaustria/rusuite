@@ -22,6 +22,7 @@ import { formulasTab } from "../formulas/FormulasRibbon";
 import { linksInsertGroup, reviewTab } from "../comments/ReviewRibbon";
 import { pivotAnalyzeTab, pivotDesignTab, pivotInsertGroup } from "../pivot/PivotRibbon";
 import { tableDesignTab, tableInsertButton } from "../tables/TableRibbon";
+import { slicerInsertGroup, slicerTab } from "../slicers/SlicerRibbon";
 import { dataTabGroups, getDataGroup, pageLayoutTab, pasteMenu, PicturesButton, workbookViewsGroup } from "../datatools/DataRibbon";
 import { NumberGroup } from "./NumberGroup";
 import { bordersMenu } from "./bordersMenu";
@@ -327,11 +328,14 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
         ),
       },
       chartsInsertGroup(store, t, off),
+      slicerInsertGroup(store, t, off),
       linksInsertGroup(store, t, off),
     ],
   };
+  // Slicer while a slicer is selected (P9-C2).
+  const slicerTabs = contextualTabs([slicerTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.slicer.tools"), CONTEXT_COLORS.picture);
   // Chart Design and Format while a chart is selected.
-  const chartTabs = contextualTabs([chartDesignTab(store, t), chartFormatTab(store, t)].filter((x): x is RibbonTab => x !== null), t("ribbon.ctx.chartTools"), CONTEXT_COLORS.chart);
+  const chartTabs = slicerTabs.length ? [] : contextualTabs([chartDesignTab(store, t), chartFormatTab(store, t)].filter((x): x is RibbonTab => x !== null), t("ribbon.ctx.chartTools"), CONTEXT_COLORS.chart);
   // PivotTable Analyze and Design while a cell of a pivot table is selected (P8-33).
   const pivotTabs = chartTabs.length
     ? []
@@ -340,8 +344,8 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
   const tableTabs = chartTabs.length || pivotTabs.length
     ? []
     : contextualTabs([tableDesignTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.table.tools"), CONTEXT_COLORS.table);
-  const contextual = [...chartTabs, ...pivotTabs, ...tableTabs];
-  const contextualTab = tab !== undefined && ["chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign", "tableDesign"].includes(tab);
+  const contextual = [...slicerTabs, ...chartTabs, ...pivotTabs, ...tableTabs];
+  const contextualTab = tab !== undefined && ["slicer", "chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign", "tableDesign"].includes(tab);
   const available = contextual.some((x) => x.id === tab);
   // A new pivot table's tab is requested before its sheet and field list have arrived.
   const pending = tab !== undefined && store.pivots.pendingTab === tab;

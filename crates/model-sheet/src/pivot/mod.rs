@@ -762,6 +762,11 @@ pub struct PivotTable {
     pub filters: Vec<PageField>,
     #[serde(default)]
     pub values: Vec<DataField>,
+    /// Filters on fields that are on no axis (set by slicers; in the
+    /// file: hidden items of a `pivotField` without an axis): only the
+    /// selected items pass.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_filters: Vec<PageField>,
     #[serde(default)]
     pub options: PivotOptions,
     /// An unsupported definition, kept verbatim (read-only table).
@@ -791,6 +796,7 @@ impl PivotTable {
             cols: Vec::new(),
             filters: Vec::new(),
             values: Vec::new(),
+            field_filters: Vec::new(),
             options: PivotOptions::default(),
             raw: None,
         }
@@ -841,6 +847,11 @@ impl PivotTable {
             }
             if !used.insert(f) {
                 return bad(format!("field {f} is used twice"));
+            }
+        }
+        for f in &self.field_filters {
+            if f.field >= n {
+                return bad(format!("no field {}", f.field));
             }
         }
         for d in &self.values {

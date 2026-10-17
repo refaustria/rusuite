@@ -89,6 +89,7 @@ impl CalcError {
             CalcError::Model(M::PivotOverlap { .. }) => "pivot_overlap",
             CalcError::Model(M::InvalidTable(_)) => "invalid_table",
             CalcError::Model(M::UnknownTable(_)) => "unknown_table",
+            CalcError::Model(M::InvalidSlicer(_)) => "invalid_slicer",
             CalcError::Model(M::ShiftMerged) => "shift_merged",
             CalcError::Model(M::ShiftTable) => "shift_table",
             CalcError::Model(M::SheetProtected) => "sheet_protected",
@@ -307,11 +308,12 @@ impl CalcDocument {
                     self.workbook.max_outline_level(id, model_sheet::Axis::Cols),
                 ),
                 protection: self.workbook.active_protection(id).cloned(),
+                slicers: self.slicer_views(id),
             })
             .collect()
     }
 
-    fn style_list(&self) -> Vec<model_sheet::CellStyle> {
+    pub(crate) fn style_list(&self) -> Vec<model_sheet::CellStyle> {
         self.workbook
             .styles()
             .iter()
@@ -334,6 +336,7 @@ impl CalcDocument {
                 .filter(|p| p.is_active())
                 .cloned(),
             active_sheet: self.workbook.active_sheet().0,
+            table_styles: self.workbook.table_styles().clone(),
         }
     }
 
@@ -1520,7 +1523,14 @@ impl CalcDocument {
             | C::InsertTableCols { .. }
             | C::DeleteTableCols { .. }
             | C::SetTableFilter { .. }
+            | C::SetTableStyles { .. }
             | C::RestoreTables { .. } => self.table_cmd(cmd),
+            C::InsertSlicers { .. }
+            | C::SetSlicerSelection { .. }
+            | C::UpdateSlicer { .. }
+            | C::DeleteSlicer { .. }
+            | C::SetSlicerConnections { .. }
+            | C::RestoreSlicers { .. } => self.slicer_cmd(cmd),
             C::RemoveDuplicates { .. }
             | C::TextToColumns { .. }
             | C::GroupOutline { .. }
@@ -1529,6 +1539,9 @@ impl CalcDocument {
             | C::ClearOutline { .. }
             | C::SetOutlineProps { .. }
             | C::Subtotal { .. }
+            | C::AutoOutline { .. }
+            | C::Consolidate { .. }
+            | C::FlashFill { .. }
             | C::RemoveSubtotals { .. }
             | C::SetPageBreaks { .. }
             | C::AddPicture { .. }
@@ -2871,12 +2884,14 @@ impl Document for CalcDocument {
         let pivots = self.may_touch_pivots(cmd).then(|| self.pivot_state());
         let stale = self.workbook.stale_pivots();
         let tables = self.tables_state();
+        let slicers = self.slicers_before();
         let mut applied = self.apply_cmd(cmd)?;
         self.mark_tables(tables, cmd, &mut applied);
         self.mark_names(names, cmd, &mut applied);
         self.mark_annotations(annotations, &mut applied);
         self.mark_pivots(pivots, &mut applied);
         self.mark_stale(stale, &mut applied);
+        self.mark_slicers(slicers, &mut applied);
         self.mark_cf_sheets(&mut applied.patch);
         self.mark_chart_sheets(&mut applied.patch);
         self.track_cycle(&mut applied.patch);

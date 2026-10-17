@@ -67,6 +67,9 @@ import { CommentsController, type UserNext } from "../comments/controller";
 import { PivotController } from "../pivot/controller";
 import { TableController } from "../tables/controller";
 import { PictureController } from "../pictures/controller";
+import { SlicerController } from "../slicers/controller";
+import { FlashController } from "../datatools/flashController";
+import { DEFAULT_CONSOLIDATE, type ConsolidateState } from "../datatools/ConsolidateDialog";
 import { parseStruct, structCompletion, structInsert, structItems, structRange } from "../tables/structured";
 import type { OutlineProps } from "../generated/OutlineProps";
 import type { PasteSpecial } from "../generated/PasteSpecial";
@@ -170,6 +173,8 @@ export interface SignatureTip {
 export interface Toast {
   id: number;
   message: string;
+  /** An information message (Flash Fill's count), not an error. */
+  info?: boolean;
 }
 
 /** The dialogs Calc opens from shortcuts, menus and (later) the ribbon. */
@@ -248,6 +253,17 @@ export type CalcDialog =
   | { kind: "createTable"; range: Range; hasHeaders: boolean }
   /** Table Design › Resize Table. */
   | { kind: "resizeTable"; id: number }
+  /** Data › Consolidate (P9-C2). */
+  | { kind: "consolidate" }
+  /** Data › Outline settings (summary rows / columns, Create = Auto Outline). */
+  | { kind: "outlineSettings" }
+  /** Insert Slicers for a table or a pivot table (P9-C2). */
+  | { kind: "insertSlicers"; table?: number; pivot?: number }
+  /** Slicer Settings / Report Connections of slicer `id`. */
+  | { kind: "slicerSettings"; id: number }
+  | { kind: "slicerConnections"; id: number }
+  /** New / Modify / Duplicate Table Style (P9-C2); `tableId`: the table a new style is applied to. */
+  | { kind: "tableStyle"; mode: "new" | "modify" | "duplicate"; name?: string; tableId?: number }
   /** The totals row dropdown of a table column, at viewport point `at`. */
   | { kind: "totalsMenu"; id: number; col: number; at: { x: number; y: number } }
   /** Data › Remove Duplicates (columns checklist, headers). */
@@ -471,6 +487,12 @@ export class CalcStore {
   readonly tables: TableController = new TableController(this);
   /** Pictures in sheets (P8-35). */
   readonly pictures: PictureController = new PictureController(this);
+  readonly slicers: SlicerController = new SlicerController(this);
+  readonly flash: FlashController = new FlashController(this);
+  /** The Consolidate dialog's references and options (kept for the session, as Excel). */
+  consolidateState: ConsolidateState = DEFAULT_CONSOLIDATE;
+  /** Re-renders Flash Fill's preview after the grid scrolled (set by the layer). */
+  flashPositioner: (() => void) | null = null;
 
   constructor(readonly api: CalcApi) {}
 
@@ -620,6 +642,12 @@ export class CalcStore {
     this.set({ toasts: [...this.state.toasts, { id, message }] });
   }
 
+  /** An information toast ("Flash Fill changed 3 cells"). */
+  pushInfo(message: string): void {
+    const id = ++this.toastSeq;
+    this.set({ toasts: [...this.state.toasts.filter((x) => x.message !== message), { id, message, info: true }] });
+  }
+
   dismissToast(id: number): void {
     this.set({ toasts: this.state.toasts.filter((t) => t.id !== id) });
   }
@@ -646,6 +674,7 @@ export class CalcStore {
     this.comments.reset();
     this.pivots.reset(info.stalePivots ?? []);
     this.pictures.reset();
+    this.slicers.reset();
     const shown = visibleSheets(info.sheets);
     // A replaced document opens on its saved active sheet (`activeTab`).
     const active = shown.some((s) => s.id === info.activeSheet)
@@ -664,6 +693,7 @@ export class CalcStore {
       names: patch.names ?? info.names,
       persons: patch.persons ?? info.persons,
       workbookProtection: patch.workbookProtection ? (patch.workbookProtection.lockStructure || patch.workbookProtection.lockWindows ? patch.workbookProtection : undefined) : info.workbookProtection,
+      tableStyles: patch.tableStyles ?? info.tableStyles,
     };
     const reload = new Set<number>();
     for (const s of patch.structural) {
@@ -809,7 +839,9 @@ export class CalcStore {
       commands.push(old ? { type: "updateName", name: old.name, sheet, def } : { type: "defineName", def });
     };
     const abs = (r: string) => r.replace(/\$/g, "").replace(/([A-Za-z]+)(\d+)/g, "$$$1$$$2").replace(/^(\d+):(\d+)$/, "$$$1:$$$2").replace(/^([A-Za-z]+):([A-Za-z]+)$/, "$$$1:$$$2");
-    set("printArea", "Print_Area", area ? `${prefix}${abs(area)}` : "");
+    // Several print areas: `A1:C9,E1:F4` (a union, each part sheet-qualified).
+    const areas = area.split(",").map((a) => a.trim().replace(/^[^!]*!/, "")).filter(Boolean);
+    set("printArea", "Print_Area", areas.map((a) => `${prefix}${abs(a)}`).join(","));
     const titles = [rows, cols].filter((x) => x !== "").map((x) => `${prefix}${abs(x)}`).join(",");
     set("printTitles", "Print_Titles", titles);
     if (commands.length === 0) return Promise.resolve();
@@ -877,6 +909,8 @@ export class CalcStore {
   /** Applies a command reply; replies older than the newest seen revision are discarded (ADR 0002 §5). */
   applyEnvelope(env: PatchEnvelope): boolean {
     if (env.revision < this.state.revision) return false;
+    // Any change drops Flash Fill's greyed suggestions.
+    this.flash.dismiss();
     this.set({ revision: env.revision, canUndo: env.canUndo, canRedo: env.canRedo, dirty: env.dirty });
     this.applyPatch(env.patch);
     return true;
@@ -1140,6 +1174,7 @@ export class CalcStore {
   select(selection: Selection): void {
     // Selecting cells leaves the chart (not while a chart dialog picks a range).
     if (!this.state.dialog) this.charts.deselect();
+    this.flash.dismiss();
     this.set({ selection: snapSelection(selection, this.merges()) });
   }
 
@@ -1552,6 +1587,8 @@ export class CalcStore {
         this.applyEnvelope(env);
         const widen = this.widenCommand(sheet, row, col, text !== null && text !== "");
         if (widen) void this.apply(widen);
+        // A second example in a column next to data: Flash Fill's preview.
+        if (text !== null && text !== "" && !widen) void this.flash.maybePreview(sheet, row, col);
         return true;
       },
       (e: unknown) => {
@@ -1605,6 +1642,20 @@ export class CalcStore {
       return true;
     } catch (e) {
       this.pushError(e);
+      return false;
+    }
+  }
+
+  /** Data › Group › Auto Outline on the selection (one cell: the used range). */
+  async autoOutline(): Promise<boolean> {
+    const r = this.selectionRange();
+    try {
+      this.applyEnvelope(await this.api.apply({ type: "autoOutline", sheet: this.state.activeSheet, ...r }));
+      return true;
+    } catch (e) {
+      // Excel: "Cannot create an outline." when no formula summarizes anything.
+      if (e instanceof CalcApiError && /outline/.test(e.message)) this.pushError(new Error(t("calc.outline.cannot")));
+      else this.pushError(e);
       return false;
     }
   }

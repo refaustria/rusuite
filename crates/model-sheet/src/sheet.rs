@@ -211,6 +211,8 @@ pub(crate) struct SheetData {
     pub pivot_outputs: HashMap<u32, crate::pivot::PivotOutput>,
     /// Excel tables, pairwise disjoint.
     pub tables: Vec<crate::tables::Table>,
+    /// Slicers, back to front.
+    pub slicers: Vec<crate::slicer::Slicer>,
     /// Where outline summary rows/columns sit.
     pub outline: crate::outline::OutlineProps,
     /// Manual page breaks: a new page starts before these rows / columns

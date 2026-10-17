@@ -74,6 +74,10 @@ pub struct Workbook {
     pub(crate) pivot_journal: Option<crate::pivot::PivotJournal>,
     /// Review › Protect Workbook; `None` = unprotected.
     pub(crate) protection: Option<crate::protection::WorkbookProtection>,
+    /// Custom table styles and the default table style.
+    pub(crate) table_styles: crate::table_styles::TableStyles,
+    /// Slicer caches (the slicers live on the sheets).
+    pub(crate) slicer_caches: Vec<crate::slicer::SlicerCache>,
     /// The sheet the file opens on (`<workbookView activeTab>`).
     active: Option<SheetId>,
 }
@@ -121,6 +125,8 @@ impl Workbook {
             pivot_caches: Vec::new(),
             pivot_journal: None,
             protection: None,
+            table_styles: Default::default(),
+            slicer_caches: Vec::new(),
             active: None,
         }
     }
@@ -210,6 +216,8 @@ impl Workbook {
         let mut data = self.sheet_data(id).clone();
         data.hidden = false;
         data.very_hidden = false;
+        // Slicers stay with the original (their caches name its tables).
+        data.slicers.clear();
         *self.sheet_data_mut(new)? = data;
         if let Some(source) = source {
             self.rename_chart_refs(Some(new), &source, name);
@@ -831,12 +839,27 @@ impl Workbook {
     /// [`StructuralOp::map_interval`] (see the module docs).
     fn structural(&mut self, sheet: SheetId, op: StructuralOp) -> Result<Recalc, Error> {
         self.check_pivot_structural(sheet, op)?;
-        let recalc = match op {
+        let before = if self.engine.sheet_name(sheet).is_some() {
+            self.table_refs_before_delete(sheet, op)
+        } else {
+            Recalc::default()
+        };
+        let mut recalc = match op {
             StructuralOp::InsertRows { at, count } => self.engine.insert_rows(sheet, at, count),
             StructuralOp::DeleteRows { at, count } => self.engine.delete_rows(sheet, at, count),
             StructuralOp::InsertCols { at, count } => self.engine.insert_cols(sheet, at, count),
             StructuralOp::DeleteCols { at, count } => self.engine.delete_cols(sheet, at, count),
         }?;
+        // Cells rewritten before the delete, where they are now.
+        recalc
+            .changed
+            .extend(before.changed.into_iter().filter_map(|c| {
+                if c.sheet != sheet {
+                    return Some(c);
+                }
+                op.map_cell(c.row, c.col)
+                    .map(|(row, col)| CellCoord::new(sheet, row, col))
+            }));
         if op.span().1 == 0 {
             return Ok(recalc);
         }
@@ -948,8 +971,8 @@ impl Workbook {
         self.shift_pivots(sheet, op);
         self.shift_page_breaks(sheet, op);
         self.shift_pictures(sheet, op);
+        self.shift_slicers(sheet, op);
         let tables = self.shift_tables(sheet, op);
-        let mut recalc = recalc;
         recalc.changed.extend(tables.changed);
         recalc.changed.sort_unstable();
         recalc.changed.dedup();

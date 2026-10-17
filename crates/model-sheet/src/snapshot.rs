@@ -35,6 +35,15 @@ pub struct WorkbookSnapshot {
     /// Review › Protect Workbook; absent = unprotected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<crate::protection::WorkbookProtection>,
+    /// Custom table styles and the default table style.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::table_styles::TableStyles::is_default"
+    )]
+    pub table_styles: crate::table_styles::TableStyles,
+    /// Slicer caches (the slicers are in [`SheetSnapshot::slicers`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slicer_caches: Vec<crate::slicer::SlicerCache>,
 }
 
 /// A defined name in a [`WorkbookSnapshot`].
@@ -125,6 +134,9 @@ pub struct SheetSnapshot {
     /// Review › Protect Sheet; absent = unprotected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<crate::protection::SheetProtection>,
+    /// Slicers, back to front.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slicers: Vec<crate::slicer::Slicer>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -227,6 +239,8 @@ impl Workbook {
             persons: self.persons().to_vec(),
             pivot_caches: self.pivot_caches().to_vec(),
             protection: self.workbook_protection().cloned(),
+            table_styles: self.table_styles().clone(),
+            slicer_caches: self.slicer_caches().to_vec(),
         }
     }
 
@@ -278,6 +292,7 @@ impl Workbook {
             col_breaks: self.page_breaks(id, crate::outline::Axis::Cols).to_vec(),
             pictures: self.pictures(id).to_vec(),
             protection: self.sheet_protection(id).cloned(),
+            slicers: self.slicers(id).to_vec(),
         }
     }
 
@@ -332,6 +347,7 @@ impl Workbook {
         }
         wb.set_pivot_caches(snapshot.pivot_caches.clone());
         wb.set_workbook_protection(snapshot.protection.clone());
+        wb.set_table_styles(snapshot.table_styles.clone())?;
         // Tables before the cells: structured references register edges.
         for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
             if !sheet.tables.is_empty() {
@@ -385,6 +401,17 @@ impl Workbook {
         })();
         wb.end_batch();
         loaded?;
+        // Slicers last: their sources (tables, pivot tables) must exist.
+        if !snapshot.slicer_caches.is_empty() {
+            let sheets = snapshot
+                .sheets
+                .iter()
+                .zip(&ids)
+                .filter(|(s, _)| !s.slicers.is_empty())
+                .map(|(s, &id)| (id, s.slicers.clone()))
+                .collect();
+            wb.set_slicer_state((snapshot.slicer_caches.clone(), sheets))?;
+        }
         // Visibility last: hiding needs another visible sheet.
         for (sheet, &id) in snapshot.sheets.iter().zip(&ids) {
             if sheet.hidden {

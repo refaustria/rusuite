@@ -781,6 +781,54 @@ pub enum CalcCommand {
         #[ts(as = "Option<crate::wire::Filter>")]
         filter: Option<model_sheet::Filter>,
     },
+    /// Insert › Slicer (Insert Slicers dialog): one slicer per source
+    /// (table columns, or pivot cache fields connected to the pivot
+    /// tables listed in the source), cascading from `anchor` on `sheet`.
+    InsertSlicers {
+        sheet: u32,
+        #[ts(as = "Vec<crate::wire_data::SlicerSource>")]
+        sources: Vec<model_sheet::SlicerSource>,
+        #[ts(as = "crate::wire_chart::ChartAnchor")]
+        anchor: ChartAnchor,
+    },
+    /// Clicks on a slicer: only the `selected` items (displayed values)
+    /// pass the filter; `null` = Clear Filter. Table slicers set the
+    /// table's value filter on the column; pivot slicers filter every
+    /// connected pivot table.
+    SetSlicerSelection {
+        cache: String,
+        #[serde(default)]
+        #[ts(optional)]
+        selected: Option<Vec<String>>,
+    },
+    /// The Slicer tab / Slicer Settings / move and resize of slicer `id`;
+    /// absent fields stay (`sort` is the cache's item order).
+    UpdateSlicer {
+        id: u32,
+        patch: SlicerPatch,
+    },
+    /// Deletes slicer `id`; its cache goes with the last slicer showing
+    /// it, and so does its filter.
+    DeleteSlicer {
+        id: u32,
+    },
+    /// Report Connections: the pivot tables (of the same cache) the
+    /// slicer cache `cache` filters.
+    SetSlicerConnections {
+        cache: String,
+        pivots: Vec<u32>,
+    },
+    /// Custom table styles (New / Modify / Duplicate / Delete Table
+    /// Style, Set As Default): replaces the list and the default style.
+    /// `renamed` (old → new name) re-points the tables of a renamed
+    /// style; tables using a deleted style get the default style.
+    SetTableStyles {
+        #[ts(as = "crate::wire_data::TableStyles")]
+        styles: model_sheet::TableStyles,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<StyleRename>>")]
+        renamed: Vec<StyleRename>,
+    },
     /// Data › Remove Duplicates on the range (a single cell: its current
     /// region, or the table it is in): rows whose values in `columns`
     /// (sheet columns) repeat an earlier row are removed (text ignoring
@@ -846,6 +894,39 @@ pub enum CalcCommand {
         sheet: u32,
         #[ts(as = "crate::wire_tables::OutlineProps")]
         props: model_sheet::OutlineProps,
+    },
+    /// Data › Group › Auto Outline on the range (a single cell: the used
+    /// range): rows and columns grouped under the formulas that summarize
+    /// them (see `Workbook::auto_outline_plan`); the outline inside the
+    /// range is replaced.
+    AutoOutline {
+        sheet: u32,
+        r0: u32,
+        c0: u32,
+        r1: u32,
+        c1: u32,
+    },
+    /// Data › Consolidate at `(row, col)` of `sheet`: the `sources`
+    /// combined with `function`, by position or by labels in their top
+    /// row / left column; `links` writes formulas referring to the
+    /// sources. The destination is named `Consolidate_Area`.
+    Consolidate {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        #[ts(as = "crate::wire_data::ConsolidateFunction")]
+        function: model_sheet::ConsolidateFunction,
+        sources: Vec<SheetRect>,
+        top_row: bool,
+        left_col: bool,
+        links: bool,
+    },
+    /// Data › Flash Fill (Ctrl+E): the suggested values of column `col`
+    /// (as typed: constants), one undo step.
+    FlashFill {
+        sheet: u32,
+        col: u32,
+        cells: Vec<FlashCell>,
     },
     /// Data › Subtotal on the range (header row first): at each change in
     /// sheet column `groupBy`, a row with `SUBTOTAL(function, …)` of the
@@ -978,6 +1059,13 @@ pub enum CalcCommand {
         id: u32,
         index: u32,
         name: String,
+    },
+    /// *Internal.* Replaces every slicer cache and slicer (no filters
+    /// are applied).
+    RestoreSlicers {
+        #[ts(as = "Vec<crate::wire_data::SlicerCache>")]
+        caches: Vec<model_sheet::SlicerCache>,
+        sheets: Vec<crate::slicers::SheetSlicers>,
     },
     /// *Internal.* Replaces every pivot cache and table (no cells are
     /// written).
@@ -1218,6 +1306,56 @@ impl SheetViewPatch {
             show_headings: self.show_headings.unwrap_or(view.show_headings),
         }
     }
+}
+
+/// The changed properties of a slicer ([`CalcCommand::UpdateSlicer`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SlicerPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub caption: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_caption: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub columns: Option<u32>,
+    /// Button height in EMU.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<f64>")]
+    pub row_height: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub style: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire_chart::ChartAnchor>")]
+    pub anchor: Option<ChartAnchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<crate::wire_data::SlicerSort>")]
+    pub sort: Option<model_sheet::SlicerSort>,
+}
+
+/// One value of [`CalcCommand::FlashFill`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct FlashCell {
+    pub row: u32,
+    pub input: String,
+}
+
+/// A renamed table style (Modify Table Style with a new name).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct StyleRename {
+    pub from: String,
+    pub to: String,
 }
 
 /// An inclusive cell range on an implied sheet.

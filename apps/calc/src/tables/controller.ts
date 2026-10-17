@@ -9,6 +9,8 @@ import type { Filter } from "../generated/Filter";
 import type { Rect } from "../generated/Rect";
 import type { Table } from "../generated/Table";
 import type { TableLook } from "../generated/TableLook";
+import type { TableStyles } from "../generated/TableStyles";
+import type { StyleRename } from "../generated/StyleRename";
 import type { TotalsCell } from "../generated/TotalsCell";
 import type { AxisGeometry } from "../grid/geometry";
 import { filterButtonAt, filterButtons, type FilterButton } from "../sortFilter/filter";
@@ -87,9 +89,10 @@ export class TableController {
     if (tables.length === 0) return undefined;
     const version = this.store.getState().version;
     if (this.lookMemo && this.lookMemo.sheet === sheet && this.lookMemo.version === version) return this.lookMemo.fn;
+    const styles = this.store.getState().info?.tableStyles;
     const fn = (row: number, col: number) => {
       for (const t of tables) {
-        const l = tableLook(t, row, col);
+        const l = tableLook(t, row, col, styles);
         if (l) return l;
       }
       return undefined;
@@ -191,6 +194,11 @@ export class TableController {
     return this.apply({ type: "renameTable", id, name });
   }
 
+  /** New / Modify / Duplicate / Delete Table Style and Set As Default (P9-C2). */
+  setStyles(styles: TableStyles, renamed: StyleRename[] = []): Promise<void> {
+    return this.apply({ type: "setTableStyles", styles, ...(renamed.length ? { renamed } : {}) });
+  }
+
   setStyle(id: number, style: string): Promise<void> {
     return this.apply({ type: "setTableStyle", id, style });
   }
@@ -220,7 +228,7 @@ export class TableController {
     const formats = [];
     for (let r = t.r0; r <= t.r1; r++) {
       for (let c = t.c0; c <= t.c1; c++) {
-        const look = tableLook(t, r, c);
+        const look = tableLook(t, r, c, this.store.getState().info?.tableStyles);
         const patch = look ? lookAsStyle(look) : {};
         if (Object.keys(patch).length) formats.push({ r0: r, c0: c, r1: r, c1: c, patch });
       }

@@ -60,7 +60,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
             .map(|p| p.data.as_slice())
             .ok_or_else(|| Error::MissingPart(name.to_string()))
     };
-    let book = parse_workbook(part_data(&main)?, main.as_str())?;
+    let mut book = parse_workbook(part_data(&main)?, main.as_str())?;
     if book.date1904 {
         return Err(Error::Unsupported("date1904".into()));
     }
@@ -94,6 +94,9 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         context.default_font = Some(parsed.default_font);
         dxfs = parsed.dxfs;
         num_fmts = parsed.num_fmts;
+        if let Err(e) = wb.set_table_styles(parsed.table_styles) {
+            warnings.push(format!("table styles dropped: {e}"));
+        }
         consumed.insert(styles);
     }
 
@@ -157,7 +160,14 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                 .map(|(id, _, _)| (i, *id))
         })
         .collect();
-    load_names(&mut wb, &book.defined_names, &by_index, &mut warnings);
+    // A slicer cache's `#N/A` name is not a user name.
+    let slicer_names = crate::slicer::cache_names(&pkg, &main, &book.slicer_caches);
+    let names: Vec<RawName> = book
+        .defined_names
+        .drain(..)
+        .filter(|n| n.local.is_some() || !slicer_names.contains(&n.name.to_ascii_lowercase()))
+        .collect();
+    load_names(&mut wb, &names, &by_index, &mut warnings);
     // Tables before the cells: structured references register edges.
     warnings.extend(crate::tables::load(&pkg, &mut wb, &sheets, &mut consumed)?);
 
@@ -203,8 +213,11 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     loaded?;
 
     // Charts last: their references need every sheet.
+    let mut slicer_anchors: HashMap<SheetId, Vec<(String, model_sheet::ChartAnchor)>> =
+        HashMap::new();
     for (id, name, part) in &drawings {
-        for w in crate::drawing::load(&pkg, &mut wb, *id, part, &mut consumed)? {
+        let anchors = slicer_anchors.entry(*id).or_default();
+        for w in crate::drawing::load(&pkg, &mut wb, *id, part, &mut consumed, anchors)? {
             warnings.push(format!("sheet {name:?}: {w}"));
         }
     }
@@ -237,6 +250,19 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         )?);
         // GETPIVOTDATA reads the tables.
         wb.recalc_all();
+    }
+
+    // Slicers: their tables and pivot tables are loaded.
+    if !book.slicer_caches.is_empty() {
+        warnings.extend(crate::slicer::load(
+            &pkg,
+            &main,
+            &mut wb,
+            &book.slicer_caches,
+            &sheets,
+            &slicer_anchors,
+            &mut consumed,
+        ));
     }
 
     // Visibility last: hiding needs another visible sheet.
@@ -342,6 +368,8 @@ struct BookInfo {
     defined_names: Vec<RawName>,
     /// `<pivotCaches>`: `(cacheId, r:id)`.
     pivot_caches: Vec<(u32, String)>,
+    /// The `x14:slicerCache` relationship ids of the workbook `extLst`.
+    slicer_caches: Vec<String>,
     protection: Option<model_sheet::WorkbookProtection>,
     /// `<workbookView activeTab>`: position in `<sheets>`.
     active_tab: usize,
@@ -354,6 +382,7 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
         date1904: false,
         defined_names: Vec::new(),
         pivot_caches: Vec::new(),
+        slicer_caches: Vec::new(),
         protection: None,
         active_tab: 0,
     };
@@ -391,6 +420,11 @@ fn parse_workbook(xml: &[u8], part: &str) -> Result<BookInfo> {
                 }
                 b"workbookView" if info.active_tab == 0 => {
                     info.active_tab = attr_parse(&el, "activeTab").unwrap_or(0);
+                }
+                b"slicerCache" => {
+                    if let Some(rid) = attr(&el, "id") {
+                        info.slicer_caches.push(rid.into_owned());
+                    }
                 }
                 b"pivotCache" => {
                     if let (Some(id), Some(rid)) =

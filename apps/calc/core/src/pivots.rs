@@ -491,7 +491,7 @@ impl CalcDocument {
 
     /// The patch and inverse of a pivot command from the write journal
     /// and the state before.
-    fn pivot_applied(
+    pub(crate) fn pivot_applied(
         &mut self,
         before: PivotState,
         recalc: model_sheet::Recalc,

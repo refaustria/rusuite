@@ -35,6 +35,10 @@ import type { SheetInfo } from "../generated/SheetInfo";
 import type { SheetView } from "../generated/SheetView";
 import type { SheetProtection } from "../generated/SheetProtection";
 import type { WorkbookProtection } from "../generated/WorkbookProtection";
+import type { TableStyles } from "../generated/TableStyles";
+import type { Slicer } from "../generated/Slicer";
+import type { SlicerSource } from "../generated/SlicerSource";
+import type { SlicerView } from "../generated/SlicerView";
 import type { SortKey } from "../generated/SortKey";
 import type { SortState } from "../generated/SortState";
 import type { NameDef } from "../generated/NameDef";
@@ -137,6 +141,9 @@ export class FakeCalcCore {
   styles: CellStyle[] = [{}];
   /** Protect Workbook (P9-C1) and its password (as text: a fake). */
   private bookProtection: WorkbookProtection | undefined;
+  private tableStyles: TableStyles = {};
+  /** Slicers (toy): table sources only; the selection per cache (`null` = all). */
+  private slicerList: { sheet: number; slicer: Slicer; source: SlicerSource; selected: string[] | null }[] = [];
   private bookPassword = "";
   revision = 0;
   undoStack: CalcCommand[] = [];
@@ -222,8 +229,25 @@ export class FakeCalcCore {
       const protection = this.sheets.find((x) => x.id === id)?.protection;
       if (protection) info.protection = { ...protection };
       if (JSON.stringify(view) !== JSON.stringify(DEFAULT_VIEW)) info.view = { ...view };
+      const slicers = this.slicerList.filter((x) => x.sheet === id).map((x) => this.slicerView(x));
+      if (slicers.length) info.slicers = slicers;
       return info;
     });
+  }
+
+  private slicerView(x: { sheet: number; slicer: Slicer; source: SlicerSource; selected: string[] | null }): SlicerView {
+    const names = new Set<string>();
+    if (x.source.kind === "table") {
+      const src = x.source;
+      for (const sh of this.sheets) {
+        const t = sh.tables.find((tt) => tt.id === src.table);
+        if (!t) continue;
+        const col = t.c0 + t.columns.findIndex((c) => c.id === src.column);
+        for (let r = t.r0 + (t.headerRow ? 1 : 0); r <= t.r1 - (t.totalsRow ? 1 : 0); r++) names.add(this.view(sh, r, col).display);
+      }
+    }
+    const items = [...names].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b))).map((name) => ({ name, selected: !x.selected || x.selected.includes(name), hasData: true }));
+    return { slicer: { ...x.slicer }, source: x.source, sort: "ascending", items };
   }
 
   private sheetsPatch(): CalcPatch {
@@ -397,6 +421,66 @@ export class FakeCalcCore {
         s.protection = undefined;
         s.password = undefined;
         return [this.sheetsPatch(), old ? { type: "protectSheet", sheet: cmd.sheet, options: old, password: pw } : null];
+      }
+      case "insertSlicers": {
+        const old = structuredClone(this.slicerList);
+        cmd.sources.forEach((source, k) => {
+          const id = Math.max(0, ...this.slicerList.map((x) => x.slicer.id)) + 1;
+          const t = source.kind === "table" ? this.sheets.flatMap((s) => s.tables).find((tt) => tt.id === source.table) : undefined;
+          const base = (source.kind === "table" ? t?.columns.find((c) => c.id === source.column)?.name : undefined) ?? "Field";
+          let name = base;
+          for (let n = 1; this.slicerList.some((x) => x.slicer.name === name); n++) name = `${base} ${n}`;
+          let cache = `Slicer_${base.replace(/\W/g, "_")}`;
+          for (let n = 1; this.slicerList.some((x) => x.slicer.cache === cache); n++) cache = `Slicer_${base.replace(/\W/g, "_")}${n}`;
+          const anchor = cmd.anchor.type === "oneCell" ? { ...cmd.anchor, from: { ...cmd.anchor.from, row: cmd.anchor.from.row + 2 * k, col: cmd.anchor.from.col + k } } : cmd.anchor;
+          this.slicerList.push({ sheet: cmd.sheet, slicer: { id, name, cache, caption: base, style: "SlicerStyleLight1", anchor }, source, selected: null });
+        });
+        return [this.sheetsPatch(), { type: "restoreSlicers", caches: [], sheets: [], ...({ fake: old } as object) } as CalcCommand];
+      }
+      case "setSlicerSelection": {
+        const xs = this.slicerList.filter((x) => x.slicer.cache === cmd.cache);
+        const old = xs[0]?.selected ?? null;
+        for (const x of xs) x.selected = cmd.selected ?? null;
+        return [this.sheetsPatch(), { type: "setSlicerSelection", cache: cmd.cache, ...(old ? { selected: old } : {}) }];
+      }
+      case "updateSlicer": {
+        const x = this.slicerList.find((y) => y.slicer.id === cmd.id);
+        if (!x) throw new Fail("invalid_slicer", "unknown slicer");
+        const old = { ...x.slicer };
+        const p = cmd.patch;
+        x.slicer = {
+          ...x.slicer,
+          ...(p.name !== undefined ? { name: p.name } : {}), ...(p.caption !== undefined ? { caption: p.caption } : {}),
+          ...(p.columns !== undefined ? { columns: p.columns } : {}), ...(p.style !== undefined ? { style: p.style } : {}),
+          ...(p.anchor !== undefined ? { anchor: p.anchor } : {}), ...(p.showCaption !== undefined ? { showCaption: p.showCaption } : {}),
+          ...(p.rowHeight !== undefined ? { rowHeight: p.rowHeight } : {}),
+        };
+        return [this.sheetsPatch(), { type: "updateSlicer", id: cmd.id, patch: { name: old.name, caption: old.caption, columns: old.columns ?? 1, style: old.style, anchor: old.anchor } }];
+      }
+      case "deleteSlicer": {
+        this.slicerList = this.slicerList.filter((x) => x.slicer.id !== cmd.id);
+        return [this.sheetsPatch(), null];
+      }
+      case "setSlicerConnections":
+      case "restoreSlicers": {
+        const fake = (cmd as { fake?: { sheet: number; slicer: Slicer; source: SlicerSource; selected: string[] | null }[] }).fake;
+        if (fake) this.slicerList = fake;
+        return [this.sheetsPatch(), null];
+      }
+      case "setTableStyles": {
+        const old = this.tableStyles;
+        this.tableStyles = structuredClone(cmd.styles);
+        const exists = (n: string) => /^TableStyle(Light|Medium|Dark)\d+$/.test(n) || (this.tableStyles.custom ?? []).some((c) => c.name.toLowerCase() === n.toLowerCase());
+        for (const sh of this.sheets) {
+          for (const t of sh.tables) {
+            const r = (cmd.renamed ?? []).find((x) => x.from.toLowerCase() === t.style.toLowerCase());
+            if (r) t.style = r.to;
+            if (t.style && !exists(t.style)) t.style = this.tableStyles.defaultStyle ?? "TableStyleMedium2";
+          }
+        }
+        const patch = this.sheetsPatch();
+        patch.tableStyles = structuredClone(this.tableStyles);
+        return [patch, { type: "setTableStyles", styles: old }];
       }
       case "protectWorkbook": {
         this.bookProtection = { lockStructure: cmd.structure, lockWindows: !!cmd.windows };
@@ -943,6 +1027,10 @@ export class FakeCalcCore {
       case "removePicture":
       case "restorePictures":
         return this.dataCmd(cmd);
+      case "flashFill":
+        return this.exec({ type: "restoreCells", sheet: cmd.sheet, cells: cmd.cells.map((c) => [c.row, cmd.col, c.input, this.cell(this.sheet(cmd.sheet), c.row, cmd.col)?.style ?? 0] as [number, number, string, number]) });
+      case "autoOutline":
+      case "consolidate":
       case "insertTableRows":
       case "deleteTableRows":
       case "insertTableCols":
@@ -1009,7 +1097,7 @@ export class FakeCalcCore {
       while (this.sheets.some((x) => x.tables.some((t) => t.name.toLowerCase() === `table${k}`))) k++;
       const t: Table = {
         id, name: `Table${k}`, r0, c0, r1, c1, headerRow: true, columns: names.map((name, i) => ({ id: i + 1, name })),
-        style: cmd.style ?? "TableStyleMedium2", look: { firstColumn: false, lastColumn: false, bandedRows: true, bandedColumns: false },
+        style: cmd.style ?? this.tableStyles.defaultStyle ?? "TableStyleMedium2", look: { firstColumn: false, lastColumn: false, bandedRows: true, bandedColumns: false },
         autoFilter: { r0, c0, r1, c1 },
       };
       sh.tables.push(t);
@@ -2029,6 +2117,7 @@ export class FakeCalcCore {
       sheets: this.sheetInfos(), styles: [...this.styles], revision: this.revision, ...(this.names.length ? { names: this.nameInfos() } : {}),
       activeSheet: this.sheets.find((x) => !x.hidden)?.id ?? 0,
       ...(this.bookProtection ? { workbookProtection: { ...this.bookProtection } } : {}),
+      ...(this.tableStyles.custom?.length || this.tableStyles.defaultStyle ? { tableStyles: structuredClone(this.tableStyles) } : {}),
       ...(this.persons.length ? { persons: this.persons.map((p) => ({ ...p })) } : {}),
     };
     return { ok: { type: "info", info } };

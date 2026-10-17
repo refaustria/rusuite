@@ -484,12 +484,12 @@ export function PrintTitlesDialog({ store }: { store: CalcStore }) {
   const own = (b: "printArea" | "printTitles") => names.find((n) => n.builtin === b && n.sheet === sheet);
   const titles = (own("printTitles")?.refersTo ?? "").replace(/^[^!]*!/g, "");
   const parts = titles.split(",").map((p) => p.replace(/^[^!]*!/, ""));
-  const [area, setArea] = useState((own("printArea")?.refersTo ?? "").replace(/^[^!]*!/, ""));
+  const [area, setArea] = useState((own("printArea")?.refersTo ?? "").split(",").map((p) => p.replace(/^[^!]*!/, "")).join(","));
   const [rows, setRows] = useState(parts.find((p) => /^\$?\d+:\$?\d+$/.test(p)) ?? "");
   const [cols, setCols] = useState(parts.find((p) => /^\$?[A-Za-z]+:\$?[A-Za-z]+$/.test(p)) ?? "");
   const rowsOk = rows === "" || /^\$?\d+:\$?\d+$/.test(rows);
   const colsOk = cols === "" || /^\$?[A-Za-z]+:\$?[A-Za-z]+$/.test(cols);
-  const areaOk = area === "" || !!parseRange(area);
+  const areaOk = area === "" || area.split(",").every((a) => !!parseRange(a.trim()));
   return (
     <Dialog open title={t("calc.printTitles.title")} onClose={close}>
       <form
