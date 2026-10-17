@@ -126,6 +126,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const selection = useShow(store, (s) => s.selection);
   const editing = useShow(store, (s) => s.editing);
   const mediaVersion = useShow(store, (s) => s.mediaVersion);
+  const tablePreview = useShow(store, (s) => s.tablePreview);
   // outlines (and with them the adjust handles) arrive asynchronously
   usePathVersion();
   const stageRef = useRef<Konva.Stage>(null);
@@ -411,7 +412,9 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const pictures = sel.length > 0 && sel.every((s) => !!s.lockAspect);
   const m = marquee ? rectFromPoints(marquee.x0, marquee.y0, marquee.x1, marquee.y1) : null;
   const one = !drawMode && !editing && sel.length === 1 ? sel[0]! : null;
-  const overrides = preview ? new Map([[preview.id, preview]]) : undefined;
+  const overrides = new Map<NodeId, Shape>(preview ? [[preview.id, preview]] : []);
+  // Table Design › Table Styles: the style under the pointer, shown on the selected table
+  if (tablePreview && one?.kind.kind === "table") overrides.set(one.id, { ...one, kind: { kind: "table", value: { ...one.kind.value, styleId: tablePreview } } });
 
   return (
     <div
@@ -452,7 +455,7 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
             design={masterView ? (masterView.kind === "master" ? "master" : "layout") : undefined}
             hiddenText={editing?.shape ?? null}
             hiddenCell={editing?.cell ?? null}
-            overrides={overrides}
+            overrides={overrides.size ? overrides : undefined}
             onShapeDragEnd={commitGesture}
             onShapeDragStart={onShapeDragStart}
             shapeDragBound={shapeDragBound}

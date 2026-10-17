@@ -189,7 +189,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 <a:tcStyle>
 <a:tcBdr>
 <a:left>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -197,7 +197,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 </a:ln>
 </a:left>
 <a:right>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -205,7 +205,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 </a:ln>
 </a:right>
 <a:top>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -213,21 +213,36 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 </a:ln>
 </a:top>
 <a:bottom>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
 <a:prstDash val="solid"/>
 </a:ln>
 </a:bottom>
+<a:insideH>
+<a:ln w="12700">
+<a:noFill/>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:insideH>
+<a:insideV>
+<a:ln w="12700">
+<a:noFill/>
+<a:prstDash val="solid"/>
+</a:ln>
+</a:insideV>
 </a:tcBdr>
+<a:fill>
+<a:noFill/>
+</a:fill>
 </a:tcStyle>
 </a:wholeTbl>
 <a:band1H>
 <a:tcStyle>
 <a:tcBdr>
 <a:top>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -235,7 +250,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 </a:ln>
 </a:top>
 <a:bottom>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -249,7 +264,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 <a:tcStyle>
 <a:tcBdr>
 <a:left>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -257,7 +272,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 </a:ln>
 </a:left>
 <a:right>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -271,7 +286,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 <a:tcStyle>
 <a:tcBdr>
 <a:left>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -279,7 +294,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 </a:ln>
 </a:left>
 <a:right>
-<a:ln w="12700">
+<a:ln w="6350">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>
@@ -316,7 +331,7 @@ expression: "xml.replace(\"><\", \">\\n<\")"
 <a:tcStyle>
 <a:tcBdr>
 <a:top>
-<a:ln w="38100">
+<a:ln w="50800" cmpd="dbl">
 <a:solidFill>
 <a:schemeClr val="accent2"/>
 </a:solidFill>

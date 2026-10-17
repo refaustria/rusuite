@@ -31,7 +31,7 @@ import type { TextParagraphProps } from "../generated/TextParagraphProps";
 import { arrowHead, endDirections } from "../shapes/connectors";
 import { pathCache, pathPoints, pathQueryOf, svgPath, usePathVersion } from "../shapes/paths";
 import { textRect } from "../shapes/presets";
-import { effectiveBorders, effectiveFill } from "../shapes/tables";
+import { compoundStrokes, effectiveBorders, effectiveFill } from "../shapes/tables";
 import { layoutText, measureText, type LayoutOptions } from "../text/layout";
 import { runStyleFor, tableLayout } from "./tableLayout";
 import { useT } from "../i18n";
@@ -503,7 +503,14 @@ function TableGeometry({ shape, table, ctx }: { shape: Shape; table: Table; ctx:
     const b = effectiveBorders(table, c.row, c.col, ctx.deck.tableStyles);
     const add = (side: string, l: typeof b.left, points: number[]) => {
       const color = l ? css(l.color, ctx.palette) : undefined;
-      if (l && color) lines.push({ key: `${c.row}-${c.col}-${side}`, points, color, width: Math.max(0.5, emuToPx(l.width)) });
+      if (!l || !color) return;
+      const key = `${c.row}-${c.col}-${side}`;
+      const width = Math.max(0.5, emuToPx(l.width));
+      for (const [i, s] of compoundStrokes(l.compound, width).entries()) {
+        // strokes run parallel to the edge, offset across it
+        const [dx, dy] = side === "t" || side === "b" ? [0, s.offset] : [s.offset, 0];
+        lines.push({ key: `${key}-${i}`, points: [points[0]! + dx, points[1]! + dy, points[2]! + dx, points[3]! + dy], color, width: s.width });
+      }
     };
     add("t", b.top, [c.x, c.y, c.x + c.w, c.y]);
     add("b", b.bottom, [c.x, c.y + c.h, c.x + c.w, c.y + c.h]);

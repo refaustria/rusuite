@@ -992,6 +992,7 @@
   "show.tableStyle.accent": "{name} – Akzent {a}",
   "show.tableStyle.accentPair": "{name} – Akzent {a}/Akzent {b}",
   "show.tableStyle.more": "Weitere Tabellenformatvorlagen",
+  "show.tableStyleGroup.best": "Beste Übereinstimmung für Dokument",
   "show.tableStyleGroup.light": "Hell",
   "show.tableStyleGroup.medium": "Mittel",
   "show.tableStyleGroup.dark": "Dunkel",

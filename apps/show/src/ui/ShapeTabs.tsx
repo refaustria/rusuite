@@ -22,7 +22,7 @@ import type { TableLook } from "../generated/TableLook";
 import type { TableStyleDef } from "../generated/TableStyleDef";
 import { css } from "../model";
 import { ARROW_PRESETS } from "../shapes/connectors";
-import { singleCell, styleCell, tableStyleGroups, tableStyleOf, type BorderKind } from "../shapes/tables";
+import { singleCell, styleCell, tableStyleGroups, type BorderKind } from "../shapes/tables";
 import { sitesOf } from "../canvas/EditHandles";
 import type { ShowState, ShowStore } from "../state/store";
 import { ShapeLibrary } from "./ShapeGallery";
@@ -268,7 +268,7 @@ export function TableStylePreview({ style, look, palette }: { style: TableStyleD
     }
   }
   return (
-    <svg aria-hidden="true" width="44" height="30" viewBox="0 0 44 30">
+    <svg aria-hidden="true" width="44" height="30" viewBox="0 0 44 30" data-style-id={style.id}>
       {out}
     </svg>
   );
@@ -292,7 +292,13 @@ function TableStylesMenu({ store, table, palette, t, close }: { store: ShowStore
     ...tableStyleGroups().map((g) => ({ id: g.id, label: t(`show.tableStyleGroup.${g.id}`), styles: g.styles })),
   ];
   return (
-    <div className="flex max-h-[70vh] w-[22rem] flex-col gap-2 overflow-y-auto p-2" data-testid="table-styles-menu">
+    <div
+      className="flex max-h-[70vh] w-[22rem] flex-col gap-2 overflow-y-auto p-2"
+      data-testid="table-styles-menu"
+      onMouseOver={(e) => previewFrom(store, e.target)}
+      onFocus={(e) => previewFrom(store, e.target)}
+      onMouseLeave={() => store.previewTableStyle(null)}
+    >
       {groups.map((g) => (
         <section key={g.id} className="flex flex-col gap-1">
           <h3 className="px-1 text-[11px] font-medium text-ui-muted">{g.label}</h3>
@@ -323,11 +329,16 @@ function TableStylesMenu({ store, table, palette, t, close }: { store: ShowStore
   );
 }
 
-/** The styles shown inline in Table Design: Medium Style 2, plain and accents 1–6 (PowerPoint's best matches). */
+/** The styles shown inline in Table Design: the Best Match for Document group (as PowerPoint's first gallery row). */
 function quickTableStyles(): TableStyleDef[] {
-  return ["{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}", "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}", "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}", "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}", "{00A15C55-8517-42AA-B614-E9B94910E393}", "{7DF18680-E054-41AD-8BC1-D1AEF772440D}", "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}"]
-    .map((id) => tableStyleOf(id)!)
-    .filter(Boolean);
+  return tableStyleGroups().find((g) => g.id === "best")!.styles;
+}
+
+/** Live preview: the style id of the gallery item under the pointer (or focused) is shown on the table. */
+function previewFrom(store: ShowStore, target: EventTarget) {
+  const el = target instanceof Element ? target.closest("[data-style-id]") ?? target.querySelector?.("[data-style-id]") : null;
+  const id = el?.getAttribute("data-style-id") ?? null;
+  if (id) store.previewTableStyle(id);
 }
 
 const LOOK: { key: keyof TableLook; label: string }[] = [
@@ -369,6 +380,7 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
         label: t("show.tableStyles"),
         items: (
           <>
+            <div className="contents" onMouseOver={(e) => previewFrom(store, e.target)} onFocus={(e) => previewFrom(store, e.target)} onMouseLeave={() => store.previewTableStyle(null)} onBlur={() => store.previewTableStyle(null)}>
             <RibbonGallery
               label={t("show.tableStyles")}
               items={quickTableStyles().map((s) => ({ id: s.id, label: tableStyleLabel(s, t), preview: <TableStylePreview style={s} look={table.look} palette={palette} /> }))}
@@ -377,8 +389,9 @@ export function tableDesignTab(store: ShowStore, palette: ThemePalette, t: T): R
               itemClassName="h-9 w-12"
               onSelect={(id) => void store.setTableStyle(id)}
             />
+            </div>
             <RibbonMenuButton label={t("show.tableStyle.more")} icon="table" size="large" showLabel menu={(close) => <TableStylesMenu store={store} table={table} palette={palette} t={t} close={close} />} />
-            <RibbonButton label={t("show.table.clearStyle")} icon="clear" size="large" disabled={!table.styleId} onClick={() => void store.setTableStyle(null)} />
+            <RibbonButton label={t("show.table.clearStyle")} icon="clear" size="large" onClick={() => void store.clearTable()} />
           </>
         ),
       },

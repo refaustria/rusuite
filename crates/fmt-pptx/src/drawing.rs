@@ -8,8 +8,8 @@ use core_model::{
 use model_show::text::FULL_SCALE;
 use model_show::{
     Alignment, Anchor, ArrowEnd, ArrowKind, ArrowSize, AutoNumScheme, Autofit, BodyProps, Bullet,
-    Emu, Fill, Hyperlink, Line, LineDash, TextBody, TextDirection, TextField, TextParagraph,
-    TextParagraphProps, TextRun, TextSpacing, Transform,
+    Emu, Fill, Hyperlink, Line, LineCompound, LineDash, TextBody, TextDirection, TextField,
+    TextParagraph, TextParagraphProps, TextRun, TextSpacing, Transform,
 };
 
 use crate::link::{read_hlink, write_hlink, LinkSink, LinkXml};
@@ -463,8 +463,11 @@ pub fn read_line(ln: Option<&El>, style: Option<Line>, w: &mut Warnings) -> Line
         w.add("custom line dash read as dashed");
         line.dash = LineDash::Dash;
     }
-    if ln.attr("cmpd").is_some_and(|c| c != "sng") {
-        w.add("compound lines read as single lines");
+    if let Some(c) = ln.attr("cmpd") {
+        line.compound = LineCompound::parse(c).unwrap_or_else(|| {
+            w.add(format!("line compound type {c} read as single"));
+            LineCompound::Single
+        });
     }
     line
 }
@@ -484,7 +487,11 @@ pub fn write_line_with_ends(
     tail: &ArrowEnd,
 ) {
     let wv = line.width.0.max(0).to_string();
-    x.start(name, &[("w", &wv)]);
+    let mut attrs = vec![("w", wv.as_str())];
+    if !line.compound.is_single() {
+        attrs.push(("cmpd", line.compound.as_str()));
+    }
+    x.start(name, &attrs);
     write_fill(x, &line.fill);
     x.empty("a:prstDash", &[("val", dash_name(line.dash))]);
     for (el, end) in [("a:headEnd", head), ("a:tailEnd", tail)] {
@@ -1453,18 +1460,29 @@ mod tests {
         ] {
             assert_eq!(dash_from(val), dash, "{val}");
         }
-        for d in [LineDash::Solid, LineDash::Dash, LineDash::Dot] {
+        let compounds = [
+            LineCompound::Single,
+            LineCompound::Double,
+            LineCompound::ThickThin,
+            LineCompound::ThinThick,
+            LineCompound::Triple,
+        ];
+        for (d, compound) in [LineDash::Solid, LineDash::Dash, LineDash::Dot]
+            .into_iter()
+            .flat_map(|d| compounds.map(|c| (d, c)))
+        {
             assert_eq!(dash_from(dash_name(d)), Some(d));
             let line = Line {
                 fill: Fill::Solid(Color::theme(ThemeColorSlot::Accent1)),
                 width: Emu(25_400),
                 dash: d,
+                compound,
             };
             let s = written(|x| write_line(x, &line));
-            assert_eq!(
-                read_line(Some(&el(&s)), None, &mut Warnings::default()),
-                line
-            );
+            assert_eq!(s.contains("cmpd="), !compound.is_single());
+            let mut w = Warnings::default();
+            assert_eq!(read_line(Some(&el(&s)), None, &mut w), line);
+            assert!(w.into_vec().is_empty());
         }
         let mut w = Warnings::default();
         let ln = el(

@@ -305,6 +305,7 @@ pub fn build_deck() -> Presentation {
             fill: Fill::Solid(rgb("203864")),
             width: Emu::from_pt(1.0 + 1.5 * i as f64),
             dash,
+            ..Line::default()
         };
         let mut para = TextParagraph::plain(&format!("{dash:?} outline, {anchor:?}, {align:?}"));
         para.props.alignment = Some(align);

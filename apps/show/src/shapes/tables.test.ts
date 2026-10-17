@@ -5,6 +5,7 @@ import {
   alignCommand, anchorOf, bordersCommand, cellsIn, deleteColsCommand, deleteRowsCommand, distributeCommand, effectiveBorders, effectiveFill,
   expandRange, insertColsCommand, insertRowsCommand, keyMove, lookCommand, mergeCommand, moveCell, NO_LINE, resizeColCommand,
   resizeRowCommand, splitCommand, styleCell, styleCommand, BUILTIN_TABLE_STYLES, DEFAULT_TABLE_STYLE, tableStyleGroups, tableStyleOf,
+  clearTableCommand, compoundStrokes,
 } from "./tables";
 
 /** A rows × cols table in the default style; `merged` = [row, col, rowSpan, colSpan] regions. */
@@ -35,6 +36,45 @@ describe("table styles", () => {
     expect(styleCell(t, 2, 1).borders.left).toEqual({ color: accent("light1", 0), width: 12700 });
   });
 
+  it("Dark Style 1 – Accent 1 with first column: the corner cells drop the column's white line in the header and total rows", () => {
+    const t = { ...table(4, 3), styleId: "{125E5076-3810-47DD-B79F-674D7AD40C01}", look: { firstRow: true, firstCol: true, lastRow: true, bandRows: true } };
+    const white = { color: accent("light1", 0), width: 25400 };
+    expect(styleCell(t, 1, 0).borders.right).toEqual(white);
+    expect(styleCell(t, 0, 0).borders.right).toBeNull();
+    expect(styleCell(t, 3, 0).borders.right).toBeNull();
+    expect(styleCell(t, 0, 1).fill).toEqual(accent("dark1", 0));
+    expect(styleCell(t, 3, 1).fill).toEqual(accent("accent1", -0.6));
+    expect(styleCell(t, 2, 1).textColor).toEqual(accent("light1", 0));
+  });
+
+  it("double total-row lines and the table background of themed styles", () => {
+    const l2 = { ...table(3, 2), styleId: "{69012ECD-51FC-41F1-AA8D-1B2483CD663E}", look: { lastRow: true } }; // Light Style 2 – Accent 1
+    expect(styleCell(l2, 2, 0).borders.top).toEqual({ color: accent("accent1", 0), width: 50800, compound: "double" });
+    expect(effectiveBorders(l2, 1, 0).bottom).toEqual({ color: accent("accent1", 0), width: 50800, compound: "double" });
+    const t2 = { ...table(3, 2), styleId: "{D113A9D2-9D6B-4929-AA2D-F23B5EE8CBE7}", look: { firstRow: true } }; // Themed Style 2 – Accent 1
+    expect(styleCell(t2, 1, 0).fill).toEqual(accent("accent1", 0));
+    expect(styleCell(t2, 0, 0).fill).toEqual(accent("accent1", 0));
+  });
+
+  it("compound strokes split the width", () => {
+    expect(compoundStrokes(undefined, 6)).toEqual([{ width: 6, offset: 0 }]);
+    expect(compoundStrokes("double", 6)).toEqual([{ width: 2, offset: -2 }, { width: 2, offset: 2 }]);
+    expect(compoundStrokes("triple", 5).map((s) => s.width)).toEqual([1, 1, 1]);
+    const tt = compoundStrokes("thickThin", 12);
+    expect(tt[0]!.width).toBeGreaterThan(tt[1]!.width);
+  });
+
+  it("Clear Table: no style, cell fills and borders back to the style's", () => {
+    const t = table(2, 3);
+    expect(clearTableCommand(7, t)).toEqual({
+      type: "compound",
+      commands: [
+        { type: "setTableStyle", shape: 7, styleId: null, look: t.look },
+        { type: "setTableCellProps", shape: 7, row: 0, col: 0, rowSpan: 2, colSpan: 3, patch: { fill: null, left: null, right: null, top: null, bottom: null } },
+      ],
+    });
+  });
+
   it("the 74 built-ins come from the core; an unknown style draws nothing", () => {
     expect(BUILTIN_TABLE_STYLES).toHaveLength(74);
     const t = { ...table(2, 2), styleId: "{00A15C55-8517-42AA-B614-E9B94910E393}" }; // Medium Style 2 – Accent 4
@@ -45,10 +85,15 @@ describe("table styles", () => {
     expect(styleCell(none, 0, 0)).toMatchObject({ fill: null, bold: false });
   });
 
-  it("the gallery groups Light (with the themed styles), Medium and Dark", () => {
+  it("the gallery groups Best Match (Accent 1 of every family), Light (with the themed styles), Medium and Dark", () => {
     const g = tableStyleGroups();
-    expect(g.map((x) => [x.id, x.styles.length])).toEqual([["light", 35], ["medium", 28], ["dark", 11]]);
-    expect(g[0]!.styles[0]!.name).toBe("No Style, No Grid");
+    expect(g.map((x) => [x.id, x.styles.length])).toEqual([["best", 11], ["light", 35], ["medium", 28], ["dark", 11]]);
+    expect(g[0]!.styles.map((s) => s.name)).toEqual([
+      "Themed Style 1 - Accent 1", "Themed Style 2 - Accent 1", "Light Style 1 - Accent 1", "Light Style 2 - Accent 1", "Light Style 3 - Accent 1",
+      "Medium Style 1 - Accent 1", "Medium Style 2 - Accent 1", "Medium Style 3 - Accent 1", "Medium Style 4 - Accent 1", "Dark Style 1 - Accent 1",
+      "Dark Style 2 - Accent 1/Accent 2",
+    ]);
+    expect(g[1]!.styles[0]!.name).toBe("No Style, No Grid");
   });
 
   it("Light Style 1: no grid, accent lines at the top, bottom and under the header, banded fill", () => {

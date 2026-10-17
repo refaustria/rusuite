@@ -992,6 +992,7 @@
   "show.tableStyle.accent": "{name} – Accent {a}",
   "show.tableStyle.accentPair": "{name} – Accent {a}/Accent {b}",
   "show.tableStyle.more": "More table styles",
+  "show.tableStyleGroup.best": "Best Match for Document",
   "show.tableStyleGroup.light": "Light",
   "show.tableStyleGroup.medium": "Medium",
   "show.tableStyleGroup.dark": "Dark",

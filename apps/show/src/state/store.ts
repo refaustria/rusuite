@@ -94,7 +94,7 @@ import {
 import {
   alignCommand as cellAlignCommand, anchorCommand, anchorOf, bordersCommand, deleteColsCommand, deleteRowsCommand, distributeCommand,
   expandRange, insertColsCommand, insertRowsCommand, insertTableCommand, lookCommand, marginsCommand, mergeCommand, moveCell, splitGridCommand,
-  resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, styleCommand, type BorderKind, type CellMove, type CellRange,
+  resizeColCommand, resizeRowCommand, shadingCommand, splitCommand, clearTableCommand, styleCommand, type BorderKind, type CellMove, type CellRange,
 } from "../shapes/tables";
 
 export interface Toast {
@@ -191,6 +191,8 @@ export interface ShowState {
   formatPane: "size" | "text" | null;
   /** Arrange › Align: align to the slide or to the selected objects (two or more). */
   alignTo: "slide" | "selection";
+  /** Table Design › Table Styles: the style the pointer rests on, shown on the selected table (live preview). */
+  tablePreview: string | null;
 }
 
 /** The presentation views of View › Presentation Views. */
@@ -293,6 +295,7 @@ export class ShowStore {
     selectionPane: false,
     formatPane: null,
     alignTo: "selection",
+    tablePreview: null,
   };
   /** The children of the last Ungroup (Regroup). */
   private lastUngrouped: NodeId[] | null = null;
@@ -1478,8 +1481,20 @@ export class ShowStore {
   }
 
   async setTableStyle(styleId: string | null): Promise<void> {
+    this.previewTableStyle(null);
     const t = this.selectedTable();
     if (t) await this.run(styleCommand(t.shape.id, t.table, styleId));
+  }
+
+  /** Live preview of a table style on the selected table (`null` ends it). */
+  previewTableStyle(styleId: string | null): void {
+    if (styleId !== this.state.tablePreview) this.set({ tablePreview: styleId });
+  }
+
+  /** Table Design › Clear Table: no style, no cell fills or borders. */
+  async clearTable(): Promise<void> {
+    const t = this.selectedTable();
+    if (t) await this.run(clearTableCommand(t.shape.id, t.table));
   }
 
   async setTableLook(key: keyof TableLook, on: boolean): Promise<void> {

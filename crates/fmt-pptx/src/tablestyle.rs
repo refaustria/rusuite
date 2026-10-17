@@ -11,9 +11,9 @@ use std::collections::BTreeSet;
 
 use crate::Warnings;
 use model_show::table::MEDIUM_STYLE_2_ACCENT_1;
-use model_show::tablestyle::PART_NAMES;
+use model_show::tablestyle::{LINE_REF_WIDTHS, PART_NAMES};
 use model_show::{
-    builtin_table_style, Emu, Fill, Line, Presentation, Shape, ShapeKind, TableStyleDef,
+    builtin_table_style, Color, Emu, Fill, Line, Presentation, Shape, ShapeKind, TableStyleDef,
     TableStylePart,
 };
 
@@ -69,14 +69,34 @@ fn read_part_fill(parent: &El, w: &mut Warnings) -> Option<Fill> {
         .map(Fill::Solid)
 }
 
-/// One `a:tcBdr` edge: `a:ln`, or `a:lnRef` with its colour (1 pt).
+/// One `a:tcBdr` edge: `a:ln`, or `a:lnRef` with its colour (the Office
+/// theme's width for the index).
 fn read_edge(el: &El, w: &mut Warnings) -> Option<Line> {
     if let Some(ln) = el.child("ln") {
         return Some(read_line(Some(ln), None, w));
     }
-    el.child("lnRef")
-        .and_then(|r| read_color(r, w))
-        .map(|c| Line::solid(c, Emu(12_700)))
+    let r = el.child("lnRef")?;
+    let idx = r
+        .attr("idx")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(1);
+    let width = LINE_REF_WIDTHS[idx.clamp(1, 3) - 1];
+    read_color(r, w).map(|c| Line::solid(c, Emu(width)))
+}
+
+/// `a:tblBg`: a fill, or `a:fillRef` approximated by a solid colour (idx 2,
+/// the theme's subtle gradient: the colour 27 % lighter; see
+/// [`model_show::tablestyle`]).
+fn read_background(el: &El, w: &mut Warnings) -> Option<Fill> {
+    if let Some(r) = el.child("fillRef") {
+        let c = read_color(r, w)?;
+        let c = match (r.attr("idx"), c) {
+            (Some("2"), Color::Theme { slot, tint: 0.0 }) => Color::Theme { slot, tint: 0.27 },
+            (_, c) => c,
+        };
+        return Some(Fill::Solid(c));
+    }
+    read_fill(el, w)
 }
 
 fn read_part(el: &El, w: &mut Warnings) -> TableStylePart {
@@ -115,22 +135,26 @@ pub fn read_table_styles(root: &El, w: &mut Warnings) -> Vec<TableStyleDef> {
         if builtin_table_style(id).is_some() {
             continue;
         }
+        out.push(read_style(st, id, w));
+    }
+    out
+}
+
+/// One `a:tblStyle` with GUID `id`.
+fn read_style(st: &El, id: &str, w: &mut Warnings) -> TableStyleDef {
+    {
         let mut def = TableStyleDef::new(id, st.attr("styleName").unwrap_or(""));
         for part in st.elements() {
             if let Some(slot) = def.part_mut(&part.name) {
                 *slot = read_part(part, w);
             } else if part.name == "tblBg" {
-                // the table background shows where the whole table has no fill
-                if let Some(f) = read_part_fill(part, w) {
-                    def.whole.fill.get_or_insert(f);
-                }
+                def.background = read_background(part, w);
             } else {
                 w.add(format!("table style part {} dropped", part.name));
             }
         }
-        out.push(def);
+        def
     }
-    out
 }
 
 fn write_part(x: &mut XmlOut, name: &str, p: &TableStylePart) {
@@ -176,6 +200,11 @@ fn write_part(x: &mut XmlOut, name: &str, p: &TableStylePart) {
 
 fn write_style(x: &mut XmlOut, s: &TableStyleDef) {
     x.start("a:tblStyle", &[("styleId", &s.id), ("styleName", &s.name)]);
+    if let Some(bg) = &s.background {
+        x.start("a:tblBg", &[]);
+        write_fill(x, bg);
+        x.end("a:tblBg");
+    }
     for name in PART_NAMES {
         let Some(p) = s.part(name) else { continue };
         if name == "wholeTbl" || !p.is_empty() {
@@ -254,6 +283,10 @@ mod tests {
             "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}",
             "{3B4B98B0-60AC-42C2-AFA5-B58CD77FA1E5}",
             "{0660B408-B3CF-4A94-85FC-2B1E0A45F4A2}",
+            "{3C2FFA5D-87B4-456A-9821-1D502468CF0F}",
+            "{125E5076-3810-47DD-B79F-674D7AD40C01}",
+            "{6E25E649-3F16-4E02-A733-19D2CDBF48F0}",
+            "{D113A9D2-9D6B-4929-AA2D-F23B5EE8CBE7}",
         ] {
             let def = builtin_table_style(id).unwrap();
             let mut x = XmlOut::new();
@@ -268,6 +301,50 @@ mod tests {
             assert!(w.into_vec().is_empty());
             assert_eq!(back, [renamed], "{}", def.name);
         }
+    }
+
+    #[test]
+    fn builtins_match_powerpoints_definitions() {
+        // PowerPoint's own `a:tblStyle`s read as if they were unknown give
+        // our generated definitions (styles without alpha fills, whose
+        // colours the model can express exactly)
+        let root = parse(include_bytes!("tablestyle_powerpoint.xml"), "t").unwrap();
+        let mut n = 0;
+        for st in root.elements().filter(|e| e.name == "tblStyle") {
+            let id = st.attr("styleId").unwrap();
+            let mut w = Warnings::default();
+            let read = read_style(st, id, &mut w);
+            assert!(w.into_vec().is_empty(), "{}", read.name);
+            let ours = builtin_table_style(id).unwrap();
+            for name in PART_NAMES {
+                assert_eq!(read.part(name), ours.part(name), "{} {name}", ours.name);
+            }
+            assert_eq!(read.background, ours.background, "{}", ours.name);
+            assert_eq!(&read, ours);
+            n += 1;
+        }
+        assert_eq!(n, 6);
+    }
+
+    #[test]
+    fn line_refs_take_the_theme_widths() {
+        let xml = format!(
+            r#"<a:tblStyleLst xmlns:a="{NS_A}"><a:tblStyle styleId="{{00000000-0000-0000-0000-000000000002}}" styleName="x"><a:tblBg><a:fillRef idx="2"><a:schemeClr val="accent2"/></a:fillRef></a:tblBg><a:wholeTbl><a:tcStyle><a:tcBdr><a:left><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef></a:left><a:right><a:lnRef idx="3"><a:schemeClr val="accent1"/></a:lnRef></a:right></a:tcBdr></a:tcStyle></a:wholeTbl><a:seCell><a:tcTxStyle b="on"/><a:tcStyle><a:tcBdr/></a:tcStyle></a:seCell></a:tblStyle></a:tblStyleLst>"#
+        );
+        let root = parse(xml.as_bytes(), "t").unwrap();
+        let mut w = Warnings::default();
+        let s = &read_table_styles(&root, &mut w)[0];
+        assert!(w.into_vec().is_empty());
+        assert_eq!(s.whole.left.unwrap().width, Emu(6_350));
+        assert_eq!(s.whole.right.unwrap().width, Emu(19_050));
+        assert_eq!(s.se_cell.bold, Some(true));
+        assert_eq!(
+            s.background,
+            Some(Fill::Solid(Color::Theme {
+                slot: core_model::ThemeColorSlot::Accent2,
+                tint: 0.27
+            }))
+        );
     }
 
     #[test]
