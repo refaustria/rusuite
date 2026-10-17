@@ -303,11 +303,12 @@ function Fragments({ fragments, opacity = 1, x = 0, y = 0 }: { fragments: Return
   return (
     <Group listening={false} opacity={opacity} x={x} y={y}>
       {fragments.map((f, i) =>
-        f.highlight ? <Rect key={`h${i}`} x={f.x} y={f.y} width={f.width} height={f.fontSize} fill={f.highlight} /> : null,
+        f.highlight ? <Rect key={`h${i}`} x={f.x} y={f.y} width={f.width} height={f.fontSize} fill={f.highlight} para={f.paragraph} /> : null,
       )}
       {fragments.map((f, i) => (
         <Text
           key={i}
+          para={f.paragraph}
           x={f.x}
           y={f.y}
           text={f.text}

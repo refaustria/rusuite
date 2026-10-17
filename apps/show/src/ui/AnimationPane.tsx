@@ -1,14 +1,17 @@
-// The Animation pane (P8-8): the current slide's animations in play
+// The Animation pane (P8-8, P9-S4): the current slide's animations in play
 // order on the right of the stage, like PowerPoint's: the click number,
-// the kind's star, the shape and the effect. Click (or arrow keys) selects
-// an animation for the Animations tab; drag a row by its grip (pointer
-// events, so touch works) to reorder (`reorderAnimation`); the bin or
-// Delete removes it; Play All previews the slide on the stage.
+// the kind's star, the shape and the effect; triggered animations under a
+// "Trigger:" heading per trigger, paragraph builds marked. Click (or arrow
+// keys) selects an animation for the Animations tab; drag a row by its
+// grip (pointer events, so touch works) to reorder (`reorderAnimation`);
+// Move Earlier / Later move click steps like PowerPoint (`moveOrder`); the
+// bin or Delete removes it; Timing… opens the timing dialog; Play All
+// previews the slide on the stage.
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { RibbonIcon } from "@rusuite/ui-shared";
 import type { NodeId } from "../generated/NodeId";
-import { clickNumbers, effectKey, reorderTarget, triggerKey } from "../anim/effects";
+import { clickNumbers, effectKey, reorderTarget, sameStartOn, triggerKey } from "../anim/effects";
 import { findShape } from "../model";
 import { useShow, type ShowStore } from "../state/store";
 import { EffectIcon } from "./AnimTabs";
@@ -84,10 +87,13 @@ export function AnimationPane({ store }: { store: ShowStore }) {
           ▶ {t("show.playAll")}
         </button>
         <span className="ml-auto" />
-        <button type="button" className={BTN} aria-label={t("show.moveEarlier")} title={t("show.moveEarlier")} disabled={index <= 0} onClick={() => void store.moveAnimation(-1)}>
+        <button type="button" className={BTN} aria-label={t("show.timingDialog")} title={t("show.timingDialog")} disabled={index < 0} onClick={() => store.openDialog({ kind: "animTiming", tab: "timing" })}>
+          <RibbonIcon name="options" />
+        </button>
+        <button type="button" className={BTN} aria-label={t("show.moveEarlier")} title={t("show.moveEarlier")} disabled={index < 0 || !store.canMoveAnimation(-1)} onClick={() => void store.moveAnimation(-1)}>
           <RibbonIcon name="chevronUp" />
         </button>
-        <button type="button" className={BTN} aria-label={t("show.moveLater")} title={t("show.moveLater")} disabled={index < 0 || index >= anims.length - 1} onClick={() => void store.moveAnimation(1)}>
+        <button type="button" className={BTN} aria-label={t("show.moveLater")} title={t("show.moveLater")} disabled={index < 0 || !store.canMoveAnimation(1)} onClick={() => void store.moveAnimation(1)}>
           <RibbonIcon name="chevronDown" />
         </button>
       </div>
@@ -107,8 +113,21 @@ export function AnimationPane({ store }: { store: ShowStore }) {
             const name = shape?.name || t("show.shapeN", { n: a.shape });
             const effect = t(effectKey(a.effect, a.kind));
             const showNum = a.trigger === "onClick" || i === 0;
+            // a heading before the first animation of each trigger
+            const trigger = a.startOn && !sameStartOn(anims[i - 1]?.startOn, a.startOn) ? a.startOn : null;
+            const triggerName = trigger
+              ? trigger.kind === "click"
+                ? (slide && findShape(slide.shapes, trigger.value)?.shape.name) || t("show.shapeN", { n: trigger.value })
+                : trigger.value.name
+              : "";
             return (
-              <li
+              <li key={`row-${a.id}`} role="presentation" className="contents">
+              {trigger && (
+                <div className="mt-1 flex h-6 items-center gap-1 border-t border-ui-border px-1 text-[11px] font-semibold text-ui-muted" data-testid="anim-trigger-heading">
+                  ⚡ {t("show.paneTrigger", { name: triggerName })}
+                </div>
+              )}
+              <div
                 key={a.id}
                 data-anim-row=""
                 data-testid="anim-row"
@@ -138,7 +157,10 @@ export function AnimationPane({ store }: { store: ShowStore }) {
                   {showNum ? nums[i] : a.trigger === "afterPrevious" ? "⏱" : ""}
                 </span>
                 <EffectIcon kind={a.kind} effect={a.effect} size={18} />
-                <span className="min-w-0 flex-1 truncate">{name}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {name}
+                  {a.build && <span className="ml-1 text-ui-muted" title={t("show.opt.byParagraph")} data-testid="anim-build">¶</span>}
+                </span>
                 <span className="shrink-0 truncate text-ui-muted">{effect}</span>
                 <button
                   type="button"
@@ -152,6 +174,7 @@ export function AnimationPane({ store }: { store: ShowStore }) {
                 >
                   <RibbonIcon name="trash" size={14} />
                 </button>
+              </div>
               </li>
             );
           })}

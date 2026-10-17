@@ -6,7 +6,7 @@ import {
   ANIMATION_KINDS, EFFECTS, TRANSITION_KINDS, animationDirectionKey, animationError, applyAnimationPatch, badgesByShape, changeTransition,
   clickNumbers, effectDefaultDirection, effectDirections, effectKey, effectPatch, effectSupports, effectsOf, hasEffects, msToMmss,
   msToSeconds, newAnimation, newTransition, parseMmss, reorderTarget, secondsToMs, transitionDefaultDirection, transitionDefaultDuration, transitionGalleryDirection, effectiveTransitionDirection,
-  transitionDirectionKey, transitionDirections, transitionKey, triggerKey, TRIGGERS,
+  transitionDirectionKey, transitionDirections, transitionKey, triggerKey, TRIGGERS, galleryKey, transitionOptions, transitionOptionKey,
 } from "./effects";
 
 const anim = (id: number, shape: number, trigger: Animation["trigger"] = "onClick", extra: Partial<Animation> = {}): Animation => ({
@@ -30,7 +30,12 @@ describe("transition rules (mirror of anim.rs)", () => {
   });
 
   it("PowerPoint's default durations", () => {
-    expect(TRANSITION_KINDS.map(transitionDefaultDuration)).toEqual([0, 700, 1000, 1000, 1000, 1500, 0, 500]);
+    const ecma = ["none", "fade", "push", "wipe", "cover", "split", "cut", "zoom"] as const;
+    expect(ecma.map(transitionDefaultDuration)).toEqual([0, 700, 1000, 1000, 1000, 1500, 0, 500]);
+    // PowerPoint 2010+ kinds (P9-S4)
+    expect(transitionDefaultDuration("vortex")).toBe(3000);
+    expect(transitionDefaultDuration("cube")).toBe(1000);
+    expect(TRANSITION_KINDS).toHaveLength(32);
     expect(newTransition("fade")).toEqual({ kind: "fade", durationMs: 700, advanceOnClick: true });
   });
 
@@ -78,9 +83,15 @@ describe("transition rules (mirror of anim.rs)", () => {
 
 describe("animation rules (mirror of anim.rs)", () => {
   it("emphasis effects only for emphasis, the others only for entrance and exit", () => {
-    expect(effectsOf("entrance")).toEqual(["appear", "fade", "flyIn", "wipe", "zoom"]);
-    expect(effectsOf("exit")).toEqual(["appear", "fade", "flyIn", "wipe", "zoom"]);
-    expect(effectsOf("emphasis")).toEqual(["spin", "growShrink"]);
+    // PowerPoint's galleries (P9-S4); the Shape effects are one item (circle)
+    const entrance = ["appear", "fade", "flyIn", "float", "split", "wipe", "circle", "wheel", "randomBars", "growTurn", "zoom", "swivel", "bounce"];
+    expect(effectsOf("entrance")).toEqual(entrance);
+    expect(effectsOf("exit")).toEqual(entrance);
+    expect(effectsOf("emphasis")).toEqual([
+      "pulse", "colorPulse", "teeter", "spin", "growShrink", "desaturate", "darken", "lighten", "transparency",
+      "objectColor", "lineColor", "fillColor", "brushColor", "fontColor", "underline", "boldFlash", "boldReveal", "wave",
+    ]);
+    expect(effectsOf("path")).toEqual(["pathLines", "pathArcs", "pathTurns", "pathShapes", "pathLoops", "pathCustom"]);
     for (const e of EFFECTS) for (const k of ANIMATION_KINDS) expect(animationError({ kind: k, effect: e }) === null).toBe(effectSupports(e, k));
   });
 
@@ -165,12 +176,14 @@ describe("labels", () => {
     const keys = new Set<string>();
     for (const k of TRANSITION_KINDS) {
       keys.add(transitionKey(k));
-      transitionDirections(k).forEach((d) => keys.add(transitionDirectionKey(d)));
+      transitionDirections(k).forEach((d) => keys.add(transitionDirectionKey(d, k)));
+      transitionOptions(k).forEach((o) => keys.add(transitionOptionKey(o)));
     }
     for (const kind of ANIMATION_KINDS)
       for (const e of effectsOf(kind)) {
         keys.add(effectKey(e, kind));
-        effectDirections(e).forEach((d) => keys.add(animationDirectionKey(d, kind)));
+        effectDirections(e).forEach((d) => keys.add(animationDirectionKey(d, kind, e)));
+        keys.add(galleryKey(e, kind));
       }
     TRIGGERS.forEach((t) => keys.add(triggerKey(t)));
     for (const k of keys) {

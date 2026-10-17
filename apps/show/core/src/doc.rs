@@ -875,6 +875,7 @@ impl ShowDocument {
         for (id, before) in slides.iter().zip(&old) {
             if let Some(s) = self.pres.slide_mut(*id) {
                 s.prune_animations();
+                s.order_triggered();
                 follow_connectors(before, s);
             }
         }
@@ -1058,6 +1059,11 @@ impl ShowDocument {
                 for a in &mut copy.animations {
                     a.id = self.pres.alloc_id();
                     a.shape = map.get(&a.shape).copied().unwrap_or(a.shape);
+                    if let Some(t) = &a.start_on {
+                        if let Some(&new) = map.get(&t.shape()) {
+                            a.start_on = Some(t.with_shape(new));
+                        }
+                    }
                 }
                 model_show::presentation::remap_attachments(&mut copy.shapes, &map);
                 let new_id = copy.id;
@@ -1916,6 +1922,65 @@ impl ShowDocument {
                 let all = self.order();
                 self.set_transition(&all, t, ch)
             }
+            C::SetTransitionSound {
+                slides,
+                content_type,
+                bytes_base64,
+                stop_previous,
+                loop_until_next,
+            } => {
+                let mut added = None;
+                let sound = match (bytes_base64, *stop_previous) {
+                    (Some(b64), _) => {
+                        let ct = content_type.as_deref().unwrap_or("audio/wav");
+                        if !ct.starts_with("audio/") {
+                            return Err(invalid(format!("{ct} is no sound")));
+                        }
+                        let bytes = base64_decode(b64)
+                            .map_err(|e| ShowError::BadRequest(format!("invalid base64: {e}")))?;
+                        let count = self.pres.media.len();
+                        let media = self.pres.media.insert(ct.to_owned(), bytes);
+                        if self.pres.media.len() > count {
+                            added = Some(media);
+                        }
+                        Some(model_show::TransitionSound::Play {
+                            media,
+                            loop_until_next: *loop_until_next,
+                        })
+                    }
+                    (None, true) => Some(model_show::TransitionSound::StopPrevious),
+                    (None, false) => None,
+                };
+                let mut unique: Vec<NodeId> = Vec::with_capacity(slides.len());
+                for &id in slides {
+                    self.slide_index(id)?;
+                    if !unique.contains(&id) {
+                        unique.push(id);
+                    }
+                }
+                let restore = self.edit_slides(&unique, ch, |d| {
+                    for &id in &unique {
+                        let s = d.slide_mut(id)?;
+                        let mut t = s.transition.unwrap_or(model_show::Transition::new(
+                            model_show::TransitionKind::None,
+                        ));
+                        t.sound = sound;
+                        s.transition = (!t.is_noop()).then_some(t);
+                    }
+                    Ok(())
+                });
+                match (restore, added) {
+                    (Err(e), Some(m)) => {
+                        self.pres.media.remove(m);
+                        Err(e)
+                    }
+                    (Err(e), None) => Err(e),
+                    (Ok(r), Some(m)) => Ok(C::Compound {
+                        commands: vec![r, C::RemoveMedia { id: m }],
+                    }),
+                    (Ok(r), None) => Ok(r),
+                }
+            }
             C::AddAnimation {
                 slide,
                 animation,
@@ -1946,6 +2011,24 @@ impl ShowDocument {
                     Ok(())
                 })
             }
+            C::SetAnimationOrder { slide, order } => self.edit_slide(*slide, ch, |s| {
+                let mut ids: Vec<NodeId> = s.animations.iter().map(|a| a.id).collect();
+                let mut want = order.clone();
+                ids.sort_unstable();
+                want.sort_unstable();
+                if ids != want {
+                    return Err(invalid(
+                        "the order must list every animation of the slide once",
+                    ));
+                }
+                let mut old = std::mem::take(&mut s.animations);
+                for id in order {
+                    if let Some(i) = old.iter().position(|a| a.id == *id) {
+                        s.animations.push(old.remove(i));
+                    }
+                }
+                Ok(())
+            }),
             C::SetGeometry {
                 shapes,
                 geometry,
@@ -2232,6 +2315,7 @@ impl ShowDocument {
                 self.edit_shapes(shapes, ch, |s| {
                     if let ShapeKind::Media(m) = &mut s.kind {
                         patch.apply_to(m);
+                        m.validate().map_err(invalid)?;
                     }
                     Ok(())
                 })
@@ -2296,6 +2380,11 @@ impl ShowDocument {
     ) -> R<C> {
         if let Some(t) = &transition {
             t.validate().map_err(invalid)?;
+            if let Some(model_show::TransitionSound::Play { media, .. }) = t.sound {
+                if self.pres.media.get(media).is_none() {
+                    return Err(ShowError::UnknownMedia(media.0));
+                }
+            }
         }
         let transition = transition.filter(|t| !t.is_noop());
         let mut unique = Vec::with_capacity(slides.len());
@@ -2338,10 +2427,13 @@ impl ShowDocument {
         animation.validate().map_err(invalid)?;
         let mut ids = Ids::new(&self.pres);
         let id = ids.resolve(&mut self.pres, ch, Some(new_id))?;
-        let a = model_show::Animation { id, ..*animation };
+        let a = model_show::Animation {
+            id,
+            ..animation.clone()
+        };
         self.edit_slide(slide, ch, |s| {
             s.animations.insert(at, a);
-            Ok(())
+            s.validate().map_err(|e| invalid(e.to_string()))
         })
     }
 
@@ -2354,7 +2446,8 @@ impl ShowDocument {
                 .find(|a| a.id == id)
                 .ok_or_else(|| invalid(format!("unknown animation {}", id.0)))?;
             patch.apply_to(a);
-            a.validate().map_err(invalid)
+            a.validate().map_err(invalid)?;
+            s.validate().map_err(|e| invalid(e.to_string()))
         })
     }
 

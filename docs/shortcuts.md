@@ -175,7 +175,7 @@ Linux. The desktop app gets them all.
 | Alt+F9 | Show / hide the drawing guides (the two centre guides when there are none) |
 | Delete, Backspace | Delete the selection |
 | Enter, F2 | Edit the text of the selected shape |
-| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery; leaves a focused adjust handle or Edit Points first |
+| Escape | Deselect; cancels drawing a shape chosen in the Shapes gallery, a Custom Path being drawn or the Animation Painter; leaves a focused adjust handle or Edit Points first |
 | Tab, Shift+Tab | Focus the selected shape's next / previous adjust handle (Slide Master view: next / previous text level) |
 | Arrows, Shift+Arrows (handle focused) | Move the focused adjust handle by 1 px, by 10 px |
 | Click, drag, double-click (Freeform: Shape) | Add a corner, draw freehand, end the shape open; a click on the start point closes it |
@@ -243,8 +243,18 @@ The same keys work in the full-window show (F5), in the presenter view and in it
 Hidden slides are skipped unless the show starts on one. The mouse pointer hides after 3 s without movement. With
 Transitions › On mouse click off, a click does not leave the slide (the keys still do).
 
-In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later, Delete removes it. Esc or a click stops a
-Preview on the stage.
+In the Animation pane: ↑/↓ select an animation, Alt+↑/↓ move it earlier/later (PowerPoint's click-step semantics,
+P9-S4), Delete removes it. Esc or a click stops a Preview on the stage.
+
+Animations (P9-S4):
+
+| Keys / mouse | Action |
+| --- | --- |
+| Drag on the stage (Add Animation › Custom Path) | Draw the motion path of the selected shape; Esc cancels |
+| Drag a vertex of the selected motion path | Move the vertex (Edit Points); the path is saved on release |
+| Click / double-click Animation Painter, then click shapes | Copy the selected shape's animations onto one / several shapes; Esc ends |
+| ↑ / ↓ in a spinner (Duration, Delay, Fade In / Out), or its arrows | 0.25 s up / down within PowerPoint's limits |
+| Click on a trigger shape (slide show) | Play the trigger's next animation step (the show does not advance) |
 
 ### Shapes, connectors and tables
 

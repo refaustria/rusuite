@@ -2,6 +2,10 @@
 import type { AnimationKind } from "./AnimationKind";
 import type { Direction } from "./Direction";
 import type { Effect } from "./Effect";
+import type { Iterate } from "./Iterate";
+import type { Repeat } from "./Repeat";
+import type { StartOn } from "./StartOn";
+import type { TextBuild } from "./TextBuild";
 import type { Trigger } from "./Trigger";
 
 /**
@@ -10,4 +14,28 @@ import type { Trigger } from "./Trigger";
  * effect's default. When the effect changes and the old direction does
  * not fit the new effect (and no direction is given), it is reset.
  */
-export type AnimationPatch = { kind?: AnimationKind, effect?: Effect, trigger?: Trigger, durationMs?: number, delayMs?: number, direction?: Direction | null, };
+export type AnimationPatch = { kind?: AnimationKind, effect?: Effect, trigger?: Trigger, durationMs?: number, delayMs?: number, direction?: Direction | null, 
+/**
+ * `null` = the effect's default amount.
+ */
+amount?: number | null, 
+/**
+ * `null` = the effect's default colour.
+ */
+color?: string | null, 
+/**
+ * `null` = the preset's default path.
+ */
+path?: string | null, autoReverse?: boolean, repeat?: Repeat | null, rewind?: boolean, 
+/**
+ * `null` = as one object.
+ */
+build?: TextBuild | null, 
+/**
+ * `null` = all at once.
+ */
+iterate?: Iterate | null, 
+/**
+ * `null` = in the click sequence.
+ */
+startOn?: StartOn | null, };

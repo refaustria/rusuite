@@ -60,6 +60,8 @@ export interface Fragment {
   highlight?: string;
   /** The hyperlink of the run the fragment belongs to. */
   link?: Hyperlink;
+  /** Index of the paragraph the fragment belongs to (paragraph builds animate per paragraph). */
+  paragraph?: number;
 }
 
 /**
@@ -363,6 +365,7 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
       if (li === 0 && bulletFrag) {
         bulletFrag.x = left + bulletFrag.x + (wrap && align !== "left" && align !== "justify" ? shift : 0);
         bulletFrag.y = top + baseline - baseSize * 0.85;
+        bulletFrag.paragraph = pi;
         fragments.push(bulletFrag);
       }
       for (const pc of line) {
@@ -371,7 +374,7 @@ function layoutAt(body: TextBody, o: LayoutOptions, scale: number, reduction = 0
         fragments.push({
           x, y: top + baseline - size * 0.85 + raise, text: pc.text, fontFamily: pc.style.fontFamily, fontSize: size,
           fontStyle: konvaStyle(pc.style), textDecoration: konvaDecoration(pc.style), fill: pc.style.color,
-          width: pc.width, highlight: pc.style.highlight, ...(pc.style.link ? { link: pc.style.link } : {}),
+          width: pc.width, highlight: pc.style.highlight, ...(pc.style.link ? { link: pc.style.link } : {}), paragraph: pi,
         });
         x += pc.width;
       }

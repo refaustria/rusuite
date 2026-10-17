@@ -1,4 +1,4 @@
-"""Generator for the PROVISIONAL pptx reference suite (34 decks).
+"""Generator for the PROVISIONAL pptx reference suite (35 decks).
 
 Emits one flat ODP (.fodp) per topic plus manifest.json. Conversion to .pptx is done by
 scripts/gen-pptx-suite.sh with headless LibreOffice. Python stdlib only; run with `python3 -I`.
@@ -43,12 +43,19 @@ FFMPEG_CLIP = ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "tests
                "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"]
 
 
+# Deck 35's clip: 3 s, 96 x 72 test pattern with a tone, VP8 + Vorbis in WebM (what browsers play), small.
+FFMPEG_WEBM = ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=3:size=96x72:rate=10",
+               "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:v", "libvpx", "-b:v", "60k", "-c:a", "libvorbis",
+               "-b:a", "32k", "-shortest", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact"]
+
+
 def make_clip(path):
-    """Writes the MP4 clip to `path` (the EBML stand-in when ffmpeg is not installed)."""
+    """Writes the clip to `path` (MP4, or WebM for a `.webm` name; the EBML stand-in when ffmpeg is not installed)."""
     import shutil
     import subprocess
     if shutil.which("ffmpeg"):
-        subprocess.run(FFMPEG_CLIP + [str(path)], check=True)
+        cmd = FFMPEG_WEBM if str(path).endswith(".webm") else FFMPEG_CLIP
+        subprocess.run(cmd + [str(path)], check=True)
     else:
         Path(path).write_bytes(WEBM)
 MEDIA_DIR = None  # where `emit` writes the media files the .fodp files link
@@ -942,7 +949,26 @@ def d34():
     return d
 
 
-TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 35)]
+def d35():
+    d = Deck(35, "animations2", "PowerPoint 2010+ transitions (Cube, Vortex, Curtains), Float In by paragraph, a custom motion "
+                                "path, a triggered spin, a trimmed video with fades and a bookmark that triggers an exit")
+    d.slide("title"); d.title("Animations 2", y=4.0); d.subtitle("Transitions, builds, paths, triggers, media")
+    d.slide("titleContent"); d.title("Float in by paragraph", cls="title")
+    d.outline([(1, "First point"), (2, "A detail"), (1, "Second point")])
+    d.slide("blank")
+    d.add_shape("rect", 2, 4, 5, 3, text="Moves", fill="3465a4")
+    d.add_shape("ellipse", 18, 4, 4, 4, text="Click me", fill="cc0000")
+    d.slide("blank")
+    d.video(2, 2, 12, 9, "clip.webm")
+    d.textbox(16, 4, 10, 2, "Leaves at the bookmark")
+    # added after LibreOffice's export (it writes none of them): see post_anim
+    d.anim2 = True
+    for f in ["transition:p14", "transition:p15", "anim:bldP", "anim:motionPath", "anim:trigger", "media:trim", "media:bookmark"]:
+        d.feat(f)
+    return d
+
+
+TOPICS = [globals()[f"d{n:02d}"] for n in range(1, 36)]
 
 
 def emit(outdir, pngdir):
@@ -1041,6 +1067,157 @@ def post_views(path):
             z.writestr(info, data, compress_type=info.compress_type)
 
 
+P15_NS = "http://schemas.microsoft.com/office/powerpoint/2012/main"
+MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+
+def alt_transition(effect, requires, dur, ns_extra=""):
+    """A transition as PowerPoint writes it: the effect with `p14:dur` in a choice, a fade in the fallback."""
+    return (f'<mc:AlternateContent xmlns:mc="{MC_NS}"><mc:Choice xmlns:p14="{P14}"{ns_extra} Requires="{requires}">'
+            f'<p:transition spd="slow" p14:dur="{dur}">{effect}</p:transition></mc:Choice>'
+            f'<mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>')
+
+
+def tgt(spid, para=None):
+    inner = f'<p:txEl><p:pRg st="{para}" end="{para}"/></p:txEl>' if para is not None else ""
+    return f'<p:tgtEl><p:spTgt spid="{spid}">{inner}</p:spTgt></p:tgtEl>' if inner else f'<p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>'
+
+
+class Ids:
+    def __init__(self):
+        self.n = 2
+
+    def __call__(self):
+        self.n += 1
+        return self.n
+
+
+def eff(ids, preset, cls, sub, grp, node, children, extra=""):
+    """One effect `p:par` (delay 0)."""
+    return (f'<p:par><p:cTn id="{ids()}" presetID="{preset}" presetClass="{cls}" presetSubtype="{sub}"{extra} fill="hold" grpId="{grp}" '
+            f'nodeType="{node}"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>{children}</p:childTnLst></p:cTn></p:par>')
+
+
+def step(ids, effects, first=False, delay="indefinite"):
+    """A click step: one group with one sub-step."""
+    return (f'<p:par><p:cTn id="{ids()}" fill="hold"><p:stCondLst><p:cond delay="{delay}"/></p:stCondLst><p:childTnLst>'
+            f'<p:par><p:cTn id="{ids()}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>'
+            f'{effects}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>')
+
+
+def visible(ids, spid, para=None):
+    return (f'<p:set><p:cBhvr><p:cTn id="{ids()}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>'
+            f'{tgt(spid, para)}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>'
+            f'<p:to><p:strVal val="visible"/></p:to></p:set>')
+
+
+def float_in(ids, spid, para):
+    return (visible(ids, spid, para)
+            + f'<p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="{ids()}" dur="1000"/>{tgt(spid, para)}</p:cBhvr></p:animEffect>'
+            + f'<p:anim calcmode="lin" valueType="num"><p:cBhvr><p:cTn id="{ids()}" dur="1000" fill="hold"/>{tgt(spid, para)}'
+              f'<p:attrNameLst><p:attrName>ppt_y</p:attrName></p:attrNameLst></p:cBhvr><p:tavLst>'
+              f'<p:tav tm="0"><p:val><p:strVal val="#ppt_y+.1"/></p:val></p:tav><p:tav tm="100000"><p:val><p:strVal val="#ppt_y"/></p:val></p:tav>'
+              f'</p:tavLst></p:anim>')
+
+
+def timing(ids, main, extra="", builds=""):
+    seq = (f'<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{main}</p:childTnLst></p:cTn>'
+           '<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>'
+           '<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>') if main else ""
+    bl = f"<p:bldLst>{builds}</p:bldLst>" if builds else ""
+    return (f'<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>'
+            f'{seq}{extra}</p:childTnLst></p:cTn></p:par></p:tnLst>{bl}</p:timing>')
+
+
+def interactive(ids, evt, spid, effects, bmk=None):
+    name = f' p14:bmkName="{bmk}"' if bmk else ""
+    cond = f'<p:cond evt="{evt}" delay="0"><p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl></p:cond>'
+    seq = (f'<p:seq concurrent="1" nextAc="seek"><p:cTn id="{ids()}" restart="whenNotActive" fill="hold" evtFilter="cancelBubble" '
+           f'nodeType="interactiveSeq"{name}><p:stCondLst>{cond}</p:stCondLst><p:endSync evt="end" delay="0"><p:rtn val="all"/></p:endSync>'
+           f'<p:childTnLst>{step(ids, effects, delay="0")}</p:childTnLst></p:cTn><p:nextCondLst>{cond}</p:nextCondLst></p:seq>')
+    if bmk:
+        return f'<mc:AlternateContent xmlns:mc="{MC_NS}"><mc:Choice xmlns:p14="{P14}" Requires="p14">{seq}</mc:Choice><mc:Fallback/></mc:AlternateContent>'
+    return seq
+
+
+def post_anim(path):
+    """Deck 35: what LibreOffice does not export – PowerPoint 2010+ transitions in `mc:AlternateContent` (Cube, Vortex,
+    Curtains), Float In by paragraph (`p:bldP build="p"`), a custom motion path and a Pulse, a Spin triggered by a click
+    on the ellipse, and a trimmed video with fades and a bookmark (`p14:trim`, `p14:fade`, `p14:bmk`) that triggers the
+    text box's exit – added as PowerPoint writes them."""
+    with zipfile.ZipFile(path) as z:
+        entries = [(i, z.read(i.filename)) for i in z.infolist()]
+    files = {i.filename: d for i, d in entries}
+    rels = files["ppt/_rels/presentation.xml.rels"].decode("utf-8")
+    pres = files["ppt/presentation.xml"].decode("utf-8")
+    order = re.findall(r'<p:sldId id="\d+" r:id="(rId\d+)"', pres)
+    target = {m.group(1): m.group(2) for m in re.finditer(r'Id="(rId\d+)"[^>]*Target="slides/(slide\d+\.xml)"', rels)}
+    target.update({m.group(2): m.group(1) for m in re.finditer(r'Target="slides/(slide\d+\.xml)"[^>]*Id="(rId\d+)"', rels)})
+    slides = [f"ppt/slides/{target[r]}" for r in order]
+    out = []
+    for info, data in entries:
+        name = info.filename
+        if name in slides[1:]:
+            xml = data.decode("utf-8")
+            k = slides.index(name)
+            spids = [int(v) for v in re.findall(r'<p:cNvPr id="(\d+)"', xml)][1:]
+            # LibreOffice's own transition / timing (none expected) make way for PowerPoint's
+            xml = re.sub(r"<mc:AlternateContent[^>]*>(?:(?!</mc:AlternateContent>).)*<p:transition.*?</mc:AlternateContent>", "", xml, flags=re.S)
+            xml = re.sub(r"<p:transition.*?</p:transition>|<p:transition[^>]*/>", "", xml, flags=re.S)
+            xml = re.sub(r"<p:timing>.*?</p:timing>", "", xml, flags=re.S)
+            ids = Ids()
+            if k == 1:
+                tr = alt_transition('<p14:prism dir="u"/>', "p14", 1000)
+                body = spids[1]
+                main = step(ids, eff(ids, 42, "entr", 0, 0, "clickEffect", float_in(ids, body, 0))
+                           + eff(ids, 42, "entr", 0, 0, "withEffect", float_in(ids, body, 1)))
+                main += step(ids, eff(ids, 42, "entr", 0, 0, "clickEffect", float_in(ids, body, 2)))
+                tm = timing(ids, main, builds=f'<p:bldP spid="{body}" grpId="0" build="p"/>')
+            elif k == 2:
+                tr = alt_transition('<p14:vortex dir="r"/>', "p14", 3000)
+                rect, ellipse = spids[0], spids[1]
+                motion = (f'<p:animMotion origin="layout" path="M 0 0 C 0.05 0.1 0.15 0.1 0.2 0 L 0.3 0.15 E" pathEditMode="relative" '
+                        f'ptsTypes=""><p:cBhvr><p:cTn id="{ids()}" dur="2000" fill="hold"/>{tgt(rect)}<p:attrNameLst>'
+                        f'<p:attrName>ppt_x</p:attrName><p:attrName>ppt_y</p:attrName></p:attrNameLst></p:cBhvr></p:animMotion>')
+                pulse = (f'<p:animScale><p:cBhvr><p:cTn id="{ids()}" dur="250" autoRev="1" fill="hold"/>{tgt(rect)}</p:cBhvr>'
+                         f'<p:by x="105000" y="105000"/></p:animScale>')
+                path_eff = eff(ids, 0, "path", 0, 0, "clickEffect", motion)
+                pulse_eff = eff(ids, 26, "emph", 0, 1, "afterEffect", pulse)
+                main = (f'<p:par><p:cTn id="{ids()}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>'
+                        f'<p:par><p:cTn id="{ids()}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>{path_eff}'
+                        f'</p:childTnLst></p:cTn></p:par><p:par><p:cTn id="{ids()}" fill="hold"><p:stCondLst><p:cond delay="2000"/>'
+                        f'</p:stCondLst><p:childTnLst>{pulse_eff}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>')
+                spin = (f'<p:animRot by="21600000"><p:cBhvr><p:cTn id="{ids()}" dur="2000" fill="hold"/>{tgt(rect)}'
+                        f'<p:attrNameLst><p:attrName>r</p:attrName></p:attrNameLst></p:cBhvr></p:animRot>')
+                extra = interactive(ids, "onClick", ellipse, eff(ids, 8, "emph", 0, 2, "clickEffect", spin))
+                tm = timing(ids, main, extra, builds=f'<p:bldP spid="{rect}" grpId="0" animBg="1"/><p:bldP spid="{rect}" grpId="1" animBg="1"/>'
+                                                     f'<p:bldP spid="{rect}" grpId="2" animBg="1"/>')
+            else:
+                tr = alt_transition('<p15:prstTrans prst="curtains"/>', "p15", 2750, f' xmlns:p15="{P15_NS}"')
+                video, box = spids[0], spids[1]
+                pause = (f'<p:cmd type="call" cmd="togglePause"><p:cBhvr><p:cTn id="{ids()}" dur="1" fill="hold"/>{tgt(video)}'
+                         f'</p:cBhvr></p:cmd>')
+                main = step(ids, eff(ids, 2, "mediacall", 0, 0, "clickEffect", pause))
+                fade = (f'<p:animEffect transition="out" filter="fade"><p:cBhvr><p:cTn id="{ids()}" dur="500"/>{tgt(box)}</p:cBhvr></p:animEffect>'
+                        f'<p:set><p:cBhvr><p:cTn id="{ids()}" dur="1" fill="hold"><p:stCondLst><p:cond delay="499"/></p:stCondLst></p:cTn>'
+                        f'{tgt(box)}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr>'
+                        f'<p:to><p:strVal val="hidden"/></p:to></p:set>')
+                extra = interactive(ids, "onMediaBookmark", video, eff(ids, 10, "exit", 0, 0, "clickEffect", fade), bmk="Bookmark 1")
+                extra += (f'<p:video><p:cMediaNode vol="80000"><p:cTn id="{ids()}" fill="hold" display="0"><p:stCondLst>'
+                          f'<p:cond delay="indefinite"/></p:stCondLst></p:cTn>{tgt(video)}</p:cMediaNode></p:video>')
+                tm = timing(ids, main, extra, builds=f'<p:bldP spid="{box}" grpId="0" animBg="1"/>')
+                media = ('<p14:trim st="500" end="500"/><p14:fade in="250" out="250"/>'
+                         '<p14:bmkLst><p14:bmk name="Bookmark 1" time="1000"/></p14:bmkLst>')
+                xml = re.sub(r"(<p14:media [^>]*?)/>", r"\1>" + media + "</p14:media>", xml, count=1)
+            anchor = "</p:clrMapOvr>" if "</p:clrMapOvr>" in xml else "</p:cSld>"
+            xml = xml.replace(anchor, anchor + tr + tm, 1)
+            data = xml.encode("utf-8")
+        out.append((info, data))
+    with zipfile.ZipFile(path, "w") as z:
+        for info, data in out:
+            z.writestr(info, data, compress_type=info.compress_type)
+
+
 def post(pptxdir):
     """Adds the sections of every deck that has some (LibreOffice cannot export them) to its .pptx, and deck
     34's custom show, guides and backgrounds."""
@@ -1055,6 +1232,8 @@ def post(pptxdir):
             embed_media(path)
         if path.exists() and getattr(d, "views", False):
             post_views(path)
+        if path.exists() and getattr(d, "anim2", False):
+            post_anim(path)
         if not d.sections or not path.exists():
             continue
         with zipfile.ZipFile(path) as z:
@@ -1222,7 +1401,8 @@ def check(manifest_path, pptxdir):
                 errs.append("p:bg not found")
             elif ft == "transition:advance" and " advTm=" not in xml:
                 errs.append("advTm not found")
-            elif ft.startswith("transition:") and ft != "transition:advance" and f"<p:{ft.split(':')[1]}" not in xml:
+            elif ft.startswith("transition:") and ft not in ("transition:advance", "transition:p14", "transition:p15") \
+                    and f"<p:{ft.split(':')[1]}" not in xml:
                 errs.append(f"{ft} not found")
             elif ft.startswith("section:count="):
                 if pres.count("<p14:section ") != int(ft.split("=")[1]):
@@ -1270,6 +1450,20 @@ def check(manifest_path, pptxdir):
                 errs.append("pattern background not found")
             elif ft == "media:video" and "<a:videoFile" not in xml:
                 errs.append("a:videoFile not found")
+            elif ft == "transition:p14" and not re.search(r'Requires="p14"><p:transition[^>]*><p14:', xml):
+                errs.append("p14 transition in mc:AlternateContent not found")
+            elif ft == "transition:p15" and "<p15:prstTrans " not in xml:
+                errs.append("p15:prstTrans not found")
+            elif ft == "anim:bldP" and not re.search(r'<p:bldP [^>]*build="p"', xml):
+                errs.append('p:bldP build="p" not found')
+            elif ft == "anim:motionPath" and "<p:animMotion " not in xml:
+                errs.append("p:animMotion not found")
+            elif ft == "anim:trigger" and 'nodeType="interactiveSeq"' not in xml:
+                errs.append("interactive sequence not found")
+            elif ft == "media:trim" and "<p14:trim " not in xml:
+                errs.append("p14:trim not found")
+            elif ft == "media:bookmark" and ("<p14:bmk " not in xml or "p14:bmkName=" not in xml):
+                errs.append("p14:bmk / bmkName not found")
             elif ft.startswith("animation:"):
                 _, cls, eff = ft.split(":")
                 c = {"entrance": "entr", "emphasis": "emph", "exit": "exit"}[cls]

@@ -459,5 +459,29 @@
    "background:gradient",
    "background:pattern"
   ]
+ },
+ {
+  "file": "provisional-35-animations2.pptx",
+  "topic": "PowerPoint 2010+ transitions (Cube, Vortex, Curtains), Float In by paragraph, a custom motion path, a triggered spin, a trimmed video with fades and a bookmark that triggers an exit",
+  "features": [
+   "slides:4",
+   "layout:title",
+   "layout:titleContent",
+   "layout:blank",
+   "size:16x9",
+   "bullets:levels=2",
+   "fill:solid",
+   "shape:rect:count=1",
+   "shape:ellipse:count=1",
+   "media:video",
+   "shape:textBox:count=1",
+   "transition:p14",
+   "transition:p15",
+   "anim:bldP",
+   "anim:motionPath",
+   "anim:trigger",
+   "media:trim",
+   "media:bookmark"
+  ]
  }
 ]

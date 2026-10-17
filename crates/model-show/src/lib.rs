@@ -40,6 +40,7 @@ pub mod geometry;
 pub mod layout;
 pub mod link;
 pub mod master;
+pub mod motion;
 pub mod picture;
 pub mod presentation;
 pub mod presets;
@@ -57,9 +58,12 @@ pub mod themes;
 pub mod ts;
 pub mod view;
 
-pub use anim::{Animation, AnimationKind, Direction, Effect, Transition, TransitionKind, Trigger};
+pub use anim::{
+    Animation, AnimationKind, Direction, Effect, Iterate, IterateUnit, Repeat, StartOn, TextBuild,
+    Transition, TransitionKind, TransitionOption, TransitionSound, Trigger,
+};
 pub use chart::{ChartData, ChartSeriesData, ChartShape};
-pub use clip::{MediaClip, MediaKind, MediaStart};
+pub use clip::{Bookmark, MediaClip, MediaKind, MediaStart};
 pub use connector::{ArrowEnd, ArrowKind, ArrowSize, Attach, Connector};
 pub use core_model::media::{Media, MediaId, MediaStore};
 pub use core_model::units::Emu;

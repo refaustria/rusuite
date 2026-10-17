@@ -3,12 +3,16 @@
 /**
  * A direction of a transition or animation.
  *
- * - Transitions (`Push`, `Wipe`, `Cover`): the direction the motion goes
- *   (the OOXML `dir`): `Left` = the new slide moves toward the left,
+ * - Transitions (`Push`, `Wipe`, `Cover`, …): the direction the motion
+ *   goes (the OOXML `dir`): `Left` = the new slide moves toward the left,
  *   which PowerPoint's menu calls "From Right". `Split` uses the
- *   `Horizontal*`/`Vertical*` values, `Zoom` uses `In`/`Out`.
+ *   `Horizontal*`/`Vertical*` values, `Zoom`/`Shred` use `In`/`Out`,
+ *   `Doors` `Vertical`/`Horizontal`, `Ripple` `Center` or a corner.
  * - Animations (`FlyIn`, `Wipe`): the side of the shape's box the effect
  *   comes from (entrance) or goes to (exit): `Down` = PowerPoint's "From
- *   Bottom" / "To Bottom". Diagonals only for `FlyIn`.
+ *   Bottom" / "To Bottom". Diagonals only for `FlyIn`. Shapes (Circle,
+ *   Box, …) use `In`/`Out`, Random Bars and Swivel
+ *   `Horizontal`/`Vertical`, Zoom `ObjectCenter`/`SlideCenter`, motion
+ *   paths the way they go.
  */
-export type Direction = "left" | "up" | "right" | "down" | "leftUp" | "rightUp" | "leftDown" | "rightDown" | "horizontalOut" | "horizontalIn" | "verticalOut" | "verticalIn" | "in" | "out";
+export type Direction = "left" | "up" | "right" | "down" | "leftUp" | "rightUp" | "leftDown" | "rightDown" | "horizontalOut" | "horizontalIn" | "verticalOut" | "verticalIn" | "in" | "out" | "horizontal" | "vertical" | "center" | "objectCenter" | "slideCenter";
