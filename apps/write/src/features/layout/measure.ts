@@ -9,7 +9,7 @@
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { Columns } from "../../generated/Columns";
 import { columnLayout } from "../columns";
-import { collapseMargins, lineSlots, mergeLineRects, type Anchor, type CellFlow, type Flow, type FootnoteFlow, type Unit } from "./paginate";
+import { collapseMargins, lineSlots, mergeLineRects, type Anchor, type CellContent, type CellFlow, type EndnoteGroup, type Flow, type FootnoteFlow, type Unit } from "./paginate";
 
 /** Flow options of a paragraph (resolved: style chain + direct). */
 export interface FlowProps {
@@ -25,7 +25,14 @@ export type CachedAnchor = { kind: "block"; rel: number } | { kind: "inline"; re
 export interface CellItem {
   lines: { top: number; bottom: number; at: CachedAnchor }[];
   bottom: number;
+  /** Lines and nested table rows in order (cells holding nested tables). */
+  content?: CachedContent[];
 }
+
+/** A line of a cell or a row of a nested table (block-relative, like `CellItem`). */
+export type CachedContent =
+  | { kind: "line"; top: number; bottom: number; at: CachedAnchor }
+  | { kind: "row"; top: number; bottom: number; cantSplit?: boolean; header?: boolean; at: CachedAnchor; cells: CellItem[] };
 
 export interface Item {
   kind: "line" | "row" | "atom";
@@ -74,8 +81,9 @@ export interface BlockMeasure {
   /** Columns boxes: the children (virtual top / bottom) and the column geometry. */
   children?: { y: number; bottom: number }[];
   columns?: { x: number; width: number }[];
-  /** The notes area: footnotes. */
-  footnotes?: FootnoteFlow[];
+  /** The notes area: footnotes, and endnotes when they go to their section's end. */
+  footnotes?: NoteMeasure[];
+  endnotes?: NoteMeasure[];
   /** Vertical padding + border of the element (its content box is `height - pad`). */
   pad?: number;
 }
@@ -88,6 +96,8 @@ export interface MeasureContext {
   flow(node: PMNode | null): FlowProps;
   /** Client px per CSS px (CSS zoom of the page). */
   zoom: number;
+  /** Endnotes go to the end of their section (`w:endnotePr/w:pos="sectEnd"`): measured on their own, not in the notes area's flow. */
+  endnotesAtSectionEnd?: boolean;
 }
 
 const SKIP = ".page-spacer, .page-colbreak, .inline-image-wrap.floating, .drawing-wrap.floating, .notes-separator, .note-label, .note[data-note-kind='foot']";
@@ -341,12 +351,112 @@ export function collapsedMargins(el: Element): { mt: number; mb: number } {
   return { mt, mb };
 }
 
-/** Measures a table: rows with their cells' lines; header rows; the cells' spacers and the rows' growth subtracted. */
+/** Spacers of a cell outside its nested tables (client / zoom): `[bottom, height]`. */
+function ownSpacers(td: Element, z: number): [number, number][] {
+  const out: [number, number][] = [];
+  td.querySelectorAll<HTMLElement>(".page-spacer").forEach((s) => {
+    if (s.parentElement?.closest("td, th") !== td) return;
+    const r = s.getBoundingClientRect();
+    if (r.height > 0) out.push([r.bottom / z, r.height / z]);
+  });
+  return out.sort((a, b) => a[0] - b[0]);
+}
+
+/** The table element of a (nested) table block: the element itself or the table in its wrapper. */
+function tableIn(el: Element): HTMLTableElement | null {
+  if (el.matches("table")) return el as HTMLTableElement;
+  if (el.matches(".tableWrapper")) return el.querySelector(":scope > table");
+  return null;
+}
+
+/**
+ * The content of a cell, natural px relative to the table (`base`: client
+ * px / zoom that maps to natural 0): its lines (spacers of the pagination
+ * subtracted) and the rows of nested tables, each with its cells measured
+ * the same way, so nested tables split across pages like their parent rows.
+ */
+function cellItem(td: HTMLElement, base: number, first: CachedAnchor, ctx: MeasureContext, pos: number, notes: number[]): CellItem {
+  const z = ctx.zoom;
+  const sp = ownSpacers(td, z);
+  const lines: CellItem["lines"] = [];
+  const content: CachedContent[] = [];
+  let bottom = naturalY(td.getBoundingClientRect().top / z, base, sp);
+  let firstDone = false;
+  let nested = false;
+  const relOf = (el: Element): number => {
+    const p = ctx.posAt(el, 0);
+    return p < 0 ? 1 : p - pos;
+  };
+  const visit = (n: Element) => {
+    for (const c of Array.from(n.children)) {
+      if (c.matches(SKIP)) continue;
+      const info = ctx.textblock(c);
+      if (info) {
+        const tl = textLines(c as HTMLElement, base, sp, firstDone ? { kind: "inline", rel: info.pos - pos + 1 } : first, ctx, false);
+        firstDone = true;
+        for (const l of tl.lines) {
+          const line = { top: l.top, bottom: l.bottom, at: l.at };
+          lines.push(line);
+          content.push({ kind: "line", ...line });
+          if (l.notes) notes.push(...l.notes);
+        }
+        bottom = Math.max(bottom, tl.bottom);
+        continue;
+      }
+      const table = tableIn(c);
+      if (table) {
+        nested = true;
+        firstDone = true;
+        for (const tr of Array.from(table.rows)) {
+          const rr = tr.getBoundingClientRect();
+          const top = naturalY(rr.top / z, base, sp);
+          const rowBase = rr.top / z - top;
+          const cells: CellItem[] = [];
+          const rels: number[] = [];
+          let contentBottom = top;
+          let maxSpacers = 0;
+          for (const td2 of Array.from(tr.cells)) {
+            const rel = relOf(td2);
+            rels.push(rel);
+            const ci = cellItem(td2, rowBase, { kind: "block", rel }, ctx, pos, notes);
+            cells.push(ci);
+            lines.push(...ci.lines);
+            contentBottom = Math.max(contentBottom, ci.bottom + cellPad(td2));
+            maxSpacers = Math.max(maxSpacers, spacersIn(td2, z).reduce((a, x) => a + x[1], 0));
+          }
+          // The row's natural height: without the growth its cells' spacers caused (a minimum height stays).
+          const observed = rr.height / z;
+          const height = Math.min(observed, Math.max(contentBottom - top, observed - maxSpacers));
+          const grown = observed - height;
+          content.push({ kind: "row", top, bottom: top + height, at: { kind: "cells", rels }, cells, ...(tr.hasAttribute("data-cant-split") ? { cantSplit: true } : {}), ...(tr.hasAttribute("data-header") ? { header: true } : {}) });
+          // What follows the row in the cell moves up by the row's growth.
+          if (grown > 0) {
+            sp.push([rr.bottom / z, grown]);
+            sp.sort((a, b) => a[0] - b[0]);
+          }
+          bottom = Math.max(bottom, top + height);
+        }
+        continue;
+      }
+      visit(c);
+    }
+  };
+  visit(td);
+  return nested ? { lines, bottom, content } : { lines, bottom };
+}
+
+/** Bottom padding and border of a cell (px). */
+function cellPad(td: Element): number {
+  const cs = getComputedStyle(td);
+  return cssPx(cs.paddingBottom) + cssPx(cs.borderBottomWidth);
+}
+
+/** Measures a table: rows with their cells' lines (and nested tables' rows); header rows; the cells' spacers and the rows' growth subtracted. */
 function measureTable(el: HTMLElement, node: PMNode | null, pos: number, ctx: MeasureContext, base: number): BlockMeasure {
   const z = ctx.zoom;
   const items: Item[] = [];
   const paras: BlockMeasure["paras"] = [];
-  const table = el.matches("table") ? (el as HTMLTableElement) : el.querySelector("table");
+  const table = tableIn(el) ?? el.querySelector("table");
   const rows = table ? Array.from(table.rows) : [];
   // PM positions of the cells relative to the table node.
   const cellRels: number[][] = [];
@@ -368,20 +478,9 @@ function measureTable(el: HTMLElement, node: PMNode | null, pos: number, ctx: Me
     let natural = rr.top / z;
     const notes: number[] = [];
     Array.from(tr.cells).forEach((td, c) => {
-      const sp = spacersIn(td, z);
-      const own = sp.reduce((s, x) => s + x[1], 0);
-      const lines: CellItem["lines"] = [];
-      let bottom = top;
-      textblocksIn(td, ctx).forEach((p, k) => {
-        const info = ctx.textblock(p)!;
-        const tl = textLines(p, base + growth, sp, k === 0 ? { kind: "block", rel: rels[c] ?? 1 } : { kind: "inline", rel: info.pos - pos + 1 }, ctx, false);
-        for (const l of tl.lines) {
-          lines.push({ top: l.top, bottom: l.bottom, at: l.at });
-          if (l.notes) notes.push(...l.notes);
-        }
-        bottom = Math.max(bottom, tl.bottom);
-      });
-      cells.push({ lines, bottom });
+      const own = spacersIn(td, z).reduce((s, x) => s + x[1], 0);
+      const ci = cellItem(td, base + growth, { kind: "block", rel: rels[c] ?? 1 }, ctx, pos, notes);
+      cells.push({ ...ci, bottom: Math.max(top, ci.bottom) });
       const tdr = td.getBoundingClientRect();
       observed = Math.max(observed, tdr.bottom / z);
       natural = Math.max(natural, tdr.bottom / z - own);
@@ -466,17 +565,36 @@ function measureElement(el: HTMLElement, node: PMNode | null, pos: number, ctx: 
   return { kind: "flow", height, ...(ctx.textblock(el) ? margins(el) : collapsedMargins(el)), items, paras, breakAfter };
 }
 
-/** Lines of a footnote element (relative to its top) and its height. */
-export function measureFootnote(el: HTMLElement, ctx: MeasureContext): FootnoteFlow {
+/** A footnote or endnote measured on its own: height and lines relative to its top (spacers inside it subtracted). */
+export interface NoteMeasure {
+  id: number;
+  height: number;
+  lines: { top: number; bottom: number; at?: CachedAnchor }[];
+  /** Paragraphs (lines `[first, last]`) with their flow options (endnotes placed at a section end). */
+  paras: ParaItem[];
+}
+
+/**
+ * Lines of a note element (relative to its top) and its height. A
+ * continuation spacer the layout put into the note is subtracted; `pos` (the
+ * notes area's PM position) makes the lines' spacer anchors.
+ */
+export function measureFootnote(el: HTMLElement, ctx: MeasureContext, pos = -1): NoteMeasure {
   const z = ctx.zoom;
   const r = el.getBoundingClientRect();
-  const height = Math.max(el.scrollHeight, r.height / z);
-  const lines: FootnoteFlow["lines"] = [];
+  const sp = spacersIn(el, z);
+  const own = sp.reduce((a, x) => a + x[1], 0);
+  const height = Math.max(0, r.height / z - own);
+  const lines: NoteMeasure["lines"] = [];
+  const paras: ParaItem[] = [];
   for (const p of textblocksIn(el, ctx)) {
-    const tl = textLines(p, r.top / z, [], { kind: "block", rel: 0 }, ctx, false);
-    for (const l of tl.lines) lines.push({ top: l.top, bottom: l.bottom });
+    const info = ctx.textblock(p)!;
+    const tl = textLines(p, r.top / z, sp, { kind: "inline", rel: info.pos - pos + 1 }, ctx, false);
+    const first = lines.length;
+    for (const l of tl.lines) lines.push(pos >= 0 && info.pos >= 0 ? { top: l.top, bottom: l.bottom, at: l.at } : { top: l.top, bottom: l.bottom });
+    if (lines.length > first) paras.push({ first, last: lines.length - 1, flow: ctx.flow(info.node) });
   }
-  return { id: Number(el.dataset.noteId), height, lines };
+  return { id: Number(el.dataset.noteId), height, lines, paras };
 }
 
 /**
@@ -565,14 +683,18 @@ export function closeUp(items: readonly Item[]): Item[] {
   return out;
 }
 
-/** Measures the notes area: endnotes in the flow, footnotes on their own. */
+/** Measures the notes area: endnotes in the flow (or on their own, placed at their section's end), footnotes on their own. */
 function measureNotes(el: HTMLElement, ctx: MeasureContext, pos: number): BlockMeasure {
   const z = ctx.zoom;
   const base = el.getBoundingClientRect().top / z;
-  const footnotes = Array.from(el.querySelectorAll<HTMLElement>(".note[data-note-kind='foot']")).map((n) => measureFootnote(n, ctx));
+  const footnotes = Array.from(el.querySelectorAll<HTMLElement>(".note[data-note-kind='foot']")).map((n) => measureFootnote(n, ctx, pos));
   const items: Item[] = [];
   const paras: ParaItem[] = [];
   const ends = Array.from(el.querySelectorAll<HTMLElement>(".note[data-note-kind='end']"));
+  if (ctx.endnotesAtSectionEnd) {
+    const endnotes = ends.map((n) => measureFootnote(n, ctx, pos));
+    return { kind: "notes", height: 0, mt: 0, mb: 0, items, paras, footnotes, endnotes };
+  }
   if (ends.length) {
     const sepEl = el.querySelector<HTMLElement>(".notes-separator-end");
     const first: HTMLElement = sepEl ?? ends[0]!;
@@ -631,10 +753,21 @@ export function measureBlock(el: HTMLElement, node: PMNode | null, pos: number, 
 // ----- the flow -------------------------------------------------------------------------
 
 export interface FlowInput {
-  /** Measured top-level blocks with their PM position and section index. */
-  blocks: { m: BlockMeasure; pos: number; section: number; region: boolean; nextKind?: "page" | "even" | "odd" | null }[];
+  /** Measured top-level blocks with their PM position, section index and top-level index (default: the array index). */
+  blocks: { m: BlockMeasure; pos: number; section: number; region: boolean; index?: number; nextKind?: "page" | "even" | "odd" | null }[];
+  /** What the flow depends on besides the blocks (section kinds): a previous flow with another key is not reused. */
+  key?: string;
   /** Per section id: the kind of the section starting after it (`page`, `even`, `odd`; null = continuous). */
   sectionBreak?: (sectionEnd: number) => "page" | "even" | "odd" | null;
+  /** Endnotes at their section's end: per section index, the note ids in reference order (needs the notes area measured with `endnotesAtSectionEnd`). */
+  endnotes?: { section: number; ids: number[] }[];
+  /** Height of the separator line above each section's endnotes (px). */
+  endnoteSeparator?: number;
+}
+
+/** A measured note in flow coordinates (anchors resolved against the notes area at `pos`). */
+function noteFlow(n: NoteMeasure, pos: number): FootnoteFlow {
+  return { id: n.id, height: n.height, lines: n.lines.map((l) => (l.at ? { top: l.top, bottom: l.bottom, at: resolve(l.at, pos) } : { top: l.top, bottom: l.bottom })) };
 }
 
 const resolve = (a: CachedAnchor, pos: number): Anchor => {
@@ -644,18 +777,292 @@ const resolve = (a: CachedAnchor, pos: number): Anchor => {
   return { kind: "inline", pos: pos + (a.rel ?? 0) };
 };
 
+/** A measured cell in flow coordinates (`top`: the table's natural top; `pos`: its PM position). */
+function cellFlow(c: CellItem, top: number, pos: number): CellFlow {
+  const out: CellFlow = { bottom: top + c.bottom, lines: c.lines.map((l) => ({ top: top + l.top, bottom: top + l.bottom, at: resolve(l.at, pos) })) };
+  if (c.content) out.content = c.content.map((x) => contentFlow(x, top, pos));
+  return out;
+}
+
+function contentFlow(x: CachedContent, top: number, pos: number): CellContent {
+  if (x.kind === "line") return { kind: "line", top: top + x.top, bottom: top + x.bottom, at: resolve(x.at, pos) };
+  return {
+    kind: "row",
+    top: top + x.top,
+    bottom: top + x.bottom,
+    at: resolve(x.at, pos),
+    cells: x.cells.map((c) => cellFlow(c, top, pos)),
+    ...(x.cantSplit ? { cantSplit: true } : {}),
+    ...(x.header ? { header: true } : {}),
+  };
+}
+
 /** Chains the measured blocks (margins collapsed) into the natural flow of `paginate`. */
-export function buildFlow(input: FlowInput): Flow {
+/** The builder's state at the start of a block (for reusing a previous flow). */
+interface BlockStart {
+  y: number;
+  prevMb: number | null;
+  pending: Unit["breakBefore"];
+  pendingColumn: boolean;
+  units: number;
+  paras: number;
+  tables: number;
+  regions: number;
+  blocks: number;
+}
+
+/** What `buildFlow` keeps for the next run: its input blocks and the state at each block's start. */
+interface FlowBuild {
+  input: FlowInput["blocks"];
+  key: string;
+  starts: BlockStart[];
+}
+
+const builds = new WeakMap<Flow, FlowBuild>();
+
+/** The top-level index of input block `k`. */
+const indexOf = (input: FlowInput, k: number) => input.blocks[k]!.index ?? k;
+
+/**
+ * Chains the measured blocks (margins collapsed) into the natural flow of
+ * `paginate`. With the previous run's flow (`prev`, same `key`), the
+ * unchanged blocks at the start are taken over as they are and the
+ * unchanged blocks at the end are moved (their units' positions shifted in
+ * place), so a keystroke builds the units of one block; `flow.reuse` then
+ * tells `paginate` where the flow changed and how the rest moved.
+ */
+export function buildFlow(input: FlowInput, prev?: Flow | null): Flow {
+  const pb = prev ? builds.get(prev) : undefined;
+  const key = input.key ?? "";
+  if (pb && prev && pb.key === key && !input.endnotes?.length && !prev.endGroups?.length) {
+    const flow = buildIncremental(input, prev, pb);
+    if (flow) return flow;
+  }
+  return buildRange(input, 0, input.blocks.length, null, null);
+}
+
+/** `buildFlow` from a previous flow; null when nothing can be taken over. */
+function buildIncremental(input: FlowInput, prev: Flow, pb: FlowBuild): Flow | null {
+  const a = input.blocks;
+  const b = pb.input;
+  const n = a.length;
+  const pn = b.length;
+  const sameBlock = (x: FlowInput["blocks"][number], y: FlowInput["blocks"][number]) => x.m === y.m && x.section === y.section && x.region === y.region;
+  let P = 0;
+  while (P < n && P < pn && sameBlock(a[P]!, b[P]!) && a[P]!.pos === b[P]!.pos && indexOf(input, P) === (b[P]!.index ?? P)) P++;
+  let S = 0;
+  const dpos = n && pn ? a[n - 1]!.pos - b[pn - 1]!.pos : 0;
+  const dindex = n && pn ? indexOf(input, n - 1) - (b[pn - 1]!.index ?? pn - 1) : 0;
+  while (S < n - P && S < pn - P) {
+    const x = a[n - 1 - S]!;
+    const y = b[pn - 1 - S]!;
+    if (!sameBlock(x, y) || x.pos - y.pos !== dpos || indexOf(input, n - 1 - S) - (y.index ?? pn - 1 - S) !== dindex) break;
+    S++;
+  }
+  if (P === 0 && S === 0) return null;
+  const flow = buildRange(input, P, n - S, prev, pb.starts[P] ?? null);
+  const fb = builds.get(flow)!;
+  const enter = pb.starts[pn - S];
+  const now = fb.starts[n - S];
+  if (S > 0 && (!enter || !now || enter.pending !== now.pending || enter.pendingColumn !== now.pendingColumn || enter.prevMb !== now.prevMb)) {
+    return P > 0 ? buildRange(input, P, n, prev, pb.starts[P] ?? null) : null;
+  }
+  const reuseFrom = (pb.starts[P]?.units ?? 0);
+  if (S === 0) {
+    flow.reuse = { from: reuseFrom, same: flow.units.length, du: 0, dy: 0, db: 0, dp: 0, dt: 0, dr: 0 };
+    return flow;
+  }
+  // The unchanged blocks at the end: moved by the deltas (in place: the previous flow is not used again).
+  const d = {
+    du: now!.units - enter!.units,
+    dy: now!.y - enter!.y,
+    db: now!.blocks - enter!.blocks,
+    dp: now!.paras - enter!.paras,
+    dt: now!.tables - enter!.tables,
+    dr: now!.regions - enter!.regions,
+  };
+  const same = flow.units.length;
+  const units = prev.units.slice(enter!.units);
+  const moved = d.dy !== 0 || dpos !== 0 || d.db !== 0 || d.dp !== 0 || d.dt !== 0 || d.dr !== 0;
+  if (moved) for (const u of units) moveUnit(u, d.dy, dpos, d.db, d.dp, d.dt, d.dr);
+  flow.units.push(...units);
+  for (const p of prev.paras.slice(enter!.paras)) {
+    p.first += d.du;
+    p.last += d.du;
+    flow.paras.push(p);
+  }
+  for (const t of prev.tables.slice(enter!.tables)) {
+    t.first += d.du;
+    t.last += d.du;
+    t.block += d.db;
+    flow.tables.push(t);
+  }
+  for (const r of prev.regions.slice(enter!.regions)) {
+    r.first += d.du;
+    r.last += d.du;
+    r.top += d.dy;
+    r.bottom += d.dy;
+    flow.regions.push(r);
+  }
+  for (const x of prev.blocks.slice(enter!.blocks)) {
+    x.top += dindex;
+    x.y += d.dy;
+    x.bottom += d.dy;
+    flow.blocks.push(x);
+  }
+  fb.starts.length = n - S;
+  for (const st of pb.starts.slice(pn - S)) {
+    st.y += d.dy;
+    st.units += d.du;
+    st.paras += d.dp;
+    st.tables += d.dt;
+    st.regions += d.dr;
+    st.blocks += d.db;
+    fb.starts.push(st);
+  }
+  fb.input = a;
+  for (const blk of a.slice(n - S)) for (const f of blk.m.footnotes ?? []) flow.footnotes.set(f.id, noteFlow(f, blk.pos));
+  flow.end = prev.end + d.dy;
+  flow.reuse = { from: reuseFrom, same, ...d };
+  return flow;
+}
+
+function moveAnchor(a: Anchor, dpos: number): void {
+  if (!dpos) return;
+  if (a.kind === "cells") for (let k = 0; k < a.cells.length; k++) a.cells[k]! += dpos;
+  else if (typeof a.pos === "number" && a.pos >= 0) a.pos += dpos;
+}
+
+function moveCell(c: CellFlow, dy: number, dpos: number, seen: Set<object>): void {
+  c.bottom += dy;
+  for (const l of c.lines) {
+    l.top += dy;
+    l.bottom += dy;
+    if (!seen.has(l.at)) {
+      seen.add(l.at);
+      moveAnchor(l.at, dpos);
+    }
+  }
+  const visit = (items: CellContent[]) => {
+    for (const x of items) {
+      x.top += dy;
+      x.bottom += dy;
+      if (!seen.has(x.at)) {
+        seen.add(x.at);
+        moveAnchor(x.at, dpos);
+      }
+      if (x.kind === "row") for (const cc of x.cells) moveCell(cc, dy, dpos, seen);
+    }
+  };
+  if (c.content) visit(c.content);
+}
+
+/** Shifts a unit of the flow's unchanged end: natural y by `dy`, PM positions by `dpos`, indices by their deltas. */
+function moveUnit(u: Unit, dy: number, dpos: number, db: number, dp: number, dt: number, dr: number): void {
+  u.top += dy;
+  u.bottom += dy;
+  u.anchorTop += dy;
+  if (u.ink != null) u.ink += dy;
+  moveAnchor(u.at, dpos);
+  u.block += db;
+  if (u.para >= 0) u.para += dp;
+  if (u.table != null) u.table += dt;
+  if (u.region != null) u.region += dr;
+  if (u.cells) {
+    const seen = new Set<object>([u.at]);
+    for (const c of u.cells) moveCell(c, dy, dpos, seen);
+  }
+}
+
+/**
+ * Builds the units of input blocks `[from, to)` (all of them without a
+ * previous flow); the blocks before `from` are the previous flow's (`state`:
+ * the builder's state at `from`).
+ */
+function buildRange(input: FlowInput, from: number, to: number, prev: Flow | null, state: BlockStart | null): Flow {
   const flow: Flow = { units: [], paras: [], tables: [], regions: [], blocks: [], footnotes: new Map(), end: 0 };
-  let y = 0;
-  let prevMb: number | null = null;
-  let pending: Unit["breakBefore"];
-  let pendingColumn = false;
-  input.blocks.forEach((b, index) => {
+  const starts: BlockStart[] = [];
+  if (prev && state && from > 0) {
+    flow.units = prev.units.slice(0, state.units);
+    flow.paras = prev.paras.slice(0, state.paras);
+    flow.tables = prev.tables.slice(0, state.tables);
+    flow.regions = prev.regions.slice(0, state.regions);
+    flow.blocks = prev.blocks.slice(0, state.blocks);
+    const pb = builds.get(prev)!;
+    starts.push(...pb.starts.slice(0, from));
+    for (const b of input.blocks.slice(0, from)) for (const f of b.m.footnotes ?? []) flow.footnotes.set(f.id, noteFlow(f, b.pos));
+  } else from = 0;
+  let y = state && from > 0 ? state.y : 0;
+  let prevMb: number | null = state && from > 0 ? state.prevMb : null;
+  let pending: Unit["breakBefore"] = state && from > 0 ? state.pending : undefined;
+  let pendingColumn = state && from > 0 ? state.pendingColumn : false;
+  // Endnotes at section ends: the notes area's measured endnotes, grouped by section.
+  const notesAt = input.blocks.findIndex((b) => b.m.kind === "notes");
+  const notesIndex = notesAt < 0 ? -1 : indexOf(input, notesAt);
+  const notesBlock = input.blocks[notesAt];
+  const endMeasures = new Map((notesBlock?.m.endnotes ?? []).map((n) => [n.id, n]));
+  const groups = (input.endnotes ?? []).filter((g) => g.ids.some((id) => endMeasures.has(id)));
+  let gi = 0;
+  /** The group whose `next` unit is still to come. */
+  const open: { group: EndnoteGroup | null } = { group: null };
+  const sep = input.endnoteSeparator ?? 0;
+  const emitGroup = (g: { section: number; ids: number[] }) => {
+    const top0 = prevMb === null ? 0 : y + Math.max(0, prevMb);
+    let gy = top0;
+    const first = flow.units.length;
+    const at: Anchor = { kind: "block", pos: -1 };
+    // The separator line above the section's endnotes (drawn by the page chrome).
+    flow.blocks.push({ top: notesIndex, child: -1, y: gy, bottom: gy + sep, note: 0 });
+    flow.units.push({ kind: "atom", top: gy, bottom: gy + sep, anchorTop: gy, at, block: flow.blocks.length - 1, para: -1, section: g.section });
+    gy += sep;
+    for (const id of g.ids) {
+      const n = endMeasures.get(id);
+      if (!n) continue;
+      const block = flow.blocks.length;
+      flow.blocks.push({ top: notesIndex, child: -1, y: gy, bottom: gy + n.height, note: id });
+      const base = flow.units.length;
+      const paraBase = flow.paras.length;
+      const paraOf = (k: number) => n.paras.findIndex((p) => p.first <= k && k <= p.last);
+      n.lines.forEach((l, k) => {
+        const pi = paraOf(k);
+        flow.units.push({
+          kind: "line",
+          top: gy + l.top,
+          bottom: gy + l.bottom,
+          anchorTop: gy + l.top,
+          // A page starting at a note's first line moves the (positioned) note itself: no spacer.
+          at: k > 0 && l.at && notesBlock ? resolve(l.at, notesBlock.pos) : at,
+          block,
+          para: pi >= 0 ? paraBase + pi : -1,
+          section: g.section,
+        });
+      });
+      for (const p of n.paras) {
+        flow.paras.push({ first: base + p.first, last: base + p.last, widow: p.flow.widowControl !== false, keepLines: !!p.flow.keepLines, keepNext: !!p.flow.keepNext });
+      }
+      if (!n.lines.length) flow.units.push({ kind: "atom", top: gy, bottom: gy + n.height, anchorTop: gy, at, block, para: -1, section: g.section });
+      gy += n.height;
+    }
+    const height = gy - top0;
+    const group: EndnoteGroup = { section: g.section, first, last: flow.units.length - 1, height, next: -1 };
+    (flow.endGroups ??= []).push(group);
+    open.group = group;
+    // The space after the last block counts once (the group starts below it).
+    y += height;
+  };
+  for (let index0 = from; index0 < to; index0++) {
+    const b = input.blocks[index0]!;
+    const index = indexOf(input, index0);
+    starts[index0] = { y, prevMb, pending, pendingColumn, units: flow.units.length, paras: flow.paras.length, tables: flow.tables.length, regions: flow.regions.length, blocks: flow.blocks.length };
     const m = b.m;
-    for (const f of m.footnotes ?? []) flow.footnotes.set(f.id, f);
-    if (m.kind === "notes" && !m.items.length) return;
+    for (const f of m.footnotes ?? []) flow.footnotes.set(f.id, noteFlow(f, b.pos));
+    while (gi < groups.length && (m.kind === "notes" || b.section > groups[gi]!.section)) emitGroup(groups[gi++]!);
+    if (m.kind === "notes" && !m.items.length) continue;
     const top = prevMb === null ? Math.max(0, m.mt) : y + collapseMargins(prevMb, m.mt);
+    if (open.group) {
+      open.group.next = flow.units.length;
+      open.group = null;
+    }
     const region = m.kind === "columns" && (m.columns?.length ?? 1) > 1 ? flow.regions.length : null;
     const firstUnit = flow.units.length;
     const blockIndex = flow.blocks.length;
@@ -691,9 +1098,7 @@ export function buildFlow(input: FlowInput): Flow {
         u.table = table;
         u.row = it.row;
         if (it.cantSplit) u.cantSplit = true;
-        u.cells = (it.cells ?? []).map(
-          (c): CellFlow => ({ bottom: top + c.bottom, lines: c.lines.map((l) => ({ top: top + l.top, bottom: top + l.bottom, at: resolve(l.at, b.pos) })) }),
-        );
+        u.cells = (it.cells ?? []).map((c) => cellFlow(c, top, b.pos));
       }
       if (region != null) u.region = region;
       flow.units.push(u);
@@ -717,7 +1122,10 @@ export function buildFlow(input: FlowInput): Flow {
     if (region != null) flow.regions.push({ first: firstUnit, last: flow.units.length - 1, columns: m.columns ?? [], top, bottom: top + m.height });
     y = top + m.height;
     prevMb = m.mb;
-  });
+  }
+  starts[to] = { y, prevMb, pending, pendingColumn, units: flow.units.length, paras: flow.paras.length, tables: flow.tables.length, regions: flow.regions.length, blocks: flow.blocks.length };
+  if (to === input.blocks.length) while (gi < groups.length) emitGroup(groups[gi++]!);
   flow.end = y;
+  builds.set(flow, { input: input.blocks, key: input.key ?? "", starts });
   return flow;
 }

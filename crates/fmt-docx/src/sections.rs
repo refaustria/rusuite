@@ -3,8 +3,8 @@
 
 use core_model::units::Twips;
 use model_text::{
-    ColumnWidth, Columns, HeaderSlot, Margins, Orientation, PageSetup, Section, SectionId,
-    SectionKind,
+    ColumnWidth, Columns, HeaderSlot, Margins, NoteNumbering, NoteRestart, Orientation, PageSetup,
+    Section, SectionId, SectionKind,
 };
 
 use crate::numbering::{number_format, number_format_name};
@@ -133,6 +133,14 @@ pub(crate) fn read_sect_pr(s: &El, id: SectionId, w: &mut Warnings) -> (Section,
                     separator: el.attr("sep").and_then(crate::xml::parse_bool) == Some(true),
                 };
             }
+            "footnotePr" | "endnotePr" => {
+                let n = read_note_pr(el, w);
+                if el.name == "footnotePr" {
+                    sec.footnote_numbering = n;
+                } else {
+                    sec.endnote_numbering = n;
+                }
+            }
             "titlePg" => sec.title_page = toggle(el),
             "pgNumType" => {
                 sec.page_number_start = el.attr("start").and_then(parse_u32);
@@ -168,6 +176,64 @@ pub(crate) fn read_sect_pr(s: &El, id: SectionId, w: &mut Warnings) -> (Section,
     (sec, refs)
 }
 
+/// A section's `w:footnotePr` / `w:endnotePr`: number format, start and
+/// restart (`w:pos` belongs to the settings for endnotes; a footnote
+/// position other than the page bottom is dropped with a warning).
+fn read_note_pr(el: &El, w: &mut Warnings) -> Option<NoteNumbering> {
+    let mut n = NoteNumbering::default();
+    for c in el.elements() {
+        match c.name.as_str() {
+            "numFmt" => {
+                n.format = c.val().and_then(|f| {
+                    number_format(f).or_else(|| {
+                        w.warn(
+                            "docx.section.propertyDropped",
+                            "section: {name} dropped",
+                            &[("name", &format!("{}/{} {f:?}", el.qname(), c.qname()))],
+                        );
+                        None
+                    })
+                })
+            }
+            "numStart" => n.start = c.val().and_then(parse_u32),
+            "numRestart" => {
+                n.restart = match c.val() {
+                    Some("eachSect") => NoteRestart::EachSection,
+                    Some("eachPage") => NoteRestart::EachPage,
+                    _ => NoteRestart::Continuous,
+                }
+            }
+            "pos" if matches!(c.val(), Some("pageBottom" | "docEnd" | "sectEnd") | None) => {}
+            _ => w.warn(
+                "docx.section.propertyDropped",
+                "section: {name} dropped",
+                &[("name", &format!("{}/{}", el.qname(), c.qname()))],
+            ),
+        }
+    }
+    n.non_default()
+}
+
+/// `w:footnotePr` / `w:endnotePr` of a section (children in schema order).
+fn write_note_pr(x: &mut XmlOut, name: &str, n: Option<&NoteNumbering>) {
+    let Some(n) = n.filter(|n| !n.is_default()) else {
+        return;
+    };
+    x.start(name, &[]);
+    if let Some(f) = n.format {
+        x.val("w:numFmt", number_format_name(f));
+    }
+    if let Some(s) = n.start {
+        x.val("w:numStart", &s.to_string());
+    }
+    match n.restart {
+        NoteRestart::Continuous => {}
+        NoteRestart::EachSection => x.val("w:numRestart", "eachSect"),
+        NoteRestart::EachPage => x.val("w:numRestart", "eachPage"),
+    }
+    x.end(name);
+}
+
 /// Serialized `w:sectPr` of `s` with its header/footer references.
 pub(crate) fn write_sect_pr(s: &Section, refs: &[HeaderRef]) -> Vec<u8> {
     let mut x = XmlOut::fragment();
@@ -182,6 +248,8 @@ pub(crate) fn write_sect_pr(s: &Section, refs: &[HeaderRef]) -> Vec<u8> {
             x.empty(name, &[("w:type", slot_name(*slot)), ("r:id", rid)]);
         }
     }
+    write_note_pr(&mut x, "w:footnotePr", s.footnote_numbering.as_ref());
+    write_note_pr(&mut x, "w:endnotePr", s.endnote_numbering.as_ref());
     match s.kind {
         SectionKind::NextPage => {}
         SectionKind::Continuous => x.val("w:type", "continuous"),
@@ -305,5 +373,56 @@ mod tests {
         .unwrap();
         let (s2, refs2) = read_sect_pr(back.child("sectPr").unwrap(), SectionId(4), &mut w);
         assert_eq!((s2, refs2), (s, refs));
+    }
+
+    #[test]
+    fn note_numbering_per_section_roundtrips() {
+        let xml = r#"<w:sectPr xmlns:w="w" xmlns:r="r"><w:footnotePr><w:pos w:val="pageBottom"/><w:numFmt w:val="lowerLetter"/>
+            <w:numRestart w:val="eachPage"/></w:footnotePr><w:endnotePr><w:numFmt w:val="upperRoman"/><w:numStart w:val="3"/>
+            <w:numRestart w:val="eachSect"/></w:endnotePr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr>"#;
+        let el = parse(xml.as_bytes(), "d").unwrap();
+        let mut w = Warnings::default();
+        let (s, refs) = read_sect_pr(&el, SectionId(1), &mut w);
+        assert!(w.is_empty(), "{:?}", w.into_vec());
+        let foot = s.footnote_numbering.unwrap();
+        assert_eq!(foot.format, Some(model_text::LevelKind::LowerLetter));
+        assert_eq!((foot.start, foot.restart), (None, NoteRestart::EachPage));
+        let end = s.endnote_numbering.unwrap();
+        assert_eq!(end.format, Some(model_text::LevelKind::UpperRoman));
+        assert_eq!(
+            (end.start, end.restart),
+            (Some(3), NoteRestart::EachSection)
+        );
+        let text = String::from_utf8(write_sect_pr(&s, &refs)).unwrap();
+        assert!(
+            text.starts_with(r#"<w:sectPr><w:footnotePr><w:numFmt w:val="lowerLetter"/><w:numRestart w:val="eachPage"/></w:footnotePr><w:endnotePr><w:numFmt w:val="upperRoman"/><w:numStart w:val="3"/><w:numRestart w:val="eachSect"/></w:endnotePr><w:pgSz"#),
+            "{text}"
+        );
+        let back = parse(
+            format!(r#"<w:x xmlns:w="w" xmlns:r="r">{text}</w:x>"#).as_bytes(),
+            "d",
+        )
+        .unwrap();
+        let (s2, _) = read_sect_pr(back.child("sectPr").unwrap(), SectionId(1), &mut w);
+        assert_eq!(s2, s);
+    }
+
+    #[test]
+    fn default_note_numbering_is_not_written() {
+        let el = parse(
+            br#"<w:sectPr xmlns:w="w"><w:footnotePr><w:numFmt w:val="decimal"/></w:footnotePr></w:sectPr>"#,
+            "d",
+        )
+        .unwrap();
+        let mut w = Warnings::default();
+        let (s, _) = read_sect_pr(&el, SectionId(1), &mut w);
+        // An explicit decimal is still a format (kept); only an empty footnotePr is dropped.
+        assert!(s.footnote_numbering.is_some());
+        let el = parse(br#"<w:sectPr xmlns:w="w"><w:footnotePr/></w:sectPr>"#, "d").unwrap();
+        let (s, _) = read_sect_pr(&el, SectionId(1), &mut w);
+        assert_eq!(s.footnote_numbering, None);
+        assert!(!String::from_utf8(write_sect_pr(&s, &[]))
+            .unwrap()
+            .contains("footnotePr"));
     }
 }

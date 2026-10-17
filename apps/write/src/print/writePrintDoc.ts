@@ -196,16 +196,28 @@ export function inlineDrawingBlocks(c: HTMLElement): void {
   });
 }
 
-/** Widgets and editor-only placement removed from a cloned block. */
-function cleanClone(c: HTMLElement): HTMLElement {
-  c.querySelectorAll(".page-spacer, .page-colbreak, .page-hf-probe").forEach((e) => e.remove());
+/**
+ * Widgets and editor-only placement removed from a cloned block.
+ * `keepSpacers`: the page gaps stay (slicing a row split across pages);
+ * `piece`: the clone becomes a printed piece, so the notes area keeps only
+ * the endnotes it prints in its flow (footnotes and endnotes at section ends
+ * are pieces of their own).
+ */
+function cleanClone(c: HTMLElement, keepSpacers = false, piece = false): HTMLElement {
+  c.querySelectorAll(keepSpacers ? ".page-colbreak, .page-hf-probe" : ".page-spacer, .page-colbreak, .page-hf-probe").forEach((e) => e.remove());
+  if (piece && c.matches(".notes-area")) c.querySelectorAll(".note.note-paged, .note[data-note-kind='foot']").forEach((e) => e.remove());
+  c.querySelectorAll("[data-clipped]").forEach((e) => {
+    e.removeAttribute("data-clipped");
+    (e as HTMLElement).style.removeProperty("clip-path");
+  });
   inlineDrawingBlocks(c);
   c.removeAttribute("contenteditable");
   c.querySelectorAll("[contenteditable]").forEach((e) => e.removeAttribute("contenteditable"));
   [c, ...Array.from(c.querySelectorAll<HTMLElement>(".note-paged"))].filter((e) => e.classList.contains("note-paged")).forEach((e) => {
-    e.classList.remove("note-paged");
+    e.classList.remove("note-paged", "note-paged-end");
     e.removeAttribute("style");
-    e.removeAttribute("data-clipped");
+    e.removeAttribute("data-slices");
+    if (!keepSpacers) e.querySelectorAll(".page-spacer").forEach((x) => x.remove());
   });
   return c;
 }
@@ -224,6 +236,8 @@ interface PrintPiece {
   off: number;
   height: number;
   cls?: string;
+  /** The content's box in the piece when it is not the piece itself (a block laid out in the editor's text column, moved into its section's). */
+  inner?: { left: number; width: number };
 }
 
 interface PrintSheet {
@@ -232,12 +246,27 @@ interface PrintSheet {
   footer: string;
   /** Footnote separator (y, full width for a continuation). */
   sep?: { y: number; cont: boolean };
+  /** Endnote separators at section ends (y). */
+  endSeps?: number[];
+}
+
+/** Where a printed page's text column is (sheet px): its own section's geometry (P9-W2). */
+export interface PrintColumn {
+  left: number;
+  width: number;
+  /** The editor's text column relative to this page's (W-18 decorations): top-level clones move back by `dx`. */
+  dx: number;
+  /** The editor content's width (a top-level clone is laid out at it). */
+  editorWidth: number;
 }
 
 /**
  * The printed pages of an engine result: every fragment is a slice of its
  * block's clone (`elementOf`), clipped between two line boundaries; repeated
- * table headers and footnote slices like in the editor.
+ * table headers and footnote slices like in the editor. Every page uses its
+ * own section's text column (`column(k)`); a table row split across pages
+ * is cut out of a clone that keeps the editor's page gaps (each cell
+ * continues at its own line; the borders stay open at the cut).
  */
 function sheetsFromResult(
   flow: Flow,
@@ -245,47 +274,82 @@ function sheetsFromResult(
   elementOf: (block: FlowBlock) => HTMLElement | null,
   tableOf: (table: number) => HTMLElement | null,
   noteOf: (id: number) => HTMLElement | null,
-  textWidth: number,
-  bodyLeft: number,
+  column: (page: number) => PrintColumn,
   texts: (page: number) => { header: string; footer: string },
+  endSeps: (page: number) => number[] = () => [],
 ): PrintSheet[] {
   const html = new Map<HTMLElement, string>();
-  const outer = (el: HTMLElement) => {
-    let h = html.get(el);
+  const live = new Map<HTMLElement, string>();
+  const outer = (el: HTMLElement, keepSpacers = false) => {
+    const cache = keepSpacers ? live : html;
+    let h = cache.get(el);
     if (h == null) {
-      const c = cleanClone(el.cloneNode(true) as HTMLElement);
+      const c = cleanClone(el.cloneNode(true) as HTMLElement, keepSpacers, true);
       c.style.marginTop = "0";
       c.style.marginBottom = "0";
       h = c.outerHTML;
-      html.set(el, h);
+      cache.set(el, h);
     }
     return h;
   };
   return result.pages.map((p, k) => {
     const pieces: PrintPiece[] = [];
+    const col0 = column(k);
+    const limit = p.box.bodyTop + p.box.bodyHeight - p.notesHeight;
+    const windows = new Map((p.rowWindows ?? []).map((w) => [w.unit, w]));
     for (const col of p.columns) {
       for (const f of col.fragments) {
         const b = flow.blocks[f.block];
-        const el = b ? elementOf(b) : null;
-        if (!b || !el) continue;
+        if (!b || b.note === 0) continue;
+        const el = b.note ? noteOf(b.note) : elementOf(b);
+        if (!el) continue;
+        if (b.note) {
+          // An endnote at a section end: in the notes area's style, like in the editor.
+          pieces.push({ html: `<div class="notes-area">${outer(el)}</div>`, x: col0.left + col.x, y: f.y, width: col.width || col0.width, off: f.top - b.y, height: f.bottom - f.top, cls: "rs-write-note" });
+          continue;
+        }
+        const top = b.child < 0 && !b.note;
+        const x = col0.left + col.x;
+        const width = col.width || col0.width;
+        // A top-level block keeps the editor's layout (the editor's text column, moved by the section's offset).
+        const inner = top && (Math.abs(col0.dx) > 0.01 || Math.abs(col0.editorWidth - width) > 0.01) ? { left: -col0.dx, width: col0.editorWidth } : undefined;
+        const u0 = flow.units[f.from]!;
+        const wFirst = windows.get(f.from);
+        const wLast = windows.get(f.to - 1);
+        if ((wFirst || wLast) && u0.table != null) {
+          // A row split across pages: a window over the table as the editor shows it (page gaps kept).
+          const t = flow.tables[u0.table]!;
+          const tableTop = result.vtop[t.first]! - (flow.units[t.first]!.top - b.y);
+          const last = flow.units[f.to - 1]!;
+          const winTop = wFirst ? wFirst.top : result.vtop[f.from]!;
+          const winBottom = wLast ? wLast.bottom : result.vtop[f.to - 1]! + (last.bottom - last.top);
+          const y = winTop - p.sheetTop;
+          pieces.push({ html: outer(el, true), x, y, width, off: winTop - tableTop, height: Math.min(winBottom - p.sheetTop, limit) - y, ...(inner ? { inner } : {}) });
+          continue;
+        }
         let bottom = f.bottom;
         for (let u = f.from; u < f.to; u++) bottom = Math.max(bottom, flow.units[u]!.ink ?? 0);
-        pieces.push({ html: outer(el), x: bodyLeft + col.x, y: f.y, width: col.width || textWidth, off: f.top - b.y, height: bottom - f.top });
+        // A clipped row (can not break, taller than the page) ends at the body bottom.
+        const height = Math.min(bottom - f.top, (p.clips?.length ? limit : Infinity) - f.y);
+        pieces.push({ html: outer(el), x, y: f.y, width, off: f.top - b.y, height, ...(inner ? { inner } : {}) });
       }
     }
     if (p.repeat) {
       const t = tableOf(p.repeat.table);
       const b = flow.blocks[flow.tables[p.repeat.table]!.block];
-      if (t && b) pieces.push({ html: outer(t), x: bodyLeft, y: p.box.bodyTop, width: textWidth, off: 0, height: p.repeat.height });
+      const inner = Math.abs(col0.dx) > 0.01 || Math.abs(col0.editorWidth - col0.width) > 0.01 ? { left: -col0.dx, width: col0.editorWidth } : undefined;
+      if (t && b) pieces.push({ html: outer(t), x: col0.left, y: p.box.bodyTop, width: col0.width, off: 0, height: p.repeat.height, ...(inner ? { inner } : {}) });
     }
     const sheet: PrintSheet = { pieces, ...texts(k) };
+    const seps = endSeps(k);
+    if (seps.length) sheet.endSeps = seps;
     if (p.footnotes.length) {
       const notesTop = p.box.bodyTop + p.box.bodyHeight - p.notesHeight;
       sheet.sep = { y: notesTop + 5, cont: p.footnotes[0]!.from > 0 };
       let y = notesTop + NOTE_SEPARATOR_PX;
       for (const n of p.footnotes) {
         const el = noteOf(n.id);
-        if (el) pieces.push({ html: outer(el), x: bodyLeft, y, width: textWidth, off: n.from, height: n.to - n.from, cls: "rs-write-note" });
+        if (el) pieces.push({ html: `<div class="notes-area">${outer(el)}</div>`, x: col0.left, y, width: col0.width, off: n.from, height: n.to - n.from, cls: "rs-write-note" });
         y += n.to - n.from;
       }
     }
@@ -294,18 +358,46 @@ function sheetsFromResult(
 }
 
 /** One printed page: header, footer (sheet px) and the pieces (in a `zoom: scale` layer). */
-function sheetHtml(s: PrintSheet, geo: PageGeometry, scale: number, contentClass: string): string {
+function sheetHtml(s: PrintSheet, geo: PageGeometry, scale: number, contentClass: string, size = ""): string {
   const hf = (text: string, pos: string) => (text ? `<div class="rs-write-hf" style="${pos};left:${geo.left}px;right:${geo.right}px">${escapeHtml(text)}</div>` : "");
   const cls = escapeHtml(contentClass);
   const pieces = s.pieces
     .map(
       (p) =>
-        `<div class="rs-write-piece${p.cls ? ` ${p.cls}` : ""}" style="left:${p.x.toFixed(2)}px;top:${p.y.toFixed(2)}px;width:${p.width.toFixed(2)}px;height:${Math.max(0, p.height).toFixed(2)}px"><div class="${cls} rs-write-content" style="width:${p.width.toFixed(2)}px;margin-top:${(-p.off).toFixed(2)}px">${p.html}</div></div>`,
+        `<div class="rs-write-piece${p.cls ? ` ${p.cls}` : ""}" style="left:${p.x.toFixed(2)}px;top:${p.y.toFixed(2)}px;width:${p.width.toFixed(2)}px;height:${Math.max(0, p.height).toFixed(2)}px"><div class="${cls} rs-write-content" style="width:${(p.inner?.width ?? p.width).toFixed(2)}px;margin-top:${(-p.off).toFixed(2)}px${p.inner ? `;margin-left:${p.inner.left.toFixed(2)}px` : ""}">${p.html}</div></div>`,
     )
     .join("");
-  const sep = s.sep ? `<div class="rs-write-note-sep" style="top:${s.sep.y.toFixed(2)}px;left:${geo.left}px;${s.sep.cont ? `right:${geo.right}px` : "width:2in"}"></div>` : "";
+  const sep =
+    (s.sep ? `<div class="rs-write-note-sep" style="top:${s.sep.y.toFixed(2)}px;left:${geo.left}px;${s.sep.cont ? `right:${geo.right}px` : "width:2in"}"></div>` : "") +
+    (s.endSeps ?? []).map((y) => `<div class="rs-write-note-sep" style="top:${(y + 5).toFixed(2)}px;left:${geo.left}px;width:2in"></div>`).join("");
   const layer = scale === 1 ? `${pieces}${sep}` : `<div class="rs-write-scaled" style="zoom:${scale}">${pieces}${sep}</div>`;
-  return `${hf(s.header, `top:${geo.header}px`)}<div class="write-paged rs-write-layer">${layer}</div>${hf(s.footer, `bottom:${geo.footer}px`)}`;
+  return `${size ? `<i class="rs-wsize ${size}" hidden></i>` : ""}${hf(s.header, `top:${geo.header}px`)}<div class="write-paged rs-write-layer">${layer}</div>${hf(s.footer, `bottom:${geo.footer}px`)}`;
+}
+
+/**
+ * Sheet sizes of a document with mixed page sizes (portrait and landscape
+ * sections): a named `@page` per size and the page boxes that use it (the
+ * shared print document sets one size for all pages). `classOf(k)` is the
+ * marker class of page `k` (empty for the document's first size).
+ */
+export function mixedPageCss(geos: readonly PageGeometry[]): { css: string; classOf: (k: number) => string } {
+  const sizes: string[] = [];
+  const keyOf = (g: PageGeometry) => `${(g.width / 96).toFixed(3)}x${(g.height / 96).toFixed(3)}`;
+  const first = geos[0] ? keyOf(geos[0]) : "";
+  const index = geos.map((g) => {
+    const key = keyOf(g);
+    if (key === first) return -1;
+    let i = sizes.indexOf(key);
+    if (i < 0) i = sizes.push(key) - 1;
+    return i;
+  });
+  const css = sizes
+    .map((key, i) => {
+      const [w, h] = key.split("x");
+      return `@page rs-wsize-${i} { size: ${w}in ${h}in; margin: 0; }\n.rs-print-page:has(> .rs-wsize-${i}) { page: rs-wsize-${i}; width: ${w}in; height: ${h}in; }`;
+    })
+    .join("\n");
+  return { css, classOf: (k) => (index[k] != null && index[k]! >= 0 ? `rs-wsize-${index[k]}` : "") };
 }
 
 /** Whether the print options are the document's own (the editor's pages print as they are). */
@@ -352,19 +444,24 @@ export function buildWritePrintDoc(
       return top && b.child >= 0 ? boxChildren(top)[b.child] ?? null : top ?? null;
     };
     const geo0 = layout.sheets[0]?.geo ?? pageGeometry(page);
-    const textW = geo0.width - geo0.left - geo0.right;
+    const geoOf = (k: number) => layout.sheets[k]?.geo ?? geo0;
+    const editorWidth = dom.offsetWidth || geo0.width - geo0.left - geo0.right;
     const sheets = sheetsFromResult(
       flow,
       result,
       elementOf,
       (t) => elementOf(flow.blocks[flow.tables[t]!.block]!),
       (id) => dom.querySelector<HTMLElement>(`.note[data-note-id="${id}"]`),
-      textW,
-      geo0.left,
+      (k) => {
+        const g = geoOf(k);
+        return { left: g.left, width: g.width - g.left - g.right, dx: layout.sheets[k]?.shift?.dx ?? 0, editorWidth };
+      },
       (k) => ({ header: layout.sheets[k]?.header ?? "", footer: layout.sheets[k]?.footer ?? "" }),
+      (k) => (layout.sheets[k]?.endSeps ?? []).map((y) => y - (layout.sheets[k]?.top ?? 0)),
     );
-    const pages = sheets.map((s, k) => sheetHtml(s, layout.sheets[k]?.geo ?? geo0, 1, contentClass));
-    return { widthIn: geo0.width / 96, heightIn: geo0.height / 96, css, pages, head: documentStyles() };
+    const mixed = mixedPageCss(sheets.map((_s, k) => geoOf(k)));
+    const pages = sheets.map((s, k) => sheetHtml(s, geoOf(k), 1, contentClass, mixed.classOf(k)));
+    return { widthIn: geo0.width / 96, heightIn: geo0.height / 96, css: mixed.css ? `${css}\n${mixed.css}` : css, pages, head: documentStyles() };
   }
   const geo = writePrintGeometry(page, o);
   const scale = Math.max(0.1, o.scale / 100);
@@ -411,8 +508,7 @@ export function buildWritePrintDoc(
       },
       (t) => clones[flow.blocks[flow.tables[t]!.block]!.top] ?? null,
       (id) => inner.querySelector<HTMLElement>(`.note[data-note-id="${id}"]`),
-      textW * s,
-      geo.left * s,
+      () => ({ left: geo.left * s, width: textW * s, dx: 0, editorWidth: textW * s }),
       (k) => ({ header: headerFooterText(page?.headerText, k + 1, total), footer: headerFooterText(page?.footerText, k + 1, total) }),
     );
     const cls = o.markup ? `${contentClass} rs-write-markup` : contentClass;
@@ -429,4 +525,5 @@ export const WRITE_PIECE_CSS = `.rs-write-layer { position: absolute; inset: 0; 
 .rs-write-piece { position: absolute; overflow: hidden; }
 .rs-write-piece > .rs-write-content { position: relative; display: flow-root; }
 .rs-write-note .note { position: relative; }
+.rs-write-note .notes-area { margin: 0 !important; }
 .rs-write-note-sep { position: absolute; border-top: 1px solid #000; }`;

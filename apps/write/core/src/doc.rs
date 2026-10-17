@@ -2924,6 +2924,12 @@ impl WriteDocument {
         if patch.page_number_format.is_some() {
             s.page_number_format = patch.page_number_format;
         }
+        if let Some(n) = patch.footnote_numbering {
+            s.footnote_numbering = n.non_default();
+        }
+        if let Some(n) = patch.endnote_numbering {
+            s.endnote_numbering = n.non_default();
+        }
         if last {
             self.doc.page = page;
             ch.page = true;

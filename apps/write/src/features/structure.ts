@@ -16,10 +16,10 @@ import type { FieldKind } from "../generated/FieldKind";
 import type { Section } from "../generated/Section";
 import type { WriteCommand } from "../generated/WriteCommand";
 import { notesNode } from "../sync/fromPM";
-import { currentLayout, pageAtPos, paginationKey } from "./pagination";
+import { currentLayout, pageAtPos, pageIndexAt, paginationKey } from "./pagination";
 import { charOffsetOf, findPos } from "../sync/SyncPlugin";
 import { t } from "../i18n";
-import { noteNumbers } from "./numbers";
+import { noteLabels } from "./noteNumbering";
 
 export { formatNumber, noteNumbers } from "./numbers";
 
@@ -196,8 +196,9 @@ function separator(kind: "foot" | "end"): HTMLElement {
 export function buildStructureDecorations(state: EditorState, opts: StructureOptions): DecorationSet {
   const doc = state.doc;
   const decos: Decoration[] = [];
-  const numbers = noteNumbers(doc);
   const sections = opts.sections();
+  const layout = currentLayout(state);
+  const numbers = noteLabels(doc, sections, layout ? (pos) => pageIndexAt(layout, pos) : undefined);
   const nextKind = new Map<number, Section["kind"]>();
   sections.forEach((s, i) => nextKind.set(s.id, sections[i + 1]?.kind ?? "nextPage"));
   const area = notesNode(doc);
