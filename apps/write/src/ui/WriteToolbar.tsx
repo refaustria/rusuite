@@ -1062,6 +1062,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
                   { id: "sect", label: t("write.endnotesAt.section"), checked: !!ctl.settings.endnotesAtSectionEnd, onSelect: () => void ctl.run({ type: "setSettings", settings: { ...ctl.settings, endnotesAtSectionEnd: true } }) },
                 ]}
               />
+              <RibbonButton label={t("write.noteDialog.open")} icon={FOOTNOTE_ICON} showLabel onClick={() => features.ui.openDialog("notes")} />
             </RibbonStack>
           </>
         ),

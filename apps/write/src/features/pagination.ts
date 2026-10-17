@@ -18,9 +18,11 @@ import type { PageSetup } from "../generated/PageSetup";
 import type { Section } from "../generated/Section";
 import { notesNode } from "../sync/fromPM";
 import { TWIPS_PER_PX } from "../sync/schema";
-import { formatNumber, noteNumbers } from "./numbers";
+import { formatNumber } from "./numbers";
+import { endnoteSections, noteLabels } from "./noteNumbering";
+import { sectionFrames } from "./layout/sectionFrames";
 import { buildFlow, measureBlock, type BlockMeasure, type FlowProps, type MeasureContext } from "./layout/measure";
-import { firstChange, paginate, type Anchor, type Flow, type PageBox, type PaginateResult, type Spacer } from "./layout/paginate";
+import { firstChange, paginate, type Anchor, type Flow, type LayoutPage, type PageBox, type PaginateResult, type Spacer } from "./layout/paginate";
 
 /** Height of the grey band between two pages (CSS px). */
 export const PAGE_GAP_PX = 16;
@@ -274,6 +276,10 @@ export interface SheetView {
   repeat?: { pos: number; top: number; height: number };
   /** Column rules of multi-column sets: frame top, height and the rules' x (px from the body's left). */
   rules?: { top: number; height: number; xs: number[] }[];
+  /** The page's text column relative to the editor's (its section's width, W-18): moved by `dx`, `extra` wider. */
+  shift?: { dx: number; extra: number };
+  /** Separator lines above endnotes placed at a section end (frame y). */
+  endSeps?: number[];
 }
 
 /** The computed layout: pages, the page of each top-level node and position, the sheets. */
@@ -363,6 +369,8 @@ export interface PaginationOptions {
   flow?: (textblock: PMNode) => FlowProps;
   /** Hide White Space (double-click a page gap). */
   hideWhiteSpace?: () => boolean;
+  /** Endnotes at the end of each section (`w:endnotePr/w:pos="sectEnd"`) instead of the document. */
+  endnotesAtSectionEnd?: () => boolean;
 }
 
 interface PaginationState {
@@ -386,7 +394,9 @@ function spacerDom(tag: "div" | "span", cls: string, height: number, collapse: n
   el.dataset.page = String(page);
   el.setAttribute("aria-hidden", "true");
   el.style.height = `${Math.max(0, height).toFixed(2)}px`;
-  if (collapse > 0) el.style.marginTop = `${-collapse.toFixed(2)}px`;
+  // A negative height (after a clipped row) pulls what follows up.
+  const mt = Math.min(0, height) - Math.max(0, collapse);
+  if (mt < 0) el.style.marginTop = `${mt.toFixed(2)}px`;
   return el;
 }
 
@@ -401,7 +411,14 @@ interface ResolvedSpacer {
   page: number;
 }
 
-function buildDecorations(doc: PMNode, layout: PageLayout, spacers: ResolvedSpacer[]): DecorationSet {
+/** A node decoration computed with the layout (positioned notes, clipped table cells). */
+interface NodeDeco {
+  from: number;
+  to: number;
+  attrs: Record<string, string>;
+}
+
+function buildDecorations(doc: PMNode, spacers: ResolvedSpacer[], nodes: NodeDeco[] = []): DecorationSet {
   const decos: Decoration[] = [];
   const size = doc.content.size;
   for (const s of spacers) {
@@ -421,35 +438,153 @@ function buildDecorations(doc: PMNode, layout: PageLayout, spacers: ResolvedSpac
       }),
     );
   }
-  // Footnotes at the bottom of their page: the notes area's own (editable) note nodes, positioned.
-  const area = notesNode(doc);
-  if (area) {
-    const positions = new Map<number, [number, number]>();
-    let pos = size - area.nodeSize + 1;
-    area.forEach((n) => {
-      positions.set(n.attrs.id as number, [pos, n.nodeSize]);
-      pos += n.nodeSize;
-    });
-    for (const sheet of layout.sheets) {
-      for (const note of sheet.notes) {
-        const at = positions.get(note.id);
-        if (!at || note.from > 0) continue;
-        const clip = note.to < (layout.flow?.footnotes.get(note.id)?.height ?? Infinity) - 0.5 ? `max-height: ${(note.to - note.from).toFixed(1)}px; overflow: hidden;` : "";
-        decos.push(
-          Decoration.node(at[0], at[0] + at[1], {
-            class: "note-paged",
-            style: `top: ${(note.top - layout.origin).toFixed(1)}px; ${clip}`,
-            ...(clip ? { "data-clipped": "" } : {}),
-          }),
-        );
-      }
-    }
-  }
+  for (const n of nodes) if (n.from >= 0 && n.to <= size && n.from < n.to) decos.push(Decoration.node(n.from, n.to, n.attrs));
   return DecorationSet.create(doc, decos);
 }
 
+/** Positions and sizes of the notes area's notes by id. */
+function notePositions(doc: PMNode): Map<number, [number, number]> {
+  const positions = new Map<number, [number, number]>();
+  const area = notesNode(doc);
+  if (!area) return positions;
+  let pos = doc.content.size - area.nodeSize + 1;
+  area.forEach((n) => {
+    positions.set(n.attrs.id as number, [pos, n.nodeSize]);
+    pos += n.nodeSize;
+  });
+  return positions;
+}
+
+/** `clip-path` showing only the vertical slices `[top, bottom)` (px from the element's top) of an element. */
+export function slicesClip(slices: readonly [number, number][]): string {
+  const pts: string[] = [];
+  for (const [a, b] of slices) pts.push(`0 ${a.toFixed(1)}px`, `100% ${a.toFixed(1)}px`, `100% ${b.toFixed(1)}px`, `0 ${b.toFixed(1)}px`);
+  return `polygon(${pts.join(", ")})`;
+}
+
+/** A piece of a note on a page: frame y of its top, the note's natural px `[from, to)`, the spacer anchor of its first line. */
+interface NoteSlice {
+  page: number;
+  top: number;
+  from: number;
+  to: number;
+  at?: Anchor;
+}
+
+/**
+ * One note element shown in slices (a footnote continued on the next page,
+ * an endnote across a page break): positioned at its first slice, a spacer
+ * inside it before the first line of every further slice, clipped to the
+ * slices so the gap between them shows the page (and the text) below.
+ */
+export function placeNote(slices: readonly NoteSlice[], origin: number): { top: number; spacers: { at: Anchor; height: number; page: number }[]; clip: [number, number][] } {
+  const first = slices[0]!;
+  const noteTop = first.top - first.from;
+  let acc = 0;
+  const spacers: { at: Anchor; height: number; page: number }[] = [];
+  const clip: [number, number][] = [];
+  slices.forEach((sl, k) => {
+    if (k > 0 && sl.at) {
+      const h = sl.top - sl.from - noteTop - acc;
+      spacers.push({ at: sl.at, height: h, page: sl.page });
+      acc += h;
+    }
+    const top = sl.top - noteTop;
+    // The first slice also shows the note's label (raised above the first line).
+    clip.push([k === 0 ? Math.min(0, top) - 12 : top, top + (sl.to - sl.from)]);
+  });
+  return { top: noteTop - origin, spacers, clip };
+}
+
+/** The spacers and node decorations of the notes: footnotes at the bottom of their pages, endnotes at section ends. */
+function noteDecorations(doc: PMNode, layout: PageLayout, flow: Flow, result: PaginateResult): { spacers: ResolvedSpacer[]; nodes: NodeDeco[] } {
+  const spacers: ResolvedSpacer[] = [];
+  const nodes: NodeDeco[] = [];
+  const positions = notePositions(doc);
+  if (!positions.size) return { spacers, nodes };
+  const side = (page: number) => {
+    const sh = layout.sheets[page]?.shift;
+    return sh ? `left: ${sh.dx.toFixed(1)}px; right: ${(-sh.dx - sh.extra).toFixed(1)}px; ` : "";
+  };
+  const emit = (id: number, list: NoteSlice[], cls: string) => {
+    const at = positions.get(id);
+    if (!at || !list.length) return;
+    const p = placeNote(list, layout.origin);
+    for (const sp of p.spacers) {
+      for (const pos of anchorPositions(sp.at)) spacers.push({ pos, height: sp.height, kind: "page", place: sp.at.kind === "inline" ? "inline" : "block", collapse: 0, page: sp.page });
+    }
+    const clip = list.length > 1 ? `clip-path: ${slicesClip(p.clip)}; ` : "";
+    nodes.push({ from: at[0], to: at[0] + at[1], attrs: { class: cls, style: `top: ${p.top.toFixed(1)}px; ${side(list[0]!.page)}${clip}`, ...(list.length > 1 ? { "data-slices": String(list.length) } : {}) } });
+  };
+  // Footnotes: the slices of every note on the sheets (a long note continues on the next page).
+  const foot = new Map<number, NoteSlice[]>();
+  layout.sheets.forEach((sh, k) => {
+    for (const n of sh.notes) {
+      const lines = flow.footnotes.get(n.id)?.lines ?? [];
+      const line = n.from > 0.5 ? lines.find((l) => l.top >= n.from - 0.5) : undefined;
+      const list = foot.get(n.id) ?? [];
+      if (n.from > 0.5 && !line?.at) continue;
+      list.push({ page: k, top: n.top, from: n.from, to: n.to, ...(line?.at ? { at: line.at } : {}) });
+      foot.set(n.id, list);
+    }
+  });
+  for (const [id, list] of foot) emit(id, list, "note-paged");
+  // Endnotes at section ends: the fragments of their blocks.
+  const ends = new Map<number, NoteSlice[]>();
+  result.pages.forEach((p, k) => {
+    for (const col of p.columns) {
+      for (const f of col.fragments) {
+        const b = flow.blocks[f.block];
+        if (!b?.note) continue;
+        const list = ends.get(b.note) ?? [];
+        const u = flow.units[f.from]!;
+        list.push({ page: k, top: p.sheetTop + f.y, from: f.top - b.y, to: f.bottom - b.y, ...(list.length && u.at.kind === "inline" ? { at: u.at } : {}) });
+        ends.set(b.note, list);
+      }
+    }
+  });
+  for (const [id, list] of ends) emit(id, list, "note-paged note-paged-end");
+  return { spacers, nodes };
+}
+
+/** Clipped table rows (can not break, taller than the page): their cells show the part on the row's page only. */
+function clipDecorations(doc: PMNode, flow: Flow, result: PaginateResult): NodeDeco[] {
+  const out: NodeDeco[] = [];
+  for (const p of result.pages) {
+    for (const c of p.clips ?? []) {
+      const u = flow.units[c.unit];
+      if (!u?.cells) continue;
+      const h = c.bottom - result.vtop[c.unit]!;
+      for (const cell of u.cells) {
+        const a = cell.lines[0]?.at;
+        if (!a || a.kind !== "block") continue;
+        const pos = a.pos - 1;
+        const node = pos >= 0 ? doc.nodeAt(pos) : null;
+        if (!node || !/^table(Cell|Header)$/.test(node.type.name)) continue;
+        out.push({ from: pos, to: pos + node.nodeSize, attrs: { style: `clip-path: inset(0 0 calc(100% - ${h.toFixed(1)}px) 0)`, "data-clipped": "" } });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The space endnotes placed at a section end take in the text flow: per
+ * group, the unit before which it is reserved (-1: the end of the body) and
+ * its height (the notes plus the page gaps inside them; the notes
+ * themselves are positioned).
+ */
+export function endnoteReserves(flow: Flow, result: PaginateResult): { unit: number; height: number }[] {
+  return (flow.endGroups ?? []).map((g) => {
+    const shiftAt = (k: number) => (k >= 0 ? result.vtop[k]! - result.origin - flow.units[k]!.top : 0);
+    const before = shiftAt(g.first - 1);
+    const after = shiftAt(g.last);
+    return { unit: g.next, height: Math.max(0, g.height + after - before) };
+  });
+}
+
 /** Section index per top-level node and the kind of the page break a section end makes (null: continuous). */
-function sectionsOf(doc: PMNode, sections: Section[]): { section: number[]; breakKind: (sectionEnd: number) => "page" | "even" | "odd" | null } {
+export function sectionsOf(doc: PMNode, sections: Section[]): { section: number[]; breakKind: (sectionEnd: number) => "page" | "even" | "odd" | null } {
   const index = new Map(sections.map((s, i) => [s.id, i]));
   const { section } = sectionLayout(doc, sections);
   return {
@@ -459,14 +594,37 @@ function sectionsOf(doc: PMNode, sections: Section[]): { section: number[]; brea
       if (i === undefined) return null;
       const next = sections[Math.min(sections.length - 1, i + 1)];
       if (!next || i + 1 >= sections.length) return null;
-      return next.kind === "continuous" ? null : next.kind === "evenPage" ? "even" : next.kind === "oddPage" ? "odd" : "page";
+      // Word starts a new page at a continuous break when the paper size or orientation changes.
+      if (next.kind === "continuous") return samePaper(sections[i]?.page, next.page) ? null : "page";
+      return next.kind === "evenPage" ? "even" : next.kind === "oddPage" ? "odd" : "page";
     },
   };
+}
+
+/** Whether two sections print on the same paper (size and orientation; margins may differ on one page). */
+export function samePaper(a: PageSetup | null | undefined, b: PageSetup | null | undefined): boolean {
+  const ga = pageGeometry(a);
+  const gb = pageGeometry(b);
+  return Math.abs(ga.width - gb.width) < 0.5 && Math.abs(ga.height - gb.height) < 0.5;
+}
+
+/**
+ * The first section whose page layout differs between two section lists
+ * (page setup, kind, columns, numbering): the pagination resumes before it
+ * (`sections.length` when none differs).
+ */
+export function firstSectionChange(prev: readonly Section[], next: readonly Section[]): number {
+  const key = (s: Section | undefined) => (s ? JSON.stringify([s.page, s.kind, s.columns ?? null, s.titlePage, s.pageNumberStart ?? null, s.pageNumberFormat ?? null, s.headers ?? null, s.footers ?? null]) : "");
+  const n = Math.max(prev.length, next.length);
+  for (let i = 0; i < n; i++) if (key(prev[i]) !== key(next[i])) return i;
+  return n;
 }
 
 interface CacheEntry {
   node: PMNode;
   el: HTMLElement;
+  /** The element's inline style (a section's width moves and widens its blocks, W-18). */
+  style: string;
   m: BlockMeasure;
 }
 
@@ -563,14 +721,14 @@ class Measurer {
   }
 
   /** Measures every top-level block (cached ones are reused). */
-  measure(flowOf: (n: PMNode) => FlowProps): { measures: (BlockMeasure | null)[]; positions: number[] } {
+  measure(flowOf: (n: PMNode) => FlowProps, endnotesAtSectionEnd = false): { measures: (BlockMeasure | null)[]; positions: number[] } {
     const view = this.view;
     const dom = view.dom as HTMLElement;
     const z = this.zoom();
     let fresh = 0;
     // Text wrapping around a floating picture or shape reflows the following blocks without touching their DOM
     // (a moved or resized float): their cached lines are stale then (W-14).
-    const key = `${dom.offsetWidth}|${z.toFixed(3)}|${floatSignature(dom, z)}`;
+    const key = `${dom.offsetWidth}|${z.toFixed(3)}|${floatSignature(dom, z)}|${endnotesAtSectionEnd}`;
     if (key !== this.key) {
       this.cache.clear();
       this.key = key;
@@ -590,6 +748,7 @@ class Measurer {
         }
       },
       flow: (n) => (n ? flowOf(n) : {}),
+      endnotesAtSectionEnd,
     };
     const measures: (BlockMeasure | null)[] = [];
     const positions: number[] = [];
@@ -605,7 +764,8 @@ class Measurer {
         return;
       }
       const hit = this.cache.get(node);
-      const reuse = hit && hit.el === el && !this.dirty.has(el) ? hit : null;
+      const style = el.getAttribute("style") ?? "";
+      const reuse = hit && hit.el === el && hit.style === style && !this.dirty.has(el) ? hit : null;
       let m: BlockMeasure;
       if (reuse) m = reuse.m;
       else {
@@ -613,7 +773,7 @@ class Measurer {
         fresh++;
         this.dirty.delete(el);
       }
-      next.set(node, { node, el, m });
+      next.set(node, { node, el, style, m });
       measures.push(m);
     });
     this.cache = next;
@@ -641,13 +801,17 @@ function toLayout(
     number: formatNumber(p.value, sections[p.section]?.pageNumberFormat ?? "decimal"),
   }));
   const total = infos.length;
-  const numbers = noteNumbers(doc);
+  const numbers = noteLabels(doc, sections, (pos) => pageOfPos(result.pages, flow, pos));
+  const frames = sections.length > 1 ? sectionFrames(sections, page) : null;
   const nodePage: number[] = positions.map(() => -1);
   const pageStarts: number[] = [];
   result.pages.forEach((p, k) => {
-    for (let u = p.start; u < p.end; u++) {
-      const top = flow.blocks[flow.units[u]!.block]?.top;
-      if (top != null && nodePage[top] === -1) nodePage[top] = k;
+    // The fragments name every block on the page (cheaper than walking its units).
+    for (const col of p.columns) {
+      for (const f of col.fragments) {
+        const top = flow.blocks[f.block]?.top;
+        if (top != null && top >= 0 && nodePage[top] === -1) nodePage[top] = k;
+      }
     }
     const u = flow.units[p.start];
     const start = u ? Math.min(...anchorPositions(u.at)) : k === 0 ? 0 : doc.content.size;
@@ -681,6 +845,10 @@ function toLayout(
       notes,
     };
     if (p.repeat) sheet.repeat = { pos: tablePos(p.repeat.table), top: bodyTop, height: p.repeat.height };
+    const f = frames?.sections[p.section];
+    if (f && (Math.abs(f.dx) > 0.01 || Math.abs(f.extra) > 0.01)) sheet.shift = { dx: f.dx, extra: f.extra };
+    // Separators above endnotes at a section end: the groups' first units (the separator atoms) on this page.
+    for (const g of flow.endGroups ?? []) if (g.first >= p.start && g.first < p.end) (sheet.endSeps ??= []).push(result.vtop[g.first]!);
     if (p.sets?.length) {
       sheet.rules = p.sets.flatMap((s) => {
         const reg = flow.regions[s.region];
@@ -709,6 +877,25 @@ function toLayout(
   };
 }
 
+/** The page index of PM position `pos` from the engine's pages (for "restart each page" note numbers). */
+function pageOfPos(pages: readonly LayoutPage[], flow: Flow, pos: number): number {
+  let best = 0;
+  pages.forEach((p, k) => {
+    const u = flow.units[p.start];
+    if (!u || k === 0) return;
+    const at = Math.min(...anchorPositions(u.at));
+    if (at >= 0 && at <= pos) best = k;
+  });
+  return best;
+}
+
+/** Whether the footnotes (their ids or heights) differ between two flows. */
+function notesChanged(a: Flow, b: Flow): boolean {
+  if (a.footnotes.size !== b.footnotes.size) return true;
+  for (const [id, f] of b.footnotes) if (Math.abs((a.footnotes.get(id)?.height ?? -1) - f.height) > 0.01) return true;
+  return false;
+}
+
 /** A compact signature of what the decorations show (no new dispatch when it did not change). */
 function signature(layout: PageLayout, spacers: ResolvedSpacer[]): string {
   const sp = spacers.map((s) => `${s.pos}:${s.kind}:${Math.round(s.height)}`).join(",");
@@ -725,15 +912,16 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
     state: {
       init: () => ({ layout: null, decorations: DecorationSet.empty }),
       apply(tr, prev, _old, state) {
-        const meta = tr.getMeta(paginationKey) as { layout: PageLayout; spacers: ResolvedSpacer[] } | "clear" | undefined;
+        const meta = tr.getMeta(paginationKey) as { layout: PageLayout; spacers: ResolvedSpacer[]; nodes?: NodeDeco[] } | "clear" | undefined;
         if (meta === "clear") return { layout: null, decorations: DecorationSet.empty };
-        if (meta) return { layout: meta.layout, decorations: buildDecorations(state.doc, meta.layout, meta.spacers) };
+        if (meta) return { layout: meta.layout, decorations: buildDecorations(state.doc, meta.spacers, meta.nodes) };
         return tr.docChanged ? { ...prev, decorations: prev.decorations.map(tr.mapping, tr.doc) } : prev;
       },
     },
     props: {
       decorations: (state) => paginationKey.getState(state)?.decorations ?? null,
-      attributes: (state): Record<string, string> => (paginationKey.getState(state)?.layout ? { "data-paged": "" } : {}),
+      attributes: (state): Record<string, string> =>
+        paginationKey.getState(state)?.layout ? { "data-paged": "", ...(opts.endnotesAtSectionEnd?.() ? { "data-endnotes": "section" } : {}) } : {},
       handleKeyDown(view, e) {
         if ((e.key !== "PageDown" && e.key !== "PageUp") || e.ctrlKey || e.metaKey || e.altKey) return false;
         const layout = paginationKey.getState(view.state)?.layout;
@@ -765,8 +953,10 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
       let last = "";
       let passes = 0;
       let force = true;
-      let prev: { flow: Flow; result: PaginateResult; inputs: string } | null = null;
-      const measurer = new Measurer(view, () => schedule(60, false));
+      let prev: { flow: Flow; result: PaginateResult; inputs: string; sections: Section[] } | null = null;
+      const measurer = new Measurer(view, () => schedule(60, false, "dom"));
+      /** Why the next run happens (for the timings log). */
+      let reason = "open";
       const run = () => {
         timer = undefined;
         if (!view.dom.isConnected) return;
@@ -787,16 +977,22 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
         const page = opts.page();
         const hide = !!opts.hideWhiteSpace?.();
         const doc = view.state.doc;
-        const { measures, positions } = measurer.measure(opts.flow ?? (() => ({})));
+        const endAtSection = !!opts.endnotesAtSectionEnd?.();
+        const { measures, positions } = measurer.measure(opts.flow ?? (() => ({})), endAtSection);
         const t1 = performance.now();
         const { section, breakKind } = sectionsOf(doc, sections);
-        const flow = buildFlow({
-          blocks: measures.flatMap((m, i) => (m ? [{ m, pos: positions[i]!, section: section[i] ?? 0, region: m.kind === "columns" }] : [])),
-          sectionBreak: breakKind,
-        });
-        // Fragments refer to top-level indices of the measured blocks only.
-        const indexMap = measures.flatMap((m, i) => (m ? [i] : []));
-        for (const b of flow.blocks) b.top = indexMap[b.top] ?? b.top;
+        // The previous flow is reused (its unchanged blocks) when the section breaks are the same.
+        const flowKey = `${endAtSection}|${sections.map((x) => `${x.id}:${x.kind}:${x.page.width}x${x.page.height}`).join(",")}`;
+        const flow = buildFlow(
+          {
+            blocks: measures.flatMap((m, i) => (m ? [{ m, pos: positions[i]!, section: section[i] ?? 0, region: m.kind === "columns", index: i }] : [])),
+            sectionBreak: breakKind,
+            key: flowKey,
+            ...(endAtSection ? { endnotes: endnoteSections(doc, sections), endnoteSeparator: NOTE_SEPARATOR_PX } : {}),
+          },
+          wasForcedRun ? null : prev?.flow,
+        );
+        const tFlow = performance.now();
         const geoOf = (s: number) => pageGeometry(sections[s]?.page ?? page);
         const total = Math.max(1, st?.layout?.pages.length ?? 1);
         const textWidth = (view.dom as HTMLElement).offsetWidth || 600;
@@ -810,9 +1006,23 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
           const body = Math.max(48, bottom - top);
           return hide ? { height: body, bodyTop: 0, bodyHeight: body } : { height: g.height, bodyTop: top, bodyHeight: body };
         };
-        // Incremental: resume at the last page decided before the first changed unit (same page setup and view).
-        const inputs = `${hide}|${total}|${JSON.stringify(sections.map((x) => x.page))}|${JSON.stringify(page)}`;
-        const resume = !wasForcedRun && prev && prev.inputs === inputs ? { prev: prev.result, from: firstChange(prev.flow, flow) } : undefined;
+        // Incremental: resume at the last page decided before the first changed unit; a section's page setup
+        // (or columns, numbering) changed: before that section's first unit.
+        const inputs = `${hide}|${total}|${endAtSection}|${sections.length ? "" : JSON.stringify(page)}`;
+        let resume: { prev: PaginateResult; from: number } | undefined;
+        let tFirst = performance.now();
+        if (!wasForcedRun && prev && prev.inputs === inputs) {
+          let from = flow.reuse ? (notesChanged(prev.flow, flow) ? 0 : flow.reuse.from) : firstChange(prev.flow, flow);
+          tFirst = performance.now();
+          const sec = firstSectionChange(prev.sections, sections);
+          if (sec < sections.length) {
+            const u = flow.units.findIndex((x) => x.section >= sec);
+            from = Math.min(from, u < 0 ? flow.units.length : u);
+            // Pages after the change may differ in more than position (headers, sizes): no page is taken over.
+            delete flow.reuse;
+          }
+          resume = { prev: prev.result, from };
+        }
         const result = paginate(flow, {
           resume,
           pageBox,
@@ -820,20 +1030,52 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
           gap: hide ? HIDDEN_GAP_PX : PAGE_GAP_PX,
           noteSeparator: NOTE_SEPARATOR_PX,
         });
-        prev = { flow, result, inputs };
+        prev = { flow, result, inputs, sections };
+        const t2 = performance.now();
         const layout = toLayout(doc, result, flow, positions, sections, page, geoOf, hide);
+        const tLayout = performance.now();
         // For tools and the perf scripts: the last layout and its timings (ms).
-        Object.assign(view.dom, { rusuiteLayout: layout, rusuitePaginationMs: { measure: t1 - t0, total: performance.now() - t0, measured: measurer.fresh, resumedFrom: resume ? (result.checkpoints.length && result.pages.length ? resume.from : -1) : -1 } });
         const pageOfUnit = new Map<number, number>();
-        result.pages.forEach((p, k) => pageOfUnit.set(p.start, pageOfUnit.has(p.start) ? pageOfUnit.get(p.start)! : k));
+        result.pages.forEach((p, k) => {
+          if (k > 0 && !pageOfUnit.has(p.start)) pageOfUnit.set(p.start, k);
+        });
+        // Endnotes at section ends: the space they take goes before the next block (with its page gap, if any).
+        const reserve = new Map<number, number>();
+        let reserveEnd = 0;
+        for (const r of endnoteReserves(flow, result)) {
+          if (r.unit < 0) reserveEnd += r.height;
+          else reserve.set(r.unit, (reserve.get(r.unit) ?? 0) + r.height);
+        }
         const spacers: ResolvedSpacer[] = [];
         for (const s of result.spacers) {
           const u = flow.units[s.unit]!;
           const place: ResolvedSpacer["place"] = s.at.kind === "inline" ? "inline" : "block";
-          const pg = result.pages.findIndex((p) => p.start === s.unit && p.index > 0);
-          for (const pos of anchorPositions(s.at)) spacers.push({ pos, height: s.height, kind: s.kind, place, collapse: s.at.kind === "block" ? (u.collapse ?? 0) : 0, page: pg < 0 ? 0 : pg });
+          let height = s.height;
+          if (s.at.kind === "block" && s.kind !== "column" && reserve.has(s.unit)) {
+            height += reserve.get(s.unit)!;
+            reserve.delete(s.unit);
+          }
+          // The margin a widget before a block takes back: only for the unit's own anchor (not the cells of a split row).
+          const collapse = s.at.kind === "block" && s.at === u.at ? (u.collapse ?? 0) : 0;
+          for (const pos of anchorPositions(s.at)) spacers.push({ pos, height, kind: s.kind, place, collapse, page: pageOfUnit.get(s.unit) ?? 0 });
         }
-        const sig = signature(layout, spacers);
+        for (const [unit, height] of reserve) {
+          const u = flow.units[unit]!;
+          for (const pos of anchorPositions(u.at)) spacers.push({ pos, height, kind: "page", place: u.at.kind === "inline" ? "inline" : "block", collapse: u.at.kind === "block" ? (u.collapse ?? 0) : 0, page: 0 });
+        }
+        if (reserveEnd > 0) {
+          const area = notesNode(doc);
+          spacers.push({ pos: doc.content.size - (area ? area.nodeSize : 0), height: reserveEnd, kind: "page", place: "block", collapse: 0, page: 0 });
+        }
+        const notes = noteDecorations(doc, layout, flow, result);
+        spacers.push(...notes.spacers);
+        const nodes = [...notes.nodes, ...clipDecorations(doc, flow, result)];
+        // For tools and the perf scripts: the last layout and its timings (ms): measuring, flow + pages (engine), the whole run.
+        const ms = { measure: t1 - t0, flow: tFlow - t1, first: tFirst - tFlow, paginate: t2 - tFirst, layout: tLayout - t2, build: performance.now() - t1, total: performance.now() - t0, measured: measurer.fresh, resumedFrom: resume ? (result.checkpoints.length && result.pages.length ? resume.from : -1) : -1, reason: wasForcedRun ? "full" : reason };
+        const log = ((view.dom as unknown as { rusuitePaginationLog?: object[] }).rusuitePaginationLog ?? []).slice(-19);
+        log.push(ms);
+        Object.assign(view.dom, { rusuiteLayout: layout, rusuitePaginationMs: ms, rusuitePaginationLog: log });
+        const sig = `${signature(layout, spacers)}#${nodes.map((n) => `${n.from}:${n.attrs.style ?? ""}`).join(",")}`;
         const wasForced = force;
         force = false;
         if (sig === last && st?.layout && !wasForced) return;
@@ -841,7 +1083,7 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
         // A selection the browser has changed but ProseMirror not yet read (Shift+Arrow just before Ctrl+K) would be
         // overwritten by this transaction's redraw with the old one: take it over first.
         flushDomSelection(view);
-        view.dispatch(view.state.tr.setMeta(paginationKey, { layout, spacers }).setMeta("addToHistory", false));
+        view.dispatch(view.state.tr.setMeta(paginationKey, { layout, spacers, nodes }).setMeta("addToHistory", false));
         opts.onLayout?.(layout);
         view.dom.dispatchEvent(new Event("rusuite-layout"));
         if (layout.pages.length !== pages) {
@@ -849,10 +1091,12 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
           opts.onPages?.(pages);
         }
         // Check the result once the browser has laid the new gaps out (a columns box may balance differently).
-        if (passes++ < 2) schedule(30, false);
+        if (passes++ < 2) schedule(30, false, "check");
       };
-      const schedule = (delay = 120, edit = true) => {
+      const schedule = (delay = 120, edit = true, why = edit ? "edit" : "check") => {
         if (edit) passes = 0;
+        // A pending edit keeps its reason (the timings log reports what the run was for).
+        if (!timer || why === "edit" || why === "full") reason = why;
         clearTimeout(timer);
         timer = setTimeout(run, delay);
       };
@@ -860,9 +1104,15 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
       const onRemeasure = () => {
         force = true;
         passes = 0;
-        schedule(0);
+        schedule(0, true, "full");
       };
       view.dom.addEventListener("rusuite-remeasure", onRemeasure);
+      // Section changes: the measures stay (blocks whose width changed are measured again), the pages resume before the section.
+      const onRelayout = () => {
+        passes = 0;
+        schedule(0);
+      };
+      view.dom.addEventListener("rusuite-relayout", onRelayout);
       // Window resizes and font loads lay the pages out again (60 ms debounce).
       let width = (view.dom as HTMLElement).offsetWidth;
       const ro =
@@ -893,6 +1143,7 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
           fonts?.removeEventListener?.("loadingdone", onFonts);
           measurer.destroy();
           view.dom.removeEventListener("rusuite-remeasure", onRemeasure);
+          view.dom.removeEventListener("rusuite-relayout", onRelayout);
         },
       };
     },
@@ -963,6 +1214,11 @@ function movePage(view: EditorView, layout: PageLayout, dir: 1 | -1, extend: boo
   const sel = TextSelection.near(view.state.doc.resolve(Math.min(pos, view.state.doc.content.size)));
   view.dispatch(view.state.tr.setSelection(extend ? TextSelection.create(view.state.doc, anchor, sel.head) : sel));
   return true;
+}
+
+/** Asks the pagination plugin to lay the pages out again after a section change, keeping the measures (P9-W2: only from that section on). */
+export function relayoutPages(view: EditorView | null | undefined): void {
+  view?.dom.dispatchEvent(new Event("rusuite-relayout"));
 }
 
 /** Asks the pagination plugin of `view` to lay the pages out again (page setup, zoom or view mode changed). */

@@ -188,6 +188,10 @@ body,
 .tiptap-content[data-paged] .notes-separator-foot { display: none; }
 .tiptap-content[data-paged] > .notes-area:not(:has(.note[data-note-kind="end"])) { margin: 0; }
 .tiptap-content .note.note-paged { position: absolute; left: 0; right: 0; z-index: 3; background: #fff; }
+/* Endnotes at section ends (P9-W2): positioned like footnotes; the page chrome draws their separator lines. */
+.tiptap-content[data-paged][data-endnotes="section"] .notes-separator-end { display: none; }
+.tiptap-content[data-paged][data-endnotes="section"] > .notes-area { margin: 0; }
+.tiptap-content .note.note-paged-end { z-index: 1; }
 /* Mixed page widths (W-18): the frame is transparent, each sheet draws its own white page and shadow below the text. */
 .write-page.write-mixed { background: transparent; box-shadow: none; }
 .page-sheets { position: absolute; inset: 0; pointer-events: none; }
@@ -203,7 +207,7 @@ body,
 .page-hf:hover { outline: 1px dashed #cbd5e1; }
 .page-note-sep { position: absolute; width: 2in; border-top: 1px solid #555; }
 .page-note-sep.page-note-sep-cont { width: auto; }
-.page-note-cont { position: absolute; overflow: hidden; font-size: 10pt; background: #fff; white-space: pre-wrap; }
+.page-endnote-sep { position: absolute; width: 2in; border-top: 1px solid #555; }
 .page-repeat { position: absolute; overflow: hidden; background: #fff; }
 .page-repeat table { margin: 0; }
 .page-column-rule { position: absolute; width: 0; border-left: 1px solid #000; }

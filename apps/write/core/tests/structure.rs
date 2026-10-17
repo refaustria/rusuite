@@ -561,3 +561,73 @@ fn update_fields_sets_cached_results_and_undoes() {
     h.undo().unwrap().unwrap();
     assert_eq!(cached(&h), "1");
 }
+
+#[test]
+fn note_numbering_per_section_is_set_saved_and_undone() {
+    let mut h = host(&["one", "two"]);
+    let patch = apply(
+        &mut h,
+        C::InsertSectionBreak {
+            block: id(1),
+            kind: SectionKind::Continuous,
+        },
+    );
+    let sections = patch.sections.unwrap();
+    let (s1, s2) = (sections[0].id, sections[1].id);
+    let letters = model_text::NoteNumbering {
+        format: Some(model_text::LevelKind::LowerLetter),
+        start: Some(3),
+        restart: model_text::NoteRestart::EachSection,
+    };
+    let patch = apply(
+        &mut h,
+        C::SetSection {
+            section: s2,
+            patch: SectionPatch {
+                footnote_numbering: Some(letters),
+                endnote_numbering: Some(model_text::NoteNumbering {
+                    restart: model_text::NoteRestart::EachSection,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        },
+    );
+    let sections = patch.sections.unwrap();
+    assert_eq!(sections[1].footnote_numbering, Some(letters));
+    assert_eq!(sections[0].footnote_numbering, None);
+    assert_eq!(
+        doc(&h).sections[1].endnote_numbering.map(|n| n.restart),
+        Some(model_text::NoteRestart::EachSection)
+    );
+    // The default numbering removes the section's own.
+    apply(
+        &mut h,
+        C::SetSection {
+            section: s2,
+            patch: SectionPatch {
+                footnote_numbering: Some(Default::default()),
+                ..Default::default()
+            },
+        },
+    );
+    assert_eq!(doc(&h).sections[1].footnote_numbering, None);
+    // Saved and read back (per section `w:footnotePr` / `w:endnotePr`).
+    apply(
+        &mut h,
+        C::SetSection {
+            section: s1,
+            patch: SectionPatch {
+                footnote_numbering: Some(letters),
+                ..Default::default()
+            },
+        },
+    );
+    let bytes = fmt_docx::write(doc(&h)).unwrap();
+    let back = fmt_docx::read(&bytes).unwrap();
+    assert_eq!(back.sections[0].footnote_numbering, Some(letters));
+    assert_eq!(
+        back.sections[1].endnote_numbering.map(|n| n.restart),
+        Some(model_text::NoteRestart::EachSection)
+    );
+}
