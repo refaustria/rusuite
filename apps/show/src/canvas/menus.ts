@@ -10,6 +10,7 @@ import type { NodeId } from "../generated/NodeId";
 import type { ShowStore } from "../state/store";
 import { singleCell, splitCommand } from "../shapes/tables";
 import { layoutName } from "../design/layouts";
+import { canMoveSection, sectionRanges } from "../design/sections";
 
 export const LAYOUT_LABELS: { id: LayoutKind; readonly label: string }[] = [
   withLabel({ id: "title" as LayoutKind }, "show.layout.title"),
@@ -197,5 +198,25 @@ export function tableMenu(store: ShowStore): ContextMenuItem[] {
     { id: "splitGrid", label: tr("show.table.splitDots"), disabled: !range, onSelect: () => store.openDialog({ kind: "splitCells" }) },
     { separator: true },
     { id: "format", label: tr("show.formatShapeDots"), disabled: !table, onSelect: () => store.openDialog({ kind: "format" }) },
+  ];
+}
+
+/** Right-click on a section header (thumbnail pane and Slide Sorter). */
+export function sectionMenu(store: ShowStore, index: number): ContextMenuItem[] {
+  const pres = store.getState().pres;
+  if (!pres) return [];
+  const ranges = sectionRanges(pres);
+  const slides = pres.slides.length;
+  return [
+    { id: "renameSection", label: t("show.section.renameDots"), onSelect: () => store.openDialog({ kind: "renameSection", index }) },
+    { id: "removeSection", label: t("show.section.remove"), onSelect: () => void store.removeSection(index, true) },
+    { id: "removeSectionSlides", label: t("show.section.removeWithSlides"), disabled: ranges.length > 0 && (ranges[index]?.count ?? 0) >= slides, onSelect: () => void store.removeSection(index, false) },
+    { id: "removeAllSections", label: t("show.section.removeAll"), onSelect: () => void store.removeAllSections() },
+    { separator: true },
+    { id: "moveSectionUp", label: t("show.section.moveUp"), disabled: !canMoveSection(pres, index, -1), onSelect: () => void store.moveSection(index, -1) },
+    { id: "moveSectionDown", label: t("show.section.moveDown"), disabled: !canMoveSection(pres, index, 1), onSelect: () => void store.moveSection(index, 1) },
+    { separator: true },
+    { id: "collapseAll", label: t("show.section.collapseAll"), onSelect: () => store.setAllSections(true) },
+    { id: "expandAll", label: t("show.section.expandAll"), onSelect: () => store.setAllSections(false) },
   ];
 }

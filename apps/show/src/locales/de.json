@@ -1121,5 +1121,12 @@
   "show.editPoints.open": "Pfad öffnen",
   "show.editPoints.exit": "Punktbearbeitung beenden",
   "show.sc.handleNext": "Nächster Ziehpunkt (Folienmaster: nächste Textebene)",
-  "show.sc.handlePrev": "Vorheriger Ziehpunkt (Folienmaster: vorherige Textebene)"
+  "show.sc.handlePrev": "Vorheriger Ziehpunkt (Folienmaster: vorherige Textebene)",
+  "show.outline.collapse": "Reduzieren",
+  "show.outline.expand": "Erweitern",
+  "show.outline.collapseAll": "Alle reduzieren",
+  "show.outline.expandAll": "Alle erweitern",
+  "show.outline.promote": "Höher stufen",
+  "show.outline.demote": "Tiefer stufen",
+  "show.outline.formatting": "Textformatierung anzeigen"
 }

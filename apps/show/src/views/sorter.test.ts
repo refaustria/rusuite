@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Presentation } from "../generated/Presentation";
-import { moveCommands, moveSlidesCommand, orderAfterDrop, sorterSelect, sorterThumbWidth } from "./sorter";
+import { moveCommands, moveSlidesCommand, nudgeDrop, orderAfterDrop, sorterSelect, sorterThumbWidth } from "./sorter";
 
 const deck = (ids: number[], sections?: { name: string; slideIds: number[] }[]): Pick<Presentation, "slides" | "sections"> => ({
   slides: ids.map((id) => ({ id, layout: "blank", shapes: [] })),
@@ -57,5 +57,29 @@ describe("slide sorter", () => {
     expect(sorterThumbWidth(100)).toBe(200);
     expect(sorterThumbWidth(5)).toBe(40);
     expect(sorterThumbWidth(500)).toBe(400);
+  });
+});
+
+describe("Ctrl+↑ / Ctrl+↓ (P9-S3)", () => {
+  it("moves the selection one place, at the ends nowhere", () => {
+    const d = deck([1, 2, 3, 4]);
+    expect(nudgeDrop(d, [2], -1)).toEqual({ before: 1 });
+    expect(nudgeDrop(d, [2, 3], 1)).toEqual({ before: null });
+    expect(nudgeDrop(d, [1], -1)).toBeNull();
+    expect(nudgeDrop(d, [4], 1)).toBeNull();
+    expect(orderAfterDrop(d, [2], nudgeDrop(d, [2], 1)!).order).toEqual([1, 3, 2, 4]);
+  });
+
+  it("crosses a section border into the neighbouring section", () => {
+    const d = deck([1, 2, 3, 4], [{ name: "A", slideIds: [1, 2] }, { name: "B", slideIds: [3, 4] }]);
+    // the first slide of B moves up: the end of A
+    const up = nudgeDrop(d, [3], -1)!;
+    expect(up).toEqual({ before: null, section: 0 });
+    expect(orderAfterDrop(d, [3], up).sections?.map((s) => s.slideIds)).toEqual([[1, 2, 3], [4]]);
+    // the last slide of A moves down: the start of B
+    const down = nudgeDrop(d, [2], 1)!;
+    expect(orderAfterDrop(d, [2], down).sections?.map((s) => s.slideIds)).toEqual([[1], [2, 3, 4]]);
+    // inside a section: one place
+    expect(orderAfterDrop(d, [1], nudgeDrop(d, [1], 1)!).sections?.map((s) => s.slideIds)).toEqual([[2, 1], [3, 4]]);
   });
 });

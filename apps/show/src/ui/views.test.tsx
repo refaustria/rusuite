@@ -11,6 +11,7 @@ import App from "../App";
 import { ShowApi } from "../api";
 import { ShowStore } from "../state/store";
 import { FakeBackend } from "../test/fakeBackend";
+import { writeSelection } from "../canvas/richEditor";
 
 afterEach(() => {
   cleanup();
@@ -55,10 +56,13 @@ describe("presentation views", () => {
     const { backend } = await mount();
     fireEvent.click(tab("View"));
     fireEvent.click(screen.getByRole("button", { name: "Outline View" }));
-    const fields = screen.getAllByTestId("outline-text") as HTMLTextAreaElement[];
+    const fields = screen.getAllByTestId("outline-text");
     expect(fields).toHaveLength(3);
-    expect(fields[1]!.value).toBe("Slide two\n\tFirst point\n\tSecond point");
-    fireEvent.change(fields[1]!, { target: { value: "Slide 2\n\tFirst point\n\tSecond point" } });
+    expect(Array.from(fields[1]!.querySelectorAll("[data-depth]")).map((d) => `${d.getAttribute("data-depth")}:${d.textContent}`)).toEqual(["0:Slide two", "1:First point", "1:Second point"]);
+    // " two" → " 2" (typing arrives as beforeinput)
+    fields[1]!.focus();
+    writeSelection(fields[1]!, 5, 9);
+    fields[1]!.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertText", data: " 2", bubbles: true, cancelable: true }));
     fireEvent.blur(fields[1]!);
     await flush();
     expect(backend.commands.at(-1)).toMatchObject({ type: "setTextBody", shape: 5 });

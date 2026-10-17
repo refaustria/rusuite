@@ -20,10 +20,10 @@ import { slideDropIndex } from "../state/commands";
 import { useShow, type ShowStore } from "../state/store";
 import { SlideView, type DeckContext } from "../canvas/SlideView";
 import { stableDeck } from "../design/deck";
-import { thumbnailMenu } from "../canvas/menus";
+import { sectionMenu, thumbnailMenu } from "../canvas/menus";
 import { useT } from "../i18n";
 import { hasEffects } from "../anim/effects";
-import { canMoveSection, sectionRanges } from "../design/sections";
+import { sectionRanges } from "../design/sections";
 import { layoutName } from "../design/layouts";
 
 export const THUMB_WIDTH = 152;
@@ -58,7 +58,8 @@ export function SlideList({ store }: { store: ShowStore }) {
   /** Insertion line: before thumbnail `index` (`slides.length` = after the last). */
   const [dropAt, setDropAt] = useState<number | null>(null);
   /** Collapsed sections (by index). */
-  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
+  const collapsedList = useShow(store, (s) => s.collapsedSections);
+  const collapsed = new Set(collapsedList);
   /** A section header the dragged slide is over. */
   const [dropSection, setDropSection] = useState<number | null>(null);
   // Stable while size, layouts and theme are unchanged, so unchanged thumbnails do not re-render.
@@ -82,6 +83,9 @@ export function SlideList({ store }: { store: ShowStore }) {
       if (current !== null) void store.duplicateSlide(current);
     } else if (e.key === "Delete" || e.key === "Backspace") {
       if (current !== null) void store.deleteSlides([current]);
+    } else if (mod && !e.shiftKey && !e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      // Ctrl+↑ / ↓: the slide one place up / down
+      void store.nudgeSlides(e.key === "ArrowUp" ? -1 : 1);
     } else if (e.key === "ArrowDown" && index < slides.length - 1) store.selectSlide(slides[index + 1]!.id);
     else if (e.key === "ArrowUp" && index > 0) store.selectSlide(slides[index - 1]!.id);
     else return;
@@ -90,18 +94,6 @@ export function SlideList({ store }: { store: ShowStore }) {
   };
 
   const ranges = sectionRanges(pres);
-  const sectionMenu = (index: number): ContextMenuItem[] => [
-    { id: "renameSection", label: t("show.section.renameDots"), onSelect: () => store.openDialog({ kind: "renameSection", index }) },
-    { id: "removeSection", label: t("show.section.remove"), onSelect: () => void store.removeSection(index, true) },
-    { id: "removeSectionSlides", label: t("show.section.removeWithSlides"), disabled: ranges.length > 0 && ranges[index]!.count >= slides.length, onSelect: () => void store.removeSection(index, false) },
-    { id: "removeAllSections", label: t("show.section.removeAll"), onSelect: () => void store.removeAllSections() },
-    { separator: true },
-    { id: "moveSectionUp", label: t("show.section.moveUp"), disabled: !canMoveSection(pres, index, -1), onSelect: () => void store.moveSection(index, -1) },
-    { id: "moveSectionDown", label: t("show.section.moveDown"), disabled: !canMoveSection(pres, index, 1), onSelect: () => void store.moveSection(index, 1) },
-    { separator: true },
-    { id: "collapseAll", label: t("show.section.collapseAll"), onSelect: () => setCollapsed(new Set(ranges.map((r) => r.index))) },
-    { id: "expandAll", label: t("show.section.expandAll"), onSelect: () => setCollapsed(new Set()) },
-  ];
   /** Drops the dragged slide before (or after) thumbnail `i`, also into another section. */
   const dropOn = (id: number, i: number, after: boolean) => {
     const from = slides.findIndex((s) => s.id === id);
@@ -210,15 +202,10 @@ export function SlideList({ store }: { store: ShowStore }) {
                   aria-expanded={!closed}
                   data-testid="section-header"
                   className={`flex min-h-8 cursor-pointer items-center gap-1 rounded px-1 text-xs font-medium hover:bg-ui-hover ${dropSection === r.index ? "ring-2 ring-orange-600" : ""}`}
-                  onClick={() => {
-                    const next = new Set(collapsed);
-                    if (closed) next.delete(r.index);
-                    else next.add(r.index);
-                    setCollapsed(next);
-                  }}
+                  onClick={() => store.toggleSection(r.index)}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setMenu({ at: { x: e.clientX, y: e.clientY }, items: sectionMenu(r.index) });
+                    setMenu({ at: { x: e.clientX, y: e.clientY }, items: sectionMenu(store, r.index) });
                   }}
                   onDragOver={(e) => {
                     e.preventDefault();

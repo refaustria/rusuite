@@ -1121,5 +1121,12 @@
   "show.editPoints.open": "Open Path",
   "show.editPoints.exit": "Exit Edit Points",
   "show.sc.handleNext": "Next adjust handle (Slide Master: next text level)",
-  "show.sc.handlePrev": "Previous adjust handle (Slide Master: previous text level)"
+  "show.sc.handlePrev": "Previous adjust handle (Slide Master: previous text level)",
+  "show.outline.collapse": "Collapse",
+  "show.outline.expand": "Expand",
+  "show.outline.collapseAll": "Collapse All",
+  "show.outline.expandAll": "Expand All",
+  "show.outline.promote": "Promote",
+  "show.outline.demote": "Demote",
+  "show.outline.formatting": "Show Text Formatting"
 }

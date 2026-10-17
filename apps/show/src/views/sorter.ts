@@ -108,3 +108,37 @@ export function moveSlidesCommand(pres: Pick<Presentation, "slides" | "sections"
 
 /** Sorter zoom: thumbnail width in px for the slider's percentage (100 % = 200 px). */
 export const sorterThumbWidth = (zoom: number): number => Math.round(Math.max(40, Math.min(400, 2 * zoom)));
+
+/**
+ * Ctrl+↑ / Ctrl+↓ (P9-S3): where the selected slides go when moved one
+ * place up / down – before the slide before them, after the slide after
+ * them; at a section border into the neighbouring section (its end when
+ * moving up, its start when moving down). `null` at the deck's ends.
+ */
+export function nudgeDrop(pres: Pick<Presentation, "slides" | "sections">, moving: readonly NodeId[], dir: -1 | 1): SorterDrop | null {
+  const order = pres.slides.map((s) => s.id);
+  const set = new Set(moving);
+  const idx = order.map((id, i) => (set.has(id) ? i : -1)).filter((i) => i >= 0);
+  if (!idx.length) return null;
+  const first = idx[0]!;
+  const last = idx[idx.length - 1]!;
+  const secs = pres.sections ?? [];
+  const sectionOf = (id: NodeId) => secs.findIndex((s) => s.slideIds.includes(id));
+  if (dir < 0) {
+    const s = secs.length ? sectionOf(order[first]!) : -1;
+    if (s > 0 && secs[s]!.slideIds[0] === order[first]) return { before: null, section: s - 1 };
+    if (first === 0) return null;
+    return { before: order[first - 1]!, ...(s >= 0 ? { section: s } : {}) };
+  }
+  const s = secs.length ? sectionOf(order[last]!) : -1;
+  if (s >= 0 && s < secs.length - 1 && secs[s]!.slideIds[secs[s]!.slideIds.length - 1] === order[last]) {
+    const next = secs[s + 1]!.slideIds.find((id) => !set.has(id));
+    return { before: next ?? null, section: s + 1 };
+  }
+  if (last === order.length - 1) return null;
+  const after = order[last + 1]!;
+  const beyond = order[last + 2];
+  if (s >= 0 && (beyond === undefined || sectionOf(beyond) !== s)) return { before: null, section: s };
+  if (s >= 0 && secs[s]!.slideIds[secs[s]!.slideIds.length - 1] === after) return { before: null, section: s };
+  return { before: beyond ?? null, ...(s >= 0 ? { section: s } : {}) };
+}

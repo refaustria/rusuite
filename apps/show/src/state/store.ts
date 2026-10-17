@@ -37,8 +37,8 @@ import type { ShowSettings } from "../generated/ShowSettings";
 import type { ViewProps } from "../generated/ViewProps";
 import { dragGuide, newGuide, nudgeDelta } from "../canvas/guides";
 import { boundsPx, EMU_PER_PX, type Rect as BoxRect } from "../geometry";
-import { moveSlidesCommand, sorterSelect, type SorterDrop } from "../views/sorter";
-import { bodyWithLines, outlinePlan, outlineSlide } from "../views/outline";
+import { moveSlidesCommand, nudgeDrop, sorterSelect, type SorterDrop } from "../views/sorter";
+import { bodyFromLines, linesPlan, outlineSlide, slideLines, textLines, titleFromLine, type OutlineLine } from "../views/outline";
 import { allCommand, hideCommand, moveToZ, renameCommand } from "../ui/selection";
 import { autofitProps, fitHeight, fitSize, withScale } from "../text/autofit";
 import { cleanBody, editorText, spliceBody, textDiff } from "../text/editing";
@@ -192,6 +192,10 @@ export interface ShowState {
   view: PresentationView;
   /** Slides selected in the Slide Sorter / the slide panel (the current one included). */
   slideSel: NodeId[];
+  /** Collapsed section headers (by index; thumbnail pane and Slide Sorter). */
+  collapsedSections: number[];
+  /** Slide Sorter zoom in % (thumbnail size). */
+  sorterZoom: number;
   /** Home › Select › Selection Pane (right of the stage). */
   selectionPane: boolean;
   /** The Format Shape pane (right of the stage) on Size & Properties or Text Options. */
@@ -306,6 +310,8 @@ export class ShowStore {
     reuse: null,
     view: "normal",
     slideSel: [],
+    collapsedSections: [],
+    sorterZoom: 90,
     selectionPane: false,
     formatPane: null,
     alignTo: "selection",
@@ -800,11 +806,24 @@ export class ShowStore {
 
   /** Changes the current slide's transition (Transitions tab). */
   async setTransition(change: TransitionChange): Promise<void> {
-    const slide = this.currentSlide();
-    if (!slide) return;
-    const transition = changeTransition(slide.transition, change);
-    if (JSON.stringify(transition ?? null) === JSON.stringify(slide.transition ?? null)) return;
-    await this.run({ type: "setTransition", slides: [slide.id], transition });
+    const commands: ShowCommand[] = [];
+    for (const slide of this.transitionSlides()) {
+      const transition = changeTransition(slide.transition, change);
+      if (JSON.stringify(transition ?? null) === JSON.stringify(slide.transition ?? null)) continue;
+      const same = commands.find((c) => c.type === "setTransition" && JSON.stringify(c.transition ?? null) === JSON.stringify(transition ?? null));
+      if (same?.type === "setTransition") same.slides.push(slide.id);
+      else commands.push({ type: "setTransition", slides: [slide.id], transition });
+    }
+    await this.run(compound(commands));
+  }
+
+  /** The slides the Transitions tab changes: every selected slide (Slide Sorter, thumbnails), else the current one. */
+  transitionSlides(): Slide[] {
+    const slides = this.state.pres?.slides ?? [];
+    const cur = this.state.current;
+    const sel = this.state.slideSel;
+    const ids = cur !== null && sel.length > 1 && sel.includes(cur) ? new Set(sel) : new Set(cur === null ? [] : [cur]);
+    return slides.filter((s) => ids.has(s.id));
   }
 
   /** Transitions › Apply To All: every slide gets the current slide's transition. */
@@ -2283,14 +2302,29 @@ export class ShowStore {
 
   // ----- Outline View
 
-  /** Writes a slide's edited outline back: its placeholders, new slides for promoted lines, a demoted title joins the previous slide. */
-  async commitOutline(id: NodeId, text: string): Promise<void> {
+  /** Writes a slide's edited tab-indented outline text back (see `commitOutlineLines`). */
+  async commitOutline(id: NodeId, text: string): Promise<NodeId[]> {
+    const slide = this.state.pres?.slides.find((s) => s.id === id);
+    return slide ? this.commitOutlineLines(id, textLines(text, slideLines(slide))) : [];
+  }
+
+  /**
+   * Writes a slide's edited rich outline lines back: its placeholders, new
+   * slides for promoted lines, a demoted title joins the previous slide.
+   * Returns the slides the lines' titles ended up on, in order (the
+   * previous slide first when the title was demoted).
+   */
+  async commitOutlineLines(id: NodeId, lines: readonly OutlineLine[]): Promise<NodeId[]> {
     const pres = this.state.pres;
-    if (!pres) return;
-    const plan = outlinePlan(pres, id, text);
+    if (!pres) return [];
+    const index = pres.slides.findIndex((s) => s.id === id);
+    const plan = linesPlan(pres, id, lines);
     const commands = [...plan.commands];
     if (plan.deleteSlide !== null) commands.push({ type: "deleteSlides", ids: [plan.deleteSlide] });
     await this.run(compound(commands));
+    const out: NodeId[] = [];
+    if (lines[0] && lines[0].depth > 0 && index > 0) out.push(pres.slides[index - 1]!.id);
+    if (plan.deleteSlide === null) out.push(id);
     let after = plan.newSlides?.after ?? null;
     for (const ns of plan.newSlides?.slides ?? []) {
       if (after === null) break;
@@ -2301,12 +2335,15 @@ export class ShowStore {
       if (slide) {
         const o = outlineSlide(slide);
         const cmds: ShowCommand[] = [];
-        if (o.titleShape !== null) cmds.push({ type: "setTextBody", shape: o.titleShape, body: bodyWithLines(textOf(slide.shapes.find((x) => x.id === o.titleShape)!), [{ level: 0, text: ns.title }]) });
-        if (o.bodyShape !== null && ns.body.length) cmds.push({ type: "setTextBody", shape: o.bodyShape, body: bodyWithLines(textOf(slide.shapes.find((x) => x.id === o.bodyShape)!), ns.body) });
+        const shapeText = (sid: NodeId) => textOf(slide.shapes.find((x) => x.id === sid)!);
+        if (o.titleShape !== null && ns.title.runs.length) cmds.push({ type: "setTextBody", shape: o.titleShape, body: titleFromLine(shapeText(o.titleShape), ns.title) });
+        if (o.bodyShape !== null && ns.body.length) cmds.push({ type: "setTextBody", shape: o.bodyShape, body: bodyFromLines(shapeText(o.bodyShape), ns.body) });
         await this.run(compound(cmds));
       }
+      out.push(added);
       after = added;
     }
+    return out;
   }
 
   // ----- Slide Sorter
@@ -2334,6 +2371,35 @@ export class ShowStore {
     const pres = this.state.pres;
     if (!pres) return;
     await this.run(moveSlidesCommand(pres, ids, drop));
+  }
+
+  /** Ctrl+↑ / Ctrl+↓: the selected slides (else the current one) one place up / down, across section borders (one undo step). */
+  async nudgeSlides(dir: -1 | 1): Promise<void> {
+    const pres = this.state.pres;
+    if (!pres) return;
+    const sel = this.selectedSlides();
+    const ids = sel.length ? sel : this.state.current === null ? [] : [this.state.current];
+    const drop = nudgeDrop(pres, ids, dir);
+    if (drop) await this.run(moveSlidesCommand(pres, ids, drop));
+  }
+
+  /** Collapses (or expands) section `index`; `open` forces the state. */
+  toggleSection(index: number, open?: boolean): void {
+    const set = new Set(this.state.collapsedSections);
+    const closed = open === undefined ? !set.has(index) : !open;
+    if (closed) set.add(index);
+    else set.delete(index);
+    this.set({ collapsedSections: [...set].sort((a, b) => a - b) });
+  }
+
+  /** Collapse All / Expand All of the section menu. */
+  setAllSections(collapsed: boolean): void {
+    const n = this.state.pres?.sections?.length ?? 0;
+    this.set({ collapsedSections: collapsed ? Array.from({ length: n }, (_, i) => i) : [] });
+  }
+
+  setSorterZoom(zoom: number): void {
+    this.set({ sorterZoom: Math.max(20, Math.min(200, Math.round(zoom))) });
   }
 
   /** Duplicates the sorter's selected slides (each after itself). */
