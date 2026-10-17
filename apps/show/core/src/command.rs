@@ -1360,7 +1360,8 @@ pub enum ShowCommand {
     /// the new layout of its kind (custom layouts: of the same name, else
     /// inferred from the placeholders), its placeholders re-mapped like
     /// `setSlideLayout`. Pictures of the new master and layouts are added
-    /// to the media.
+    /// to the media. The master and layouts are scaled to the slide size
+    /// (a `.thmx` counts as made for 16:9, a template has its own size).
     ImportDesign { bytes_base64: String },
     /// Sets the view settings: guides, grid, snapping, ruler, last view
     /// (stored in `viewProps.xml`; undoable like PowerPoint's guide moves).

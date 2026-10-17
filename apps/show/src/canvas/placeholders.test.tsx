@@ -39,12 +39,11 @@ function deckWithPlaceholders(): Presentation {
 }
 
 describe("Insert Picture in placeholders", () => {
-  it("empty picture and content placeholders take a picture; text, typed or other ones do not", () => {
-    expect(takesPicture(ph(1, "picture"), undefined)).toBe(true);
-    expect(takesPicture(ph(1, "body"), false)).toBe(true);
-    expect(takesPicture(ph(1, "body"), true)).toBe(false);
-    expect(takesPicture(ph(1, "body", "x"), false)).toBe(false);
-    expect(takesPicture(ph(1, "title"), undefined)).toBe(false);
+  it("empty picture placeholders show the icon; content (its text stays clickable), typed or other ones do not", () => {
+    expect(takesPicture(ph(1, "picture"))).toBe(true);
+    expect(takesPicture(ph(1, "picture", "x"))).toBe(false);
+    expect(takesPicture(ph(1, "body"))).toBe(false);
+    expect(takesPicture(ph(1, "title"))).toBe(false);
   });
 
   it("the icon picks an image that fills the placeholder (one command)", async () => {
@@ -57,7 +56,7 @@ describe("Insert Picture in placeholders", () => {
     expect(screen.queryByTestId("ph-picture-503")).toBeNull();
     const icon = screen.getByTestId("ph-picture-500");
     expect(icon.getAttribute("aria-label")).toBe("Insert Picture");
-    expect(screen.getByTestId("ph-picture-501")).toBeTruthy();
+    expect(screen.queryByTestId("ph-picture-501")).toBeNull();
     fireEvent.click(icon);
     const file = new File([new Uint8Array([137, 80, 78, 71])], "photo.png", { type: "image/png" });
     fireEvent.change(screen.getByTestId("ph-picture-input"), { target: { files: [file] } });

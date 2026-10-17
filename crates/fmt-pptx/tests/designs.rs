@@ -361,3 +361,22 @@ fn date_fields_show_the_date_they_were_saved_on() {
         "{plain}"
     );
 }
+
+#[test]
+fn the_testdata_theme_file_reads_and_is_what_the_generator_writes() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/pptx/rusuite-harbor.thmx"
+    );
+    let bytes = std::fs::read(path).unwrap();
+    let out = fmt_pptx::read_design_file(&bytes, SlideSize::widescreen()).unwrap();
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    let d = out.presentation;
+    assert_eq!(d.theme.name, builtin_theme("harbor").unwrap().theme.name);
+    assert_eq!(d.master.name, "Harbor");
+    assert_eq!(d.master.shapes.len(), 1);
+    assert_eq!(d.layouts.len(), 12);
+    assert!(d.layout(&LayoutKind::Custom("Quote".into())).is_some());
+    // written again it is the same file (regenerate with `--example theme_file`)
+    assert_eq!(fmt_pptx::write_thmx(&d).unwrap(), bytes);
+}

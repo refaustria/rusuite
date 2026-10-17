@@ -542,9 +542,17 @@ impl ShowDocument {
     pub(super) fn import_design(&mut self, bytes_base64: &str, ch: &mut Changes) -> R<C> {
         let bytes = base64_decode(bytes_base64)
             .map_err(|e| ShowError::BadRequest(format!("invalid base64: {e}")))?;
-        let file = fmt_pptx::read_design_file(&bytes, self.pres.slide_size)
+        // a .thmx has no slide size: its master is taken as made for 16:9
+        // (PowerPoint's default); a template has its own. Either is scaled
+        // to this presentation's size, as PowerPoint fits a theme.
+        let mut file = fmt_pptx::read_design_file(&bytes, model_show::SlideSize::widescreen())
             .map_err(|e| ShowError::ReadPptx(e.to_string()))?
             .presentation;
+        if file.slide_size != self.pres.slide_size {
+            let (m, l) = resized_design(&file, self.pres.slide_size, None);
+            file.master = m;
+            file.layouts = l;
+        }
         let design_before = self.design_snapshot();
         // the pictures of the new master and layouts
         let mut used = Presentation::media_of(&file.master.shapes);

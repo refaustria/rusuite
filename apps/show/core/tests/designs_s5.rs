@@ -238,3 +238,39 @@ fn save_current_theme_writes_a_thmx_named_after_the_theme() {
         .presentation;
     assert_eq!(d.master.name, "Harbor");
 }
+
+#[test]
+fn an_imported_theme_is_scaled_to_the_slide_size() {
+    // LibreOffice's 28 × 15.75 cm slide; the theme file is made for 16:9
+    let mut p = Presentation::empty(model_show::SlideSize {
+        width: Emu(10_080_000),
+        height: Emu(5_670_000),
+    });
+    p.add_slide(LayoutKind::Title);
+    let mut h = Host::new(ShowDocument::from_presentation(p).unwrap());
+    let thmx = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../testdata/pptx/rusuite-harbor.thmx"
+    ))
+    .unwrap();
+    h.apply(C::ImportDesign {
+        bytes_base64: base64_encode(&thmx),
+    })
+    .unwrap();
+    let pres = h.doc().presentation();
+    let bar = &pres.master.shapes[0];
+    assert_eq!(bar.name, "Accent bar");
+    assert_eq!(bar.transform.w, Emu(10_080_000), "full width of this slide");
+    assert_eq!(
+        bar.transform.y.0 + bar.transform.h.0,
+        5_670_000,
+        "at the bottom of this slide"
+    );
+    let title = pres
+        .master
+        .placeholders
+        .iter()
+        .find(|d| d.kind == model_show::PlaceholderKind::Title)
+        .unwrap();
+    assert!(title.transform.x.0 + title.transform.w.0 <= 10_080_000);
+}

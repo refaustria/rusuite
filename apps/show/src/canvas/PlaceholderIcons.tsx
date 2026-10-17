@@ -1,22 +1,21 @@
-// The "Insert Picture" icon of empty picture and content placeholders on
-// the editor stage (P9-S5): a click picks an image, which goes into the
-// placeholder (`insertPicture` with `placeholder`: its box and z-order,
-// cropped to fill it, still a placeholder of the layout) – as the icon in
-// the middle of PowerPoint's placeholders.
+// The "Insert Picture" icon of empty picture placeholders on the editor
+// stage (P9-S5): a click picks an image, which goes into the placeholder
+// (`insertPicture` with `placeholder`: its box and z-order, cropped to
+// fill it, still a placeholder of the layout) – as the icon in the middle
+// of PowerPoint's picture placeholders. Content placeholders keep the
+// click / double-click into their text (the core also accepts them).
 
 import { useRef, useState } from "react";
 import { bytesToBase64 } from "@rusuite/ui-shared";
 import type { Shape } from "../generated/Shape";
 import type { Slide } from "../generated/Slide";
-import { deckFor, placeholderFor, stableDeck } from "../design/deck";
 import { emuToPx } from "../geometry";
 import type { ShowStore } from "../state/store";
 import { useT } from "../i18n";
 
-/** Whether `shape` is an empty placeholder that takes a picture (picture, or content that is not text-only). */
-export function takesPicture(shape: Shape, textOnly: boolean | undefined): boolean {
-  if (shape.kind.kind !== "auto") return false;
-  if (shape.placeholder !== "picture" && !(shape.placeholder === "body" && !textOnly)) return false;
+/** Whether `shape` is an empty picture placeholder (the icon's target). */
+export function takesPicture(shape: Shape): boolean {
+  if (shape.kind.kind !== "auto" || shape.placeholder !== "picture") return false;
   const text = shape.kind.value.text;
   return !text || text.paragraphs.every((p) => p.runs.every((r) => r.text === "" && !r.field));
 }
@@ -25,10 +24,7 @@ export function PlaceholderIcons({ store, slide, scale }: { store: ShowStore; sl
   const t = useT();
   const input = useRef<HTMLInputElement>(null);
   const [target, setTarget] = useState<number | null>(null);
-  const pres = store.getState().pres;
-  if (!pres) return null;
-  const deck = deckFor(stableDeck(pres), slide);
-  const targets = slide.shapes.filter((s) => takesPicture(s, placeholderFor(deck, slide.layout, s)?.textOnly));
+  const targets = slide.shapes.filter((s) => takesPicture(s));
   if (!targets.length) return null;
   return (
     <>
@@ -36,7 +32,7 @@ export function PlaceholderIcons({ store, slide, scale }: { store: ShowStore; sl
         const tr = s.transform;
         const cx = emuToPx(tr.x + tr.w / 2) * scale;
         const cy = emuToPx(tr.y + tr.h / 2) * scale;
-        const y = s.placeholder === "picture" ? cy - 16 : cy + 24;
+        const y = cy - 16;
         return (
           <button
             key={s.id}
