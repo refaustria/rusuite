@@ -85,6 +85,8 @@ describe("i18n-check", () => {
   it("flags untranslated values of two or more words, except brand names and the allow-list", () => {
     expect(looksUntranslated("Save As", "Save As")).toBe(true);
     expect(looksUntranslated("Layout", "Layout")).toBe(false);
+    expect(looksUntranslated("Horizontal (cm)", "Horizontal (cm)")).toBe(false); // a unit is not a second word
+    expect(looksUntranslated("Width (cm)", "Width (cm)")).toBe(false);
     expect(looksUntranslated("Unicode (UTF-8)", "Unicode (UTF-8)")).toBe(false);
     expect(looksUntranslated("Apple Silicon (.dmg)", "Apple Silicon (.dmg)")).toBe(false);
     expect(looksUntranslated("Save As", "Enregistrer sous")).toBe(false);

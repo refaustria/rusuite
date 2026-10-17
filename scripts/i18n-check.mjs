@@ -102,6 +102,9 @@ const BRANDS = new Set(
   ),
 );
 
+/** Units of measure in values ("Width (cm)"); they do not count as words for the untranslated check. */
+const UNITS = new Set(["cm", "mm", "in", "pt", "px", "pc", "em", "ms", "KB", "MB", "GB", "dpi"]);
+
 const PLACEHOLDER_RE = /\{(\w+)\}/g;
 export const placeholders = (s) => [...String(s).matchAll(PLACEHOLDER_RE)].map((m) => m[1]).sort();
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -144,7 +147,8 @@ export function registerHit(lang, value) {
 /** Whether `value` looks untranslated: identical to English, two or more words, not only brand names. */
 export function looksUntranslated(enValue, value) {
   if (value !== enValue) return false;
-  const ws = (visible(value).match(/\p{L}[\p{L}\p{N}'’]*/gu) ?? []).filter((w) => w.length >= 2);
+  // Units ("Horizontal (cm)") are not words: such a value is a single word, the same in many languages.
+  const ws = (visible(value).match(/\p{L}[\p{L}\p{N}'’]*/gu) ?? []).filter((w) => w.length >= 2 && !UNITS.has(w));
   if (ws.length < 2) return false;
   return !ws.every((w) => BRANDS.has(w) || BRANDS.has(w.toUpperCase()));
 }
