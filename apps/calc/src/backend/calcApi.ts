@@ -16,6 +16,8 @@ import type { FoundCell } from "../generated/FoundCell";
 import type { NameRow } from "../generated/NameRow";
 import type { PivotAt } from "../generated/PivotAt";
 import type { PivotInfo } from "../generated/PivotInfo";
+import type { PivotRecommendation } from "../generated/PivotRecommendation";
+import type { PivotSourceSpec } from "../generated/PivotSourceSpec";
 import type { PivotItemInfo } from "../generated/PivotItemInfo";
 import type { Rect } from "../generated/Rect";
 import type { SheetRect } from "../generated/SheetRect";
@@ -104,6 +106,7 @@ export function parseResponse<T extends ResponseBody["type"]>(raw: unknown, expe
     // `pivot` is null outside pivot tables.
     pivotAt: {},
     pivotItems: { items: "array" },
+    pivotRecommendations: { items: "array" },
     goalSeek: { result: "object" },
     decoded: { decoded: "object" },
     preview: { rows: "array" },
@@ -352,5 +355,10 @@ export class CalcApi {
   /** The items of a field of pivot table `id` in display order (filter dropdowns). */
   async pivotItems(id: number, field: number): Promise<PivotItemInfo[]> {
     return (await this.call({ type: "pivotItems", id, field }, "pivotItems")).items;
+  }
+
+  /** Recommended PivotTables for a source, best first, with previews. */
+  async recommendPivots(source: PivotSourceSpec): Promise<PivotRecommendation[]> {
+    return (await this.call({ type: "recommendPivots", source }, "pivotRecommendations")).items;
   }
 }

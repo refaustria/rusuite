@@ -12,6 +12,10 @@ import type { PivotPatch } from "../generated/PivotPatch";
 import type { PivotSourceSpec } from "../generated/PivotSourceSpec";
 import type { PivotSummary } from "../generated/PivotSummary";
 import type { PivotTarget } from "../generated/PivotTarget";
+import type { PivotFields } from "../generated/PivotFields";
+import type { GroupSpec } from "../generated/GroupSpec";
+import { emptyChart } from "../charts/controller";
+import { DEFAULT_CHART_H, DEFAULT_CHART_W, rectToAnchor } from "../charts/anchor";
 import type { Rect } from "../generated/Rect";
 import type { AxisGeometry } from "../grid/geometry";
 import { cellSelection, normalize } from "../grid/Selection";
@@ -22,7 +26,7 @@ import { t } from "../i18n";
 import type { CalcStore } from "../state/store";
 import { buttonAt, dropTarget, pivotButtons, type DropTarget, type PivotButton } from "./buttons";
 import {
-  captionOf, coversPivot, getPivotDataFormula, isFiltered, layoutOf, patchOf, pivotDataKey, selectRegion, touchesPivot, type CellAt, type PaneLayout,
+  captionOf, coversPivot, getPivotDataFormula, isFiltered, layoutOf, patchOf, pivotDataKey, selectedItems, selectRegion, touchesPivot, type CellAt, type PaneLayout,
 } from "./model";
 import { BUTTON_ROOM, isEmptyTable, pivotLooks, type PivotLook } from "./styles";
 
@@ -242,11 +246,11 @@ export class PivotController {
    * the core inserts it and names it in `activateSheet`), selects its first
    * cell, opens the field pane and shows PivotTable Analyze.
    */
-  async create(source: PivotSourceSpec, target: PivotTarget): Promise<boolean> {
+  async create(source: PivotSourceSpec, target: PivotTarget, fields: PivotFields = {}, chart = false): Promise<boolean> {
     const store = this.store;
     let env;
     try {
-      env = await store.api.apply({ type: "createPivot", source, target, fields: {} });
+      env = await store.api.apply({ type: "createPivot", source, target, fields });
     } catch (e) {
       store.pushError(e);
       return false;
@@ -260,6 +264,7 @@ export class PivotController {
       if (at) {
         this.paneFor = at.id;
         void this.ensureInfo(at.id);
+        if (chart) await this.insertChart(at.id, sheet);
       }
     } catch (e) {
       store.pushError(e);
@@ -328,6 +333,85 @@ export class PivotController {
 
   items(id: number, field: number): Promise<PivotItemInfo[]> {
     return this.store.api.pivotItems(id, field);
+  }
+
+  // --- P9-C3: grouping, calculations, filter pages, PivotCharts -------------------------------
+
+  group(id: number, field: number, group: GroupSpec): Promise<void> {
+    return this.run({ type: "groupPivotField", id, field, group });
+  }
+
+  ungroup(id: number, field: number, items?: number[]): Promise<void> {
+    return this.run(items ? { type: "ungroupPivotField", id, field, items } : { type: "ungroupPivotField", id, field });
+  }
+
+  /** The label cells of one field in the selection (Group Selection / Ungroup). */
+  selectedLabels(): { id: number; field: number; items: number[] } | null {
+    const p = this.active();
+    if (!p) return null;
+    const st = this.store.getState();
+    const r = normalize(st.selection);
+    const rows = this.store.cache(st.activeSheet).cells;
+    const cells = [];
+    for (let row = r.r0; row <= Math.min(r.r1, p.location.r1); row++) {
+      for (let col = r.c0; col <= Math.min(r.c1, p.location.c1); col++) cells.push(rows.get(row)?.get(col));
+    }
+    const sel = selectedItems(cells);
+    return sel && { id: p.id, ...sel };
+  }
+
+  /**
+   * Analyze › Group Selection: labels of a date or number field open the
+   * Grouping dialog (Excel); labels of other fields become one group.
+   */
+  groupSelection(): void {
+    const sel = this.selectedLabels();
+    if (!sel) {
+      this.store.pushError(new Error(t("calc.pivot.cantGroup")));
+      return;
+    }
+    const f = this.info(sel.id)?.fields[sel.field];
+    const ranged = f && (f.kind === "date" || f.kind === "number" || (f.group && f.group.kind !== "items"));
+    if (ranged) this.store.openDialog({ kind: "pivotGroup", id: sel.id, field: sel.field });
+    else void this.group(sel.id, sel.field, { kind: "items", items: sel.items });
+  }
+
+  /** Analyze › Ungroup: the selected groups of a manual group field, else the field's grouping. */
+  ungroupSelection(): void {
+    const sel = this.selectedLabels();
+    const active = sel ? null : this.activeField();
+    const id = sel?.id ?? active?.id;
+    const field = sel?.field ?? active?.field;
+    if (id === undefined || field === undefined) return;
+    const g = this.info(id)?.fields[field]?.group;
+    if (!g) {
+      this.store.pushError(new Error(t("calc.pivot.notGrouped")));
+      return;
+    }
+    // Group items with several members (`Group1`) are dissolved; otherwise the field's grouping goes.
+    const groups = g.kind === "items" && sel ? sel.items.filter((i) => g.map.filter((x) => x === i).length > 1) : [];
+    void this.ungroup(id, field, groups.length ? groups : undefined);
+  }
+
+  /**
+   * Insert › PivotChart / Analyze › PivotChart: a clustered column chart
+   * of table `id` right of it (Excel's default size), selected.
+   */
+  async insertChart(id: number, sheet = this.store.getState().activeSheet): Promise<void> {
+    const p = this.of(sheet).find((x) => x.id === id);
+    const store = this.store;
+    const geo = store.geometry(sheet);
+    const loc = p?.location ?? { r0: 0, c0: 0, r1: 0, c1: 0 };
+    const rect = { x: geo.col.offset(loc.c1 + 2), y: geo.row.offset(loc.r0), w: DEFAULT_CHART_W, h: DEFAULT_CHART_H };
+    const anchor = rectToAnchor(rect, "twoCell", geo.col, geo.row);
+    const chart = { ...emptyChart(), legend: { position: "right" as const } };
+    const revision = store.getState().revision;
+    await store.apply({ type: "insertPivotChart", sheet, pivot: id, anchor, chart });
+    if (store.getState().revision === revision) return;
+    const list = await store.charts.refreshList(sheet);
+    const added = list.filter((c) => c.pivot === id).pop();
+    if (added && store.getState().activeSheet === sheet) store.charts.select(sheet, added.id, null);
+    store.requestRibbonTab("chartDesign");
   }
 
   // --- the grid ---------------------------------------------------------------------------------
@@ -417,8 +501,28 @@ export class PivotController {
     const sheet = this.store.getState().activeSheet;
     const p = this.store.cache(sheet).cells.get(row)?.get(col)?.pivot;
     if (!p || !["value", "subtotal", "grandTotal"].includes(p.kind) || p.field !== undefined) return false;
-    void this.store.apply({ type: "showPivotDetails", id: p.id, row, col });
+    void this.runAndShow({ type: "showPivotDetails", id: p.id, row, col });
     return true;
+  }
+
+  /** Show Report Filter Pages of page field `field`: the new sheets, the first one shown. */
+  filterPages(id: number, field: number): Promise<void> {
+    return this.runAndShow({ type: "showReportFilterPages", id, field });
+  }
+
+  /** Applies a command that adds sheets and shows the one its patch names (Excel goes to the new sheet). */
+  private async runAndShow(command: CalcCommand): Promise<void> {
+    const store = this.store;
+    let env;
+    try {
+      env = await store.api.apply(command);
+    } catch (e) {
+      store.pushError(e);
+      return;
+    }
+    if (!store.applyEnvelope(env)) return;
+    const sheet = env.patch.activateSheet;
+    if (sheet !== undefined) store.goToRange(sheet, { r0: 0, c0: 0, r1: 0, c1: 0 });
   }
 
   /** The active cell's field (Active Field group): a label's, a field header's or a page cell's. */
