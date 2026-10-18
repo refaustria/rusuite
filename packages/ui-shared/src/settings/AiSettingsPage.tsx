@@ -6,9 +6,11 @@ import { useEffect, useId, useState } from "react";
 import { FOCUS_RING } from "../Popover";
 import { useT } from "../i18n/react";
 import type { Assistant } from "../ai/controller";
-import { errorText } from "../ai/controller";
+import { errorText, testResultText } from "../ai/controller";
 import { providerName, providerOrigin } from "../ai/providers";
-import { MAX_TOKENS_LIMIT, parseAiSettings, type AiSettings } from "../ai/settings";
+import { MAX_TOKENS_LIMIT, parseAiSettings, type AiSettings, type ReplyLanguage } from "../ai/settings";
+import { LOCALES, localeInfo } from "../i18n/locales";
+import { getLocale } from "../i18n/locale";
 import { AI_EFFORTS, type AiEffort, type AiProviderKind } from "../ai/types";
 import { AI_BUTTON, AI_INPUT, AI_PRIMARY, useAssistant } from "../ai/ui/hooks";
 
@@ -59,8 +61,7 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
     setBusy(true);
     setResult(null);
     try {
-      const models = await ai.test({ provider, baseUrl: draft.baseUrls[provider], model, key });
-      setResult({ ok: true, text: t("ai.settings.testOk", { count: models.length }) });
+      setResult(testResultText(await ai.test({ provider, baseUrl: draft.baseUrls[provider], model, key })));
     } catch (e) {
       setResult({ ok: false, text: errorText(e) });
     } finally {
@@ -253,6 +254,28 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
         </select>
         <span id={f("effort-note")} className="text-xs text-ui-muted">
           {t(provider === "anthropic" ? "ai.settings.reasoningNote" : "ai.settings.reasoningAnthropicOnly")}
+        </span>
+      </label>
+      <label className={row} htmlFor={f("reply")}>
+        {t("ai.settings.replyIn")}
+        <select
+          id={f("reply")}
+          className={AI_INPUT}
+          value={draft.replyLanguage}
+          aria-describedby={f("reply-note")}
+          data-testid="ai-reply-language"
+          onChange={(e) => patch({ replyLanguage: e.target.value as ReplyLanguage })}
+        >
+          <option value="ui">{t("ai.settings.replyUi", { language: localeInfo(getLocale()).label })}</option>
+          <option value="document">{t("ai.settings.replyDocument")}</option>
+          {LOCALES.map((l) => (
+            <option key={l.id} value={l.id} lang={l.id}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+        <span id={f("reply-note")} className="text-xs text-ui-muted">
+          {t("ai.settings.replyNote")}
         </span>
       </label>
       <div className="flex items-start gap-2 text-sm">

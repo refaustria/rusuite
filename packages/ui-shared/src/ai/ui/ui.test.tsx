@@ -97,7 +97,7 @@ describe("Settings › AI", () => {
     expect(key.type).toBe("password");
     fireEvent.change(key, { target: { value: "sk-new" } });
     fireEvent.click(screen.getByRole("button", { name: "Test" }));
-    expect((await screen.findByTestId("ai-test-result")).textContent).toBe("Connected. The provider lists 2 models.");
+    expect((await screen.findByTestId("ai-test-result")).textContent).toBe("Connected. The provider lists 2 models. claude-sonnet-5-5 answered.");
     expect(tested).toContain("sk-new");
     expect(store.keys.size).toBe(0); // not saved before Save
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

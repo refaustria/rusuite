@@ -7,8 +7,10 @@ import thinkingSse from "./providers/fixtures/anthropic-thinking.sse?raw";
 import { AnthropicProvider, anthropicBody, anthropicDeltas, anthropicSystem, reasoningParams, supportsEffort, usageDelta } from "./providers/anthropic";
 import { openAiBody, openAiDeltas } from "./providers/openai";
 import { resetUnsupportedParams, sseEvents, type FetchLike } from "./providers/http";
-import { Assistant, effectiveEffort, type AiAction } from "./controller";
-import { documentContext, textHash, type DocContext } from "./prompts";
+import { Assistant, effectiveEffort, errorClass, testResultText, type AiAction } from "./controller";
+import { documentContext, languageRule, textHash, type DocContext } from "./prompts";
+import { setLocale } from "../i18n/locale";
+import { collapsedSet, groupsThatFit } from "../ribbon/groups";
 import { MemoryAiStore, parseAiSettings } from "./settings";
 import { IMAGE_MAX_BYTES, base64Size, chartDataTable, encodeRaster, fitWithin, imageFromUrl, parseDataUrl, type ImageCodec, type Raster } from "./images";
 import { anthropicContent } from "./providers/anthropic";
@@ -410,5 +412,109 @@ describe("pictures", () => {
   it("settings: vision models persist (strings only, no duplicates)", () => {
     expect(parseAiSettings({ visionModels: ["llava", "llava", 3, " gpt-5 "] }).visionModels).toEqual(["llava", "gpt-5"]);
     expect(parseAiSettings({}).visionModels).toEqual([]);
+  });
+});
+
+describe("reply language, Test and the ribbon", () => {
+  it("languageRule: UI language for messages, the document keeps its language; document; a fixed language", () => {
+    const ui = languageRule("ui", "de");
+    expect(ui).toContain("in German");
+    expect(ui).toContain("stays in the language of the document");
+    expect(languageRule("document", "de")).toContain("language of the user's document");
+    expect(languageRule("fr", "de")).toMatch(/^Answer in French, including text you write for the document/);
+  });
+
+  it("the system prompt follows a UI language switch (default: Reply in the UI language)", async () => {
+    const { ai, requests } = await enabled([{ type: "stop", reason: "end_turn" }]);
+    await ai.run(ask, "q", ctx());
+    expect(requests[0]!.system).toContain("interface language is English");
+    setLocale("de", { persist: false });
+    try {
+      await ai.run(ask, "q", ctx());
+      expect(requests[1]!.system).toContain("interface language is German");
+      ai.saveSettings({ replyLanguage: "it" });
+      await ai.run(ask, "q", ctx());
+      expect(requests[2]!.system).toContain("Answer in Italian");
+    } finally {
+      setLocale("en", { persist: false });
+    }
+  });
+
+  it("settings: Reply in persists; unknown values fall back to the UI language", () => {
+    expect(parseAiSettings({ replyLanguage: "document" }).replyLanguage).toBe("document");
+    expect(parseAiSettings({ replyLanguage: "sl" }).replyLanguage).toBe("sl");
+    expect(parseAiSettings({ replyLanguage: "klingon" }).replyLanguage).toBe("ui");
+    expect(parseAiSettings(null).replyLanguage).toBe("ui");
+  });
+
+  /** A provider whose list / 1-token request fail as given. */
+  function testProvider(list: Error | null, ping: Error | null) {
+    const calls: string[] = [];
+    const provider: AiProvider = {
+      kind: "anthropic",
+      name: "Anthropic",
+      origin: "https://api.anthropic.com",
+      models: () => [],
+      test: async () => {
+        calls.push("list");
+        if (list) throw list;
+        return [{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" }];
+      },
+      async *complete(r) {
+        calls.push(`ping ${r.model} ${r.maxTokens}`);
+        if (ping) throw ping;
+        yield { type: "stop", reason: "max_tokens" };
+      },
+    };
+    const ai = new Assistant({ store: new MemoryAiStore(), provider: () => provider });
+    return { ai, calls, draft: { provider: "anthropic" as const, baseUrl: "https://api.anthropic.com", model: "claude-sonnet-5-5", key: "sk" } };
+  }
+
+  it("Test: lists the models and makes a 1-token request to the chosen model", async () => {
+    const { ai, calls, draft } = testProvider(null, null);
+    const r = await ai.test(draft);
+    expect(calls).toEqual(["list", "ping claude-sonnet-5-5 1"]);
+    expect(testResultText(r)).toEqual({ ok: true, text: "Connected. The provider lists 1 model. claude-sonnet-5-5 answered." });
+  });
+
+  it("Test: the key works but the model fails → the model's error class", async () => {
+    const { ai, draft } = testProvider(null, new AiError("notFound", "x", 404, null, "model: claude-x"));
+    const r = testResultText(await ai.test(draft));
+    expect(r.ok).toBe(false);
+    expect(r.text).toMatch(/^The key works, but claude-sonnet-5-5 failed – model or request: /);
+  });
+
+  it("Test: a rejected key stops after the list (no second request)", async () => {
+    const { ai, calls, draft } = testProvider(new AiError("auth", "x", 401), null);
+    const r = testResultText(await ai.test(draft));
+    expect(calls).toEqual(["list"]);
+    expect(r.text).toMatch(/^Test failed – API key: The provider rejected the API key/);
+  });
+
+  it("Test: no model list (404) but the model answers → connected", async () => {
+    const { ai, draft } = testProvider(new AiError("notFound", "x", 404), null);
+    expect(testResultText(await ai.test(draft))).toEqual({ ok: true, text: "Connected (the provider offers no model list). claude-sonnet-5-5 answered." });
+  });
+
+  it("errorClass groups the error kinds", () => {
+    expect(errorClass(new AiError("auth", "x"))).toBe("key");
+    expect(errorClass(new AiError("rateLimit", "x"))).toBe("limit");
+    expect(errorClass(new AiError("overloaded", "x"))).toBe("limit");
+    expect(errorClass(new AiError("notFound", "x"))).toBe("model");
+    expect(errorClass(new AiError("cors", "x"))).toBe("connection");
+    expect(errorClass(new AiError("server", "x"))).toBe("server");
+    expect(errorClass(new Error("x"))).toBe("other");
+  });
+
+  it("ribbon: the AI group collapses last (Show's German Home tab at 1400 px keeps the Assistant button)", () => {
+    // Natural widths measured in Show's German Home tab (P9-A1); Drawing collapses (priority 1), AI (-1) stays.
+    const labels = ["Rückgängig", "Zwischenablage", "Folien", "Schriftart", "Absatz", "Zeichnung", "Bearbeiten", "KI"];
+    const widths = [62, 166, 427, 268, 153, 287, 106, 61];
+    const priorities = [0, 0, 0, 0, 0, 1, 0, -1];
+    const fit = groupsThatFit(widths, labels, 1392, priorities);
+    expect([...collapsedSet(labels.length, fit, priorities)].map((i) => labels[i])).toEqual(["Zeichnung"]);
+    // Before: AI at priority 2 collapsed first, saving 9 px, and Drawing collapsed as well.
+    const before = [0, 0, 0, 0, 0, 1, 0, 2];
+    expect([...collapsedSet(labels.length, groupsThatFit(widths, labels, 1392, before), before)].map((i) => labels[i])).toEqual(["KI", "Zeichnung"]);
   });
 });

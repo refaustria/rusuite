@@ -6,12 +6,12 @@
 // an action or pressed Test.
 
 import type { ReactNode } from "react";
-import { buildMessages, documentContext, systemPrompt, textHash, type DocContext } from "./prompts";
+import { buildMessages, documentContext, languageRule, systemPrompt, textHash, type DocContext } from "./prompts";
 import { createProvider, type ProviderFactory } from "./providers";
 import { parseAiSettings, type AiSettings, type AiStore } from "./settings";
 import { supportsEffort } from "./providers/anthropic";
 import { AI_EFFORTS, AiError, type AiContentPart, type AiEffort, type AiImage, type AiMessage, type AiProvider, type AiTool, type ModelInfo } from "./types";
-import { t } from "../i18n/locale";
+import { getLocale, t } from "../i18n/locale";
 
 /** A button under a result (Insert, Replace selection, Insert formula, Apply, Set as speaker notes, …). */
 export interface AiApply<T> {
@@ -123,6 +123,52 @@ export interface AssistantOptions {
    * can say "available in the desktop apps"; no ribbon group, shortcut, panel or status item, and nothing is sent.
    */
   available?: boolean;
+}
+
+/** Settings › Test: the model list (or why it failed) and the 1-token check of the chosen model. */
+export interface AiTestResult {
+  model: string;
+  models: ModelInfo[] | null;
+  listError: unknown;
+  /** Whether the 1-token request was made (not after a key / connection failure of the list). */
+  checked: boolean;
+  modelError: unknown;
+}
+
+/** The class of a failure for the Test result: key / limit / model / connection / server / other. */
+export function errorClass(e: unknown): "key" | "limit" | "model" | "connection" | "server" | "other" {
+  if (!(e instanceof AiError)) return "other";
+  switch (e.kind) {
+    case "auth":
+    case "noKey":
+      return "key";
+    case "rateLimit":
+    case "overloaded":
+      return "limit";
+    case "notFound":
+    case "invalid":
+    case "refusal":
+    case "noVision":
+      return "model";
+    case "network":
+    case "cors":
+    case "csp":
+      return "connection";
+    case "server":
+    case "badResponse":
+      return "server";
+    default:
+      return "other";
+  }
+}
+
+/** The Test result as one line (localized), with the class of a failure first. */
+export function testResultText(r: AiTestResult): { ok: boolean; text: string } {
+  const fail = (e: unknown, key: string) => ({ ok: false, text: `${t(key, { model: r.model, kind: t(`ai.errClass.${errorClass(e)}`) })} ${errorText(e)}` });
+  if (r.listError && !r.checked) return fail(r.listError, "ai.settings.testFailed");
+  if (r.modelError) return fail(r.modelError, r.listError ? "ai.settings.testFailed" : "ai.settings.testModelFailed");
+  const listed = r.models ? t("ai.settings.testOk", { count: r.models.length }) : t("ai.settings.testNoList");
+  return { ok: true, text: `${listed} ${t("ai.settings.testModelOk", { model: r.model })}` };
 }
 
 let turnSeq = 0;
@@ -261,9 +307,11 @@ export class Assistant {
   }
 
   /**
-   * Settings › Test with the dialog's (unsaved) values: the provider's model list. `key` empty: the saved key.
+   * Settings › Test with the dialog's (unsaved) values: the provider's model list, then a 1-token request to the
+   * chosen model (does the key work for it?). `key` empty: the saved key. Throws only before any request (no key,
+   * bad URL); request failures are in the result.
    */
-  async test(draft: { provider: AiSettings["provider"]; baseUrl: string; model: string; key: string }): Promise<ModelInfo[]> {
+  async test(draft: { provider: AiSettings["provider"]; baseUrl: string; model: string; key: string }): Promise<AiTestResult> {
     let key = draft.key.trim();
     if (!key && draft.provider === this.state.settings.provider) key = (await this.loadKey()) ?? "";
     if (!key && draft.provider === "anthropic") throw new AiError("noKey", "Enter your API key");
@@ -273,7 +321,23 @@ export class Assistant {
     } catch (e) {
       throw e instanceof AiError ? e : new AiError("invalid", "The base URL is not valid");
     }
-    return p.test(draft.model);
+    const result: AiTestResult = { models: null, listError: null, checked: false, modelError: null, model: draft.model };
+    try {
+      result.models = await p.test(draft.model);
+    } catch (e) {
+      result.listError = e;
+      // A wrong key fails the same way for the model: no second request.
+      if (e instanceof AiError && (e.kind === "auth" || e.kind === "csp" || e.kind === "cors" || e.kind === "network")) return result;
+    }
+    result.checked = true;
+    try {
+      for await (const d of p.complete({ model: draft.model, system: "Reply with OK.", messages: [{ role: "user", content: "Test" }], maxTokens: 1, stream: true })) {
+        if (d.type === "stop" && d.reason === "refusal") throw new AiError("refusal", "The model declined");
+      }
+    } catch (e) {
+      result.modelError = e;
+    }
+    return result;
   }
 
   /** Known models of a provider (for the pickers). */
@@ -415,7 +479,7 @@ export class Assistant {
       for await (const d of provider.complete({
         model,
         ...(effort ? { effort } : {}),
-        system: systemPrompt(ctx.app, action.system ?? "", action.tool),
+        system: systemPrompt(ctx.app, action.system ?? "", action.tool, languageRule(s.replyLanguage, getLocale())),
         ...(doc !== undefined ? { documentContext: doc } : {}),
         messages,
         maxTokens: s.maxTokens,

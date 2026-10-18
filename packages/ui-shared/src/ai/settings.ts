@@ -7,6 +7,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { AI_EFFORTS, type AiEffort, type AiProviderKind } from "./types";
+import { isLocale, type Locale } from "../i18n/locales";
+
+/** "Reply in": the UI language (default), the document's language, or one of the 24 languages. */
+export type ReplyLanguage = "ui" | "document" | Locale;
 import { ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_MODEL } from "./providers/anthropic";
 import { OPENAI_BASE_URL, OPENAI_DEFAULT_MODEL } from "./providers/openai";
 
@@ -31,6 +35,8 @@ export interface AiSettings {
    * current Claude model accepts them).
    */
   visionModels: string[];
+  /** The language the assistant answers in. */
+  replyLanguage: ReplyLanguage;
 }
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -45,6 +51,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   includeDocument: false,
   effort: "low",
   visionModels: [],
+  replyLanguage: "ui",
 };
 
 export const MAX_TOKENS_LIMIT = 128_000;
@@ -77,6 +84,7 @@ export function parseAiSettings(json: string | null | unknown): AiSettings {
     includeDocument: o.includeDocument === true,
     effort: AI_EFFORTS.includes(o.effort as AiEffort) ? (o.effort as AiEffort) : d.effort,
     visionModels: Array.isArray(o.visionModels) ? [...new Set(o.visionModels.filter((m): m is string => typeof m === "string" && m.trim() !== "").map((m) => m.trim()))].slice(0, 50) : [],
+    replyLanguage: o.replyLanguage === "document" || isLocale(o.replyLanguage) ? o.replyLanguage : "ui",
   };
 }
 
