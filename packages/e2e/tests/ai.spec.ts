@@ -5,6 +5,7 @@
 // tests keep the live one. `AI_SHOTS=<dir>` saves screenshots (P8-37-*.png).
 
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { simulateDesktop, trackErrors, saveViaBackstage } from "../support/common";
 import { Grid, openCalc } from "../support/calc";
@@ -265,6 +266,9 @@ test.describe("AI assistant", () => {
 const shot2 = async (page: Page, name: string) => {
   if (shots) await page.screenshot({ path: path.join(shots, `P9-A1-${name}.png`) });
 };
+const shot3 = async (page: Page, name: string) => {
+  if (shots) await page.screenshot({ path: path.join(shots, `P9-A2-${name}.png`) });
+};
 const LOGO = new URL("../../../apps/write/src-tauri/icons/Square310x310Logo.png", import.meta.url).pathname;
 
 type Block = { type: string; text?: string; source?: { type: string; media_type: string; data: string } };
@@ -478,6 +482,90 @@ test.describe("AI assistant round 2 (P9-A1)", () => {
     expect(system).toContain("stays in the language of the document");
     await expect(pane.getByLabel("Den Assistenten fragen")).toBeVisible();
     await shot2(page, "german");
+    errors.expectNone();
+  });
+});
+
+// P9-A2: AI polish – per-action models, conversation export, Write's AI group in German.
+test.describe("AI assistant polish (P9-A2)", () => {
+  async function pinFixModel(page: Page, label: string) {
+    await page.getByRole("tab", { name: "File", exact: true }).click();
+    await page.getByTestId("backstage").getByRole("button", { name: "Options…" }).click();
+    const dlg = page.getByRole("dialog", { name: "Options" });
+    await expect(dlg.getByTestId("ai-actions-table")).toBeVisible();
+    await dlg.getByLabel("Model for Fix grammar & spelling").selectOption({ label });
+    await dlg.getByRole("button", { name: "Save" }).click();
+    await expect(dlg).toHaveCount(0);
+  }
+
+  async function typeAndSelect(page: Page) {
+    await editor(page).click();
+    await page.keyboard.type("Teh report are late.");
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Control+Shift+a");
+  }
+
+  test("a model pinned for an action is the model of that action's request, and the turn names it", async ({ page, baseURL }) => {
+    await preparedCsp(page, baseURL!);
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await enableAi(page, { test: false });
+    await pinFixModel(page, "Claude Haiku 5.5");
+    await typeAndSelect(page);
+    const pane = page.getByTestId("ai-pane");
+    await pane.getByRole("button", { name: "Fix grammar & spelling" }).click();
+    await expect(lastTurn(page)).toHaveAttribute("data-status", "done");
+    expect(mock.calls.at(-1)!.body!.model).toBe("claude-haiku-5-5");
+    await expect(lastTurn(page).getByTestId("ai-turn-model")).toHaveText(/Model: claude-haiku-5-5 \(set for this action\)/);
+    // Another action still uses the general model.
+    await pane.getByRole("button", { name: "Shorten" }).click();
+    await expect(page.getByTestId("ai-turn")).toHaveCount(2);
+    await expect(lastTurn(page)).toHaveAttribute("data-status", "done");
+    expect(mock.calls.at(-1)!.body!.model).toBe("claude-sonnet-5-5");
+    await shot3(page, "override");
+    errors.expectNone();
+  });
+
+  test("Save conversation downloads a Markdown file with the turns", async ({ page, baseURL }) => {
+    await preparedCsp(page, baseURL!);
+    const errors = trackErrors(page);
+    mock.texts.push({ match: /Correct the grammar/, text: "The report is late." });
+    await openWrite(page);
+    await enableAi(page, { test: false });
+    await typeAndSelect(page);
+    const pane = page.getByTestId("ai-pane");
+    await pane.getByRole("button", { name: "Fix grammar & spelling" }).click();
+    await expect(lastTurn(page)).toHaveAttribute("data-status", "done");
+    const download = page.waitForEvent("download");
+    await pane.getByRole("button", { name: "Save conversation…" }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/^ai-conversation-\d{4}-\d{2}-\d{2}\.md$/);
+    const md = readFileSync((await file.path())!, "utf8");
+    expect(md).toContain("# AI conversation – Rusuite Write");
+    expect(md).toContain("## 1. Fix grammar & spelling");
+    expect(md).toContain("Model: claude-sonnet-5-5");
+    expect(md).toContain("**Assistant**\n\nThe report is late.");
+    expect(md).toMatch(/\d+ in \/ \d+ out tokens/);
+    await expect(pane.getByTestId("ai-export-note")).toHaveText("Conversation saved.");
+    errors.expectNone();
+  });
+
+  test("write in German at 1400 px: the AI group stays visible (not collapsed) and opens the panel", async ({ page, baseURL }) => {
+    await preparedCsp(page, baseURL!);
+    const errors = trackErrors(page);
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openWrite(page);
+    await page.getByRole("tab", { name: "View", exact: true }).click();
+    await page.getByRole("combobox", { name: "Language / Sprache" }).selectOption("de");
+    await expect(page.getByRole("tab", { name: "Start", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Start", exact: true }).click();
+    const group = page.getByRole("group", { name: "KI", exact: true });
+    await expect(group).toBeVisible();
+    const button = group.getByRole("button", { name: "Assistent" });
+    await expect(button).toBeVisible();
+    await shot3(page, "german-ribbon");
+    await button.click();
+    await expect(page.getByTestId("ai-pane")).toBeVisible();
     errors.expectNone();
   });
 });

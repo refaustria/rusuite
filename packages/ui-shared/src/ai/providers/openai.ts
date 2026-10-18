@@ -3,12 +3,12 @@
 // JSON-schema response format (`response_format: { type: "json_schema" }`), which these servers support; the answer
 // text is then parsed as the action's result. The key is optional (local servers usually need none).
 
-import type { AiMessage, AiProvider, AiRequest, Delta, ModelInfo } from "../types";
+import type { AiEffort, AiMessage, AiProvider, AiRequest, Delta, ModelInfo } from "../types";
 import { AiError } from "../types";
 import { aiFetch, errorFromResponse, markUnsupported, parseToolJson, rejectedParam, sseEvents, unsupportedParams, type FetchLike } from "./http";
 
 /** Optional parameters dropped (and retried once) when a server rejects them with a 400. */
-export const OPENAI_OPTIONAL = ["temperature", "stream_options"] as const;
+export const OPENAI_OPTIONAL = ["temperature", "stream_options", "reasoning_effort"] as const;
 
 export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 export const OPENAI_DEFAULT_MODEL = "gpt-5-mini";
@@ -28,6 +28,15 @@ export function normalizeOpenAiBase(url: string): string {
 
 /** OpenAI's reasoning models take no `temperature`. */
 const reasoningModel = (model: string) => /^(o\d|gpt-5)/.test(model);
+
+/**
+ * The Reasoning setting as `reasoning_effort`: low / medium / high as they are; "Off" is `minimal` on OpenAI itself
+ * (the gpt-5 family) and `none` on local servers (Ollama and LM Studio take `none` to turn thinking off). A server
+ * that rejects the value drops it with the usual retry (`OPENAI_OPTIONAL`).
+ */
+export function openAiReasoningEffort(effort: AiEffort, official: boolean): string {
+  return effort === "off" ? (official ? "minimal" : "none") : effort;
+}
 
 /** A message's content: a string, or `image_url` parts (data URLs) followed by the text parts. */
 export function openAiContent(m: AiMessage): string | Record<string, unknown>[] {
@@ -54,6 +63,7 @@ export function openAiBody(req: AiRequest, official: boolean, skip: ReadonlySet<
   };
   body[official ? "max_completion_tokens" : "max_tokens"] = req.maxTokens;
   if (req.temperature !== undefined && !reasoningModel(req.model)) body.temperature = req.temperature;
+  if (req.effort) body.reasoning_effort = openAiReasoningEffort(req.effort, official);
   const tool = req.tools?.[0];
   if (tool) body.response_format = { type: "json_schema", json_schema: { name: tool.name, description: tool.description, schema: tool.schema, strict: true } };
   for (const p of skip) delete body[p];

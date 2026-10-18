@@ -35,8 +35,21 @@ export interface AiSettings {
    * current Claude model accepts them).
    */
   visionModels: string[];
+  /**
+   * OpenAI-compatible models the user marked as accepting `reasoning_effort` (the Reasoning setting is then sent
+   * for them); other models never get the parameter.
+   */
+  reasoningModels: string[];
   /** The language the assistant answers in. */
   replyLanguage: ReplyLanguage;
+  /** Per action and provider: a model and / or reasoning level that replaces the general setting (Settings › AI › Actions). */
+  actionOverrides: Record<AiProviderKind, Record<string, ActionOverride>>;
+}
+
+/** What one action pins; a missing field follows the general setting. */
+export interface ActionOverride {
+  model?: string;
+  effort?: AiEffort;
 }
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -51,7 +64,9 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   includeDocument: false,
   effort: "low",
   visionModels: [],
+  reasoningModels: [],
   replyLanguage: "ui",
+  actionOverrides: { anthropic: {}, openai: {} },
 };
 
 export const MAX_TOKENS_LIMIT = 128_000;
@@ -59,6 +74,22 @@ export const MAX_TOKENS_LIMIT = 128_000;
 const clamp = (n: unknown, lo: number, hi: number, dflt: number) =>
   typeof n === "number" && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
 const str = (v: unknown, dflt: string) => (typeof v === "string" && v.trim() ? v.trim() : dflt);
+
+const modelList = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.filter((m): m is string => typeof m === "string" && m.trim() !== "").map((m) => m.trim()))].slice(0, 50) : [];
+
+function parseOverrides(v: unknown): Record<string, ActionOverride> {
+  const out: Record<string, ActionOverride> = {};
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [id, raw] of Object.entries(v).slice(0, 100)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const o = raw as ActionOverride;
+    const model = typeof o.model === "string" ? o.model.trim() : "";
+    const effort = AI_EFFORTS.includes(o.effort as AiEffort) ? (o.effort as AiEffort) : undefined;
+    if (model || effort) out[id] = { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+  }
+  return out;
+}
 
 /** Reads stored settings leniently (unknown fields dropped, broken values → defaults). */
 export function parseAiSettings(json: string | null | unknown): AiSettings {
@@ -83,8 +114,10 @@ export function parseAiSettings(json: string | null | unknown): AiSettings {
     temperature: clamp(o.temperature, 0, 2, d.temperature),
     includeDocument: o.includeDocument === true,
     effort: AI_EFFORTS.includes(o.effort as AiEffort) ? (o.effort as AiEffort) : d.effort,
-    visionModels: Array.isArray(o.visionModels) ? [...new Set(o.visionModels.filter((m): m is string => typeof m === "string" && m.trim() !== "").map((m) => m.trim()))].slice(0, 50) : [],
+    visionModels: modelList(o.visionModels),
+    reasoningModels: modelList(o.reasoningModels),
     replyLanguage: o.replyLanguage === "document" || isLocale(o.replyLanguage) ? o.replyLanguage : "ui",
+    actionOverrides: { anthropic: parseOverrides(o.actionOverrides?.anthropic), openai: parseOverrides(o.actionOverrides?.openai) },
   };
 }
 

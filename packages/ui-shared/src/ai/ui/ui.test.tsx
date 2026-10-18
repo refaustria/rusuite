@@ -170,3 +170,37 @@ describe("unavailable assistant (web build)", () => {
     expect(screen.queryByLabelText(/API key/i)).toBeNull();
   });
 });
+
+describe("AssistantPane polish (P9-A2)", () => {
+  it("shows the model of the turn (pinned for the action) and the details of a failure; exports the conversation", async () => {
+    const { ai, store } = setup({ enabled: true, key: "sk" });
+    store.settings = { ...store.settings, actionOverrides: { anthropic: { fix: { model: "claude-opus-5-5" } }, openai: {} } };
+    ai.saveSettings({ actionOverrides: { anthropic: { fix: { model: "claude-opus-5-5" } }, openai: {} } });
+    act(() => ai.openPanel());
+    const chip = await screen.findByRole("button", { name: "Fix grammar" });
+    await waitFor(() => expect((chip as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(chip);
+    const model = await screen.findByTestId("ai-turn-model");
+    expect(model.textContent).toContain("Model: claude-opus-5-5 (set for this action)");
+    expect(model.getAttribute("data-pinned")).toBe("true");
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: async (s: string) => void (copied = s) }, configurable: true });
+    fireEvent.click(await screen.findByTestId("ai-export-copy"));
+    await waitFor(() => expect(screen.getByTestId("ai-export-note").textContent).toBe("Conversation copied."));
+    expect(copied).toContain("## 1. Fix grammar");
+    expect(copied).toContain("Model: claude-opus-5-5");
+  });
+
+  it("Settings › AI › Actions lists the app's actions and stores a pinned model", async () => {
+    const { ai } = setup({ enabled: true, key: "sk" });
+    act(() => ai.openPanel());
+    act(() => ai.openSettings());
+    const rows = await screen.findAllByTestId("ai-action-row");
+    expect(rows.map((r) => r.getAttribute("data-action"))).toEqual(["ask", "fix"]);
+    const select = screen.getByLabelText("Model for Fix grammar") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    fireEvent.change(select, { target: { value: "claude-opus-5-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(ai.getState().settings.actionOverrides.anthropic.fix).toEqual({ model: "claude-opus-5-5" }));
+  });
+});
