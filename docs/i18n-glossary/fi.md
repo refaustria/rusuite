@@ -377,3 +377,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Poster Frame | Julistekehys | PowerPoint media |
 | Clip (media) | Leike | |
 | Double (line, underline, spacing) | Kaksinkertainen | |
+| Split (View) | Jaa | Calc (P9-LF); the transition is Jako |
+| Go To Special… / Special… | Siirry määräten… / Määräten… | Calc |
+| Picture Format / Alt Text | Kuvan muotoilu / Vaihtoehtoinen teksti | Calc |
+| Mention someone | Mainitse joku | Calc comments |
