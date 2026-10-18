@@ -98,6 +98,8 @@ const BROWSER_TAG: Partial<Record<string, string>> = {
   hu: "hu-HU",
   ro: "ro-RO",
   bg: "bg-BG",
+  el: "el-GR",
+  lt: "lt-LT",
   lv: "lv-LV",
   et: "et-EE",
   ga: "ga-IE",
