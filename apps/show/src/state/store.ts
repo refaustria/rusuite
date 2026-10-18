@@ -22,9 +22,10 @@ import type { LayoutKind } from "../generated/LayoutKind";
 import type { PlaceholderKind } from "../generated/PlaceholderKind";
 import type { SlideScale } from "../generated/SlideScale";
 import type { SlideMaster } from "../generated/SlideMaster";
-import { bytesToBase64, nudgeAdjust, stepHandleFocus } from "@rusuite/ui-shared";
+import { bytesToBase64, nudgeAdjust, stepHandleFocus, applyPreset } from "@rusuite/ui-shared";
 import type { NodeId } from "../generated/NodeId";
 import type { Presentation } from "../generated/Presentation";
+import type { ReaderWarning } from "../generated/ReaderWarning";
 import type { Shape } from "../generated/Shape";
 import type { ShowCommand } from "../generated/ShowCommand";
 import type { ShowPatch } from "../generated/ShowPatch";
@@ -51,7 +52,7 @@ import type { ChartData } from "../generated/ChartData";
 import type { ChartShape } from "../generated/ChartShape";
 import type { Hyperlink } from "../generated/Hyperlink";
 import type { MediaPatch } from "../generated/MediaPatch";
-import { applyPreset, presetById } from "../charts/presets";
+import { presetById } from "../charts/presets";
 import { transposeData } from "../charts/data";
 import type { Chart } from "../charts/types";
 import { linkAt, linkCommands, reusePayload } from "./rich";
@@ -147,7 +148,8 @@ export interface ShowState {
   name: string | null;
   /** Status bar message of the last patch. */
   info: string | null;
-  warnings: string[];
+  /** Reader warnings of the last opened file (codes for the translated status bar, W-26). */
+  warnings: ReaderWarning[];
   toasts: Toast[];
   /** Bumped when an image arrives in the media cache. */
   mediaVersion: number;
@@ -198,7 +200,7 @@ export interface ShowState {
   chartSeries: number;
   /** The Reuse Slides pane and the presentation it shows. */
   reusePane: boolean;
-  reuse: { name: string; pres: Presentation; warnings: string[] } | null;
+  reuse: { name: string; pres: Presentation; warnings: ReaderWarning[] } | null;
   /** View › Presentation Views (P8-28; the Slide Master view is `masterView`). */
   view: PresentationView;
   /** Slides selected in the Slide Sorter / the slide panel (the current one included). */

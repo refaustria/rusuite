@@ -1,6 +1,6 @@
 import { WatchWindow } from "./audit/WatchWindow";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AutosaveStatus, applyPageRange, formatNumber, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, applyPageRange, formatNumber, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
@@ -56,8 +56,10 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
       <span>{dirty ? t("status.modified") : t("status.saved")}</span>
       <AutosaveStatus session={session} />
       {warnings.length > 0 && (
-        <span data-testid="open-warnings" className="truncate text-amber-700" title={warnings.join("\n")}>
-          {warnings.length === 1 ? warnings[0] : t("calc.status.warnings", { count: warnings.length, list: warnings.join("; ") })}
+        <span data-testid="open-warnings" className="truncate text-amber-700" title={warnings.map((w) => readerWarningText(w)).join("\n")}>
+          {warnings.length === 1
+            ? readerWarningText(warnings[0])
+            : t("calc.status.warnings", { count: warnings.length, list: warnings.map((w) => readerWarningText(w)).join("; ") })}
         </span>
       )}
       {records && <span data-testid="filter-records">{records}</span>}

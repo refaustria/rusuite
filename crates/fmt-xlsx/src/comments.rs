@@ -24,6 +24,7 @@ use model_sheet::{Note, NoteBounds, NoteRun, Person, Reply, Thread, Workbook};
 
 use crate::a1::{cell_name, parse_cell};
 use crate::styles::{color_el, color_of_dom, MAIN_NS};
+use crate::warn::{note, Note as Warn};
 use crate::xml::{decode_x_escapes, encode_x_escapes, needs_preserve, xml_error, XmlOut};
 use crate::Result;
 
@@ -418,7 +419,7 @@ pub(crate) fn load(
     part: &PartName,
     persons: &[Person],
     consumed: &mut BTreeSet<PartName>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<Warn>> {
     let mut warnings = Vec::new();
     let Some(rels) = pkg.relationships(part) else {
         return Ok(warnings);
@@ -479,13 +480,13 @@ pub(crate) fn load(
                         text,
                         mentions,
                     }),
-                    None => warnings.push(format!("reply {id} without its comment dropped")),
+                    None => warnings.push(note!("xlsx.comment.orphanReply", id = id)),
                 },
                 None => {
                     if threads.iter().any(|t| (t.row, t.col) == (row, col)) {
-                        warnings.push(format!(
-                            "second comment thread on {} dropped",
-                            cell_name(row, col)
+                        warnings.push(note!(
+                            "xlsx.comment.secondThread",
+                            cell = cell_name(row, col)
                         ));
                         continue;
                     }
@@ -598,20 +599,20 @@ pub(crate) fn load(
                 }
             }
             None if !notes.is_empty() => {
-                warnings.push("notes without a VML drawing: default boxes".into());
+                warnings.push(note!("xlsx.note.noVml"));
             }
             None => {}
         }
     } else if let Some(v) = target(VML_REL) {
         // A VML drawing without comments (form controls): not modelled.
         consumed.insert(v);
-        warnings.push("legacy drawing without notes dropped".into());
+        warnings.push(note!("xlsx.note.orphanVml"));
     }
     if let Err(e) = wb.set_notes(sheet, notes) {
-        warnings.push(format!("notes dropped: {e}"));
+        warnings.push(note!("xlsx.note.dropped", error = e));
     }
     if let Err(e) = wb.set_threads(sheet, threads) {
-        warnings.push(format!("comments dropped: {e}"));
+        warnings.push(note!("xlsx.comment.dropped", error = e));
     }
     Ok(warnings)
 }

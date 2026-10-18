@@ -9,12 +9,10 @@
 // change is one `UpdateChart`.
 
 import { useState, type ReactNode } from "react";
-import { ColorPicker, type Color } from "@rusuite/ui-shared";
+import { ColorPicker, type Color, parseNumberField, setAxis, setLabels, setSecondary, setSeriesFill, setSeriesLine, setSeriesMarker, setSeriesProp, setTrendline, labelPositions } from "@rusuite/ui-shared";
 import { useT } from "../i18n";
 import { useShow, type ShowStore } from "../state/store";
 import { resolveShape } from "./data";
-import { parseNumberField, setAxis, setLabels, setSecondary, setSeriesFill, setSeriesLine, setSeriesMarker, setSeriesProp, setTrendline } from "./format";
-import { labelPositions } from "./presets";
 import type { Axis, Chart, LabelPosition, LegendPosition, LineDash, MarkerSymbol } from "./types";
 
 const FIELD = "h-7 w-full rounded border border-ui-border bg-ui-bg px-2 text-sm text-ui-fg";

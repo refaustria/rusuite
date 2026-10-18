@@ -10,6 +10,7 @@ use model_show::{
 use crate::drawing::{
     read_fill, read_line, read_text_body, write_fill, write_line_with_ends, write_paragraph,
 };
+use crate::warn::note;
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
 use crate::Warnings;
 
@@ -30,13 +31,13 @@ pub fn read_table(tbl: &El, default_style: Option<&str>, w: &mut Warnings) -> Op
         band_cols: flag("bandCol"),
     };
     if flag("rtl") {
-        w.add("right-to-left tables read as left-to-right");
+        w.add(note!("pptx.table.rtl"));
     }
     let style_id = match pr.and_then(|p| p.child("tableStyleId")) {
         Some(id) => Some(id.text().trim().to_owned()),
         None => {
             if pr.is_some_and(|p| p.child("tableStyle").is_some()) {
-                w.add("inline table style dropped");
+                w.add(note!("pptx.table.inlineStyle"));
             }
             default_style.map(str::to_owned)
         }
@@ -50,7 +51,7 @@ pub fn read_table(tbl: &El, default_style: Option<&str>, w: &mut Warnings) -> Op
             )
         })
     }) {
-        w.add("table background fill dropped");
+        w.add(note!("pptx.table.background"));
     }
     let cols: Vec<ColSpec> = tbl
         .child("tblGrid")
@@ -65,7 +66,7 @@ pub fn read_table(tbl: &El, default_style: Option<&str>, w: &mut Warnings) -> Op
         .unwrap_or_default();
     let trs: Vec<&El> = tbl.elements().filter(|e| e.name == "tr").collect();
     if cols.is_empty() || trs.is_empty() {
-        w.add("empty table dropped");
+        w.add(note!("pptx.table.empty"));
         return None;
     }
     let nc = cols.len();
@@ -79,7 +80,7 @@ pub fn read_table(tbl: &El, default_style: Option<&str>, w: &mut Warnings) -> Op
         });
         let tcs: Vec<&El> = tr.elements().filter(|e| e.name == "tc").collect();
         if tcs.len() > nc {
-            w.add("table cells beyond the grid dropped");
+            w.add(note!("pptx.table.beyondGrid"));
         }
         let mut row = Vec::with_capacity(nc);
         let mut row_spans = Vec::with_capacity(nc);
@@ -148,7 +149,7 @@ fn apply_merges(t: &mut Table, spans: &[Vec<(u32, u32, bool)>], w: &mut Warnings
         }
     }
     if !ok || t.validate().is_err() {
-        w.add("inconsistent merged table cells split");
+        w.add(note!("pptx.table.mergesSplit"));
         for cell in t.cells.iter_mut().flatten() {
             cell.covered = false;
             cell.row_span = 1;
@@ -207,14 +208,14 @@ fn read_cell(tc: &El, w: &mut Warnings) -> TableCell {
             Some("ctr") => Anchor::Middle,
             Some("b") => Anchor::Bottom,
             Some("just" | "dist") => {
-                w.add("justified vertical cell alignment read as top");
+                w.add(note!("pptx.table.justifiedAlign"));
                 Anchor::Top
             }
             _ => Anchor::Top,
         };
         if let Some(v) = pr.attr("vert") {
             props.vert = TextDirection::from_ooxml(v).unwrap_or_else(|| {
-                w.add(format!("cell text direction {v} read as horizontal"));
+                w.add(note!("pptx.table.cellDirection", value = v));
                 TextDirection::Horizontal
             });
         }
@@ -228,7 +229,7 @@ fn read_cell(tc: &El, w: &mut Warnings) -> TableCell {
             diag_up: ln("lnBlToTr", w),
         };
         if pr.child("cell3D").is_some() {
-            w.add("3-D cell effects dropped");
+            w.add(note!("pptx.table.threeD"));
         }
         cell.fill = read_fill(pr, w);
     }

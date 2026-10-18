@@ -4,9 +4,7 @@
 
 import type { ReactNode } from "react";
 import { applyChartStyle } from "./extras";
-import {
-  ColorPicker, RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, elementKey, type Color, type RibbonGroup, type RibbonTab,
-} from "@rusuite/ui-shared";
+import { ColorPicker, RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, elementKey, type Color, type RibbonGroup, type RibbonTab, addElementIcon, changeTypeIcon, colorsIcon, columnIcon, comboIcon, formatPaneIcon, lineIcon, moveChartIcon, pieIcon, quickLayoutIcon, recommendedIcon, resetStyleIcon, scatterIcon, selectDataIcon, stylesIcon, switchIcon, LivePreview, PresetIcon, CHART_STYLES, QUICK_LAYOUTS, applyColors, applyQuickLayout, colorsOf, resolveSwatches, setSeriesFill, setSeriesLine, resetSeriesFormat } from "@rusuite/ui-shared";
 import type { Chart } from "../generated/Chart";
 import type { ResolvedChart } from "../generated/ResolvedChart";
 import type { TFunction as T } from "@rusuite/ui-shared";
@@ -14,15 +12,7 @@ import type { CalcStore } from "../state/store";
 import { anchorRect, rectToAnchor } from "./anchor";
 import { chartElements, elementFromKey, elementName } from "./elements";
 import { AddElementMenu } from "./ElementMenu";
-import {
-  addElementIcon, changeTypeIcon, colorsIcon, columnIcon, comboIcon, formatPaneIcon, lineIcon, moveChartIcon, pieIcon, quickLayoutIcon, recommendedIcon,
-  resetStyleIcon, scatterIcon, selectDataIcon, stylesIcon, switchIcon,
-} from "./icons";
-import { LivePreview, PresetIcon } from "./previews";
-import {
-  CHART_STYLES, COLOR_VARIANTS, INSERT_GALLERIES, QUICK_LAYOUTS, applyColors, applyQuickLayout, colorsOf, presetsOf, resolveSwatches,
-} from "./presets";
-import { setSeriesFill, setSeriesLine, resetSeriesFormat } from "./format";
+import { COLOR_VARIANTS, INSERT_GALLERIES, presetsOf } from "./presets";
 
 const GALLERY_ICONS: Record<string, (size?: number) => ReactNode> = {
   columnBar: columnIcon,

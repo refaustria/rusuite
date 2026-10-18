@@ -1,4 +1,5 @@
-// File reader warnings in the UI language (W-26). The Rust readers report
+// File reader warnings in the UI language (W-26; fmt-docx, and fmt-xlsx /
+// fmt-pptx since P9-X2). The Rust readers report
 // a stable code, the values of its `{name}` placeholders and the English
 // text; the shared catalog holds `reader.<code>` in every language, so the
 // status bar shows the warning translated, falling back to the reader's
@@ -7,7 +8,7 @@
 import type { Locale } from "./core";
 import { getLocale, i18n } from "./locale";
 
-/** A reader warning as the cores send it (`ReaderWarning` of write-core); a plain string is an untranslated one. */
+/** A reader warning as the cores send it (`ReaderWarning` of write-, calc- and show-core); a plain string is an untranslated one. */
 export interface ReaderWarningLike {
   code?: string;
   params?: Record<string, string>;

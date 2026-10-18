@@ -29,9 +29,27 @@ describe("readerWarningText", () => {
   });
 
   it("every reader code has an English and a German message", () => {
+    // The Rust readers' tests check that each code they emit is here with the same English text
+    // (fmt-docx `warning_sites_are_consistent`, fmt-xlsx / fmt-pptx `templates_match_the_ui_catalogs`).
     const keys = Object.keys(en).filter((k) => k.startsWith("reader."));
-    expect(keys.length).toBeGreaterThanOrEqual(77);
-    for (const k of keys) expect((de as Record<string, string>)[k], k).toBeTruthy();
+    const count = (p: string) => keys.filter((k) => k.startsWith(`reader.${p}.`)).length;
+    expect(count("docx")).toBeGreaterThanOrEqual(77);
+    expect(count("xlsx")).toBeGreaterThanOrEqual(85);
+    expect(count("pptx")).toBeGreaterThanOrEqual(121);
+    const names = (t: string) => [...t.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+    for (const k of keys) {
+      const german = (de as Record<string, string>)[k];
+      expect(german, k).toBeTruthy();
+      expect(names(german!), k).toEqual(names((en as Record<string, string>)[k]!));
+    }
     expect(readerWarningKey("docx.x")).toBe("reader.docx.x");
+  });
+
+  it("translates spreadsheet and presentation codes (W-26, P9-X2)", () => {
+    const iso = { code: "xlsx.cell.isoDate", params: { sheet: "Data", cell: "B2" }, text: 'sheet "Data": B2: ISO date cell kept as text', count: 1 };
+    expect(readerWarningText(iso, "de")).toBe("Blatt „Data“: B2: ISO-Datumszelle als Text behalten");
+    expect(readerWarningText(iso, "en")).toBe(iso.text);
+    const dash = { code: "pptx.line.dash", params: { value: "sysDot" }, text: "line dash sysDot read as dashed", count: 2 };
+    expect(readerWarningText(dash, "de")).toBe("Linienstrich sysDot als gestrichelt gelesen (2×)");
   });
 });

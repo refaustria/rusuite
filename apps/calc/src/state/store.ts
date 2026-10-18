@@ -9,6 +9,7 @@ import { useSyncExternalStore } from "react";
 import type { CellStylePatch, Color } from "@rusuite/ui-shared";
 import { CalcApiError, type CalcApi, type PatchEnvelope } from "../backend/calcApi";
 import type { CalcCommand } from "../generated/CalcCommand";
+import type { ReaderWarning } from "../generated/ReaderWarning";
 import type { AutoFilter } from "../generated/AutoFilter";
 import type { CellKind } from "../generated/CellKind";
 import type { FillMode } from "../generated/FillMode";
@@ -372,8 +373,8 @@ export interface CalcState {
   cycle: string | null;
   /** File name of the open document (`null` = new, unsaved). */
   name: string | null;
-  /** Reader warnings of the last opened file. */
-  warnings: string[];
+  /** Reader warnings of the last opened file (codes for the translated status bar, W-26). */
+  warnings: ReaderWarning[];
   /** Bumped on every cache change (the canvas redraws on it). */
   version: number;
   toasts: Toast[];

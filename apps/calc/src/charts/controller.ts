@@ -5,9 +5,7 @@
 // clipboard, laid-out scenes and the chart commands. It lives on the store
 // (`store.charts`) and redraws through the store's version.
 
-import {
-  approxTextWidth, basicFormat, CHART_FONT, elementBounds, formatGeneral, layoutChart, sameElement, setChartImageListener, type ChartElement, type ChartLabels, type ChartScene,
-} from "@rusuite/ui-shared";
+import { approxTextWidth, basicFormat, CHART_FONT, elementBounds, formatGeneral, layoutChart, sameElement, setChartImageListener, type ChartElement, type ChartLabels, type ChartScene, applyPreset, canon } from "@rusuite/ui-shared";
 import type { ManualLayout } from "../generated/ManualLayout";
 import type { Chart } from "../generated/Chart";
 import type { ChartAnchor } from "../generated/ChartAnchor";
@@ -20,7 +18,7 @@ import { normalize } from "../grid/Selection";
 import { t } from "../i18n";
 import type { CalcStore } from "../state/store";
 import { anchorRect, insertRect, rectToAnchor, type PxRect } from "./anchor";
-import { applyPreset, canon, presetById } from "./presets";
+import { presetById } from "./presets";
 import { switchRowCol } from "./refs";
 
 export interface ChartSelection {

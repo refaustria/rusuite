@@ -176,6 +176,22 @@ describe("Calc shortcuts", () => {
     await waitFor(() => expect(screen.getByTestId("status-bar").textContent).toMatch(/Saved/));
   });
 
+  it("F12 is Save As too, as in Excel (P9-X2); the backstage shows F12", async () => {
+    const { backend, grid } = await setup();
+    fireEvent.keyDown(grid, { key: "F12" });
+    const input = screen.getByLabelText("File name") as HTMLInputElement;
+    expect(input.value).toBe("Workbook.xlsx");
+    fireEvent.change(input, { target: { value: "f12" } });
+    fireEvent.submit(input.form!);
+    await waitFor(() => expect(backend.saved.map((s) => s.name)).toEqual(["f12.xlsx"]));
+    // From the formula bar as well (inField), and in the backstage's tooltip.
+    fireEvent.keyDown(screen.getByLabelText("Formula bar"), { key: "F12" });
+    expect(screen.getByLabelText("File name")).toBeTruthy();
+    fireEvent.keyDown(screen.getByLabelText("File name"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("tab", { name: "File" }));
+    expect(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name: "Save As…" }).title).toBe("Save As… (F12)");
+  });
+
   it("desktop: Ctrl+Shift+S goes straight to the save dialog; the chosen file names the workbook and Ctrl+S saves there", async () => {
     const { core, backend, grid } = await setup((b) => {
       b.kind = "tauri";
@@ -269,6 +285,7 @@ describe("Calc shortcuts", () => {
     const help = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
     expect(help.textContent).toContain("Select column");
     expect(help.textContent).toContain("Ctrl+Shift+S");
+    expect(help.textContent).toContain("F12");
     fireEvent.keyDown(help, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
   });

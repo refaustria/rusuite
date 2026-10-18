@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -76,8 +76,8 @@ function StatusBar({ store, backend, session, zoom }: { store: ShowStore; backen
       <AutosaveStatus session={session} />
       {info && <span data-testid="info">{info}</span>}
       {warnings.length > 0 && (
-        <span data-testid="warnings" title={warnings.join("\n")} className="truncate text-amber-600">
-          {t("status.warnings", { count: warnings.length, first: warnings[0] ?? "" })}
+        <span data-testid="warnings" title={warnings.map((w) => readerWarningText(w)).join("\n")} className="truncate text-amber-600">
+          {t("status.warnings", { count: warnings.length, first: warnings[0] ? readerWarningText(warnings[0]) : "" })}
         </span>
       )}
       <button type="button" className={`ml-auto rounded px-1 hover:bg-ui-hover ${notesVisible ? "text-ui-fg" : ""}`} aria-pressed={notesVisible} onClick={() => store.toggleNotes()}>

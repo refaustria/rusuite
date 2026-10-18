@@ -18,12 +18,13 @@ use quick_xml::Reader;
 use crate::a1::{cell_name, parse_cell, parse_range};
 use crate::dynarray::{from_file_ast, legacy_intersection, METADATA_REL};
 use crate::styles::parse_styles;
+use crate::warn::{note, Note, Warnings};
 use crate::xlfn::strip_xlfn_prefixes;
 use crate::xml::{
     attr, attr_bool, attr_parse, decode_x_escapes, name_of, parse_bool, push_ref, push_text,
     xml_err, xml_error,
 };
-use crate::{Error, Result, XlsxContext};
+use crate::{Error, ReaderWarning, Result, XlsxContext};
 
 /// Everything [`read_with_context`] returns.
 #[derive(Debug)]
@@ -31,8 +32,12 @@ pub struct ReadOutput {
     pub workbook: Workbook,
     /// File-level data to pass to [`write_with_context`](crate::write_with_context).
     pub context: XlsxContext,
-    /// Human-readable notes about content that was dropped or approximated.
+    /// Human-readable notes about content that was dropped or approximated
+    /// (English, one line per occurrence).
     pub warnings: Vec<String>,
+    /// The same notes with their stable codes and parameters, repeats
+    /// merged (for a translated UI, W-26).
+    pub details: Vec<ReaderWarning>,
 }
 
 /// Reads an `.xlsx` file. Unsupported content is dropped silently; use
@@ -51,7 +56,7 @@ pub fn read_with_warnings(bytes: &[u8]) -> Result<(Workbook, Vec<String>)> {
 /// part, default font) and warnings.
 pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     let pkg = Package::open(Cursor::new(bytes))?;
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings = Warnings::default();
     let main = pkg.main_document_part().ok_or_else(|| {
         Error::MissingPart("officeDocument relationship (xl/workbook.xml)".into())
     })?;
@@ -95,7 +100,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         dxfs = parsed.dxfs;
         num_fmts = parsed.num_fmts;
         if let Err(e) = wb.set_table_styles(parsed.table_styles) {
-            warnings.push(format!("table styles dropped: {e}"));
+            warnings.push(note!("xlsx.styles.tableStylesDropped", error = e));
         }
         consumed.insert(styles);
     }
@@ -120,15 +125,15 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     for entry in &book.sheets {
         let rel = rels.and_then(|r| r.get(&entry.rid));
         let Some(rel) = rel.filter(|r| r.target_mode == TargetMode::Internal) else {
-            warnings.push(format!("sheet {:?} has no part; dropped", entry.name));
+            warnings.push(note!("xlsx.sheet.noPart", sheet = entry.name));
             continue;
         };
         let chart_sheet = rel.rel_type == crate::chartsheet::CHARTSHEET_REL;
         if rel.rel_type != rel::WORKSHEET && !chart_sheet {
-            warnings.push(format!(
-                "sheet {:?} is not a worksheet ({}); dropped",
-                entry.name,
-                rel.rel_type.rsplit('/').next().unwrap_or("")
+            warnings.push(note!(
+                "xlsx.sheet.notWorksheet",
+                sheet = entry.name,
+                relType = rel.rel_type.rsplit('/').next().unwrap_or("")
             ));
             continue;
         }
@@ -211,7 +216,9 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
                     .transpose()?;
                 match target {
                     Some(d) => drawings.push((*id, name.clone(), d)),
-                    None => warnings.push(format!("sheet {name:?}: drawing {rid} is missing")),
+                    None => {
+                        warnings.push(note!("xlsx.drawing.relMissing", sheet = name, rid = rid))
+                    }
                 }
             }
         }
@@ -222,7 +229,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     for (id, name, part) in &chart_sheets {
         match crate::chartsheet::drawing_of(&pkg, part)? {
             Some(d) => drawings.push((*id, name.clone(), d)),
-            None => warnings.push(format!("chart sheet {name:?} has no chart")),
+            None => warnings.push(note!("xlsx.chartSheet.noChart", sheet = name)),
         }
     }
     // Hidden rows inside a filtered range that pass the filter were hidden
@@ -242,7 +249,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         let mut bound = Vec::new();
         for w in crate::drawing::load(&pkg, &mut wb, *id, part, &mut consumed, anchors, &mut bound)?
         {
-            warnings.push(format!("sheet {name:?}: {w}"));
+            warnings.push(w.with("sheet", name));
         }
         if !bound.is_empty() {
             pivot_charts.push((*id, name.clone(), bound));
@@ -251,7 +258,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     for (id, name, part, links) in pending_links {
         for w in load_links(&pkg, &mut wb, id, &part, links) {
-            warnings.push(format!("sheet {name:?}: {w}"));
+            warnings.push(w.with("sheet", &name));
         }
     }
 
@@ -260,7 +267,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     wb.set_persons(persons.clone());
     for (id, name, part) in &sheets {
         for w in crate::comments::load(&pkg, &mut wb, *id, part, &persons, &mut consumed)? {
-            warnings.push(format!("sheet {name:?}: {w}"));
+            warnings.push(w.with("sheet", name));
         }
     }
 
@@ -280,7 +287,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     }
     for (id, name, list) in &pivot_charts {
         for w in crate::drawing::bind_pivot_charts(&mut wb, *id, list) {
-            warnings.push(format!("sheet {name:?}: {w}"));
+            warnings.push(w.with("sheet", name));
         }
     }
 
@@ -301,9 +308,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     for &(id, is_hidden, very) in &hidden {
         if is_hidden && wb.set_sheet_visibility(id, true, very).is_err() {
             let name = wb.engine().sheet_name(id).unwrap_or_default().to_owned();
-            warnings.push(format!(
-                "sheet {name:?}: every sheet is hidden; this one is shown"
-            ));
+            warnings.push(note!("xlsx.sheet.allHidden", sheet = name));
         }
     }
 
@@ -316,13 +321,19 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
 
     for (name, part) in pkg.parts() {
         if !consumed.contains(name) {
-            warnings.push(format!("part {name} ({}) dropped", part.content_type));
+            warnings.push(note!(
+                "xlsx.package.partDropped",
+                part = name,
+                contentType = part.content_type
+            ));
         }
     }
+    let (warnings, details) = warnings.finish();
     Ok(ReadOutput {
         workbook: wb,
         context,
         warnings,
+        details,
     })
 }
 
@@ -335,13 +346,13 @@ fn load_links(
     sheet: SheetId,
     part: &PartName,
     links: Vec<RawLink>,
-) -> Vec<String> {
+) -> Vec<Note> {
     let mut warnings = Vec::new();
     let rels = pkg.relationships(part);
     let mut out = Vec::new();
     for l in links {
         let Some((r0, c0, r1, c1)) = parse_range(&l.r#ref) else {
-            warnings.push(format!("hyperlink on {:?} dropped", l.r#ref));
+            warnings.push(note!("xlsx.link.badRange", range = l.r#ref));
             continue;
         };
         let url = l
@@ -356,7 +367,7 @@ fn load_links(
             (Some(u), _) => model_sheet::LinkTarget::from_url(&u),
             (None, Some(loc)) => model_sheet::LinkTarget::Location { location: loc },
             (None, None) => {
-                warnings.push(format!("hyperlink on {} without target dropped", l.r#ref));
+                warnings.push(note!("xlsx.link.noTarget", range = l.r#ref));
                 continue;
             }
         };
@@ -371,7 +382,7 @@ fn load_links(
         });
     }
     if let Err(e) = wb.set_hyperlinks(sheet, out) {
-        warnings.push(format!("hyperlinks dropped: {e}"));
+        warnings.push(note!("xlsx.link.dropped", error = e));
     }
     warnings
 }
@@ -535,7 +546,7 @@ fn load_names(
     wb: &mut Workbook,
     names: &[RawName],
     by_index: &HashMap<usize, SheetId>,
-    warnings: &mut Vec<String>,
+    warnings: &mut Warnings,
 ) {
     for raw in names {
         let lower = raw.name.to_ascii_lowercase();
@@ -547,10 +558,7 @@ fn load_names(
             Some(i) => match by_index.get(&i) {
                 Some(id) => NameScope::Sheet(*id),
                 None => {
-                    warnings.push(format!(
-                        "defined name {:?}: its sheet is missing; dropped",
-                        raw.name
-                    ));
+                    warnings.push(note!("xlsx.name.sheetMissing", name = raw.name));
                     continue;
                 }
             },
@@ -567,9 +575,11 @@ fn load_names(
             builtin,
         };
         if let Err(e) = wb.define_name(&def) {
-            warnings.push(format!(
-                "defined name {:?} ({}) dropped: {e}",
-                raw.name, raw.text
+            warnings.push(note!(
+                "xlsx.name.dropped",
+                name = raw.name,
+                formula = raw.text,
+                error = e
             ));
         }
     }
@@ -666,10 +676,16 @@ struct CellBuf {
 }
 
 /// Elements we drop, with the wording used in the warning.
-const DROPPED: &[(&[u8], &str)] = &[
-    (b"picture", "background picture"),
-    (b"oleObjects", "OLE objects"),
-    (b"controls", "form controls"),
+/// Sheet elements dropped with a warning: (element, English name, code);
+/// the warnings come in the order of the names.
+const DROPPED: &[(&[u8], &str, &str)] = &[
+    (
+        b"picture",
+        "background picture",
+        "xlsx.sheet.backgroundPicture",
+    ),
+    (b"oleObjects", "OLE objects", "xlsx.sheet.oleObjects"),
+    (b"controls", "form controls", "xlsx.sheet.formControls"),
 ];
 
 struct SheetLoader<'a> {
@@ -680,7 +696,7 @@ struct SheetLoader<'a> {
     /// Differential formats of `styles.xml` (conditional formatting).
     dxfs: &'a [model_sheet::DxfStyle],
     sst: &'a [String],
-    warnings: &'a mut Vec<String>,
+    warnings: &'a mut Warnings,
     /// Shared formula index → (master AST, master row, master col).
     shared: HashMap<u32, (Expr, u32, u32)>,
     /// `(r0, c0, r1, c1)` of the array formulas read so far: their other
@@ -702,9 +718,8 @@ pub(crate) struct RawLink {
 }
 
 impl SheetLoader<'_> {
-    fn warn(&mut self, msg: String) {
-        self.warnings
-            .push(format!("sheet {:?}: {msg}", self.sheet_name));
+    fn warn(&mut self, note: Note) {
+        self.warnings.push(note.with("sheet", self.sheet_name));
     }
 
     fn style(&self, xf: usize) -> StyleId {
@@ -722,7 +737,7 @@ impl SheetLoader<'_> {
         let mut in_rph = false;
         let mut text = String::new();
         let mut merged: Vec<String> = Vec::new();
-        let mut dropped: BTreeSet<&'static str> = BTreeSet::new();
+        let mut dropped: BTreeSet<(&'static str, &'static str)> = BTreeSet::new();
         let mut view = SheetView::default();
         // 0 = before the first <sheetView>, 1 = inside it, 2 = after it
         // (only the first view is read).
@@ -887,8 +902,9 @@ impl SheetLoader<'_> {
                             }
                         }
                         name => {
-                            if let Some((_, what)) = DROPPED.iter().find(|(n, _)| *n == name) {
-                                dropped.insert(what);
+                            if let Some((_, what, code)) = DROPPED.iter().find(|(n, ..)| *n == name)
+                            {
+                                dropped.insert((what, code));
                             }
                         }
                     }
@@ -958,10 +974,10 @@ impl SheetLoader<'_> {
             }
         }
         if !bad.is_empty() {
-            self.warn(format!("invalid merged cells dropped: {}", bad.join(", ")));
+            self.warn(note!("xlsx.sheet.mergeInvalid", ranges = bad.join(", ")));
         }
-        for what in dropped {
-            self.warn(format!("{what} dropped"));
+        for (_, code) in dropped {
+            self.warn(Note::new(code, Vec::new()));
         }
         for w in crate::condfmt::load(self.wb, self.sheet, &rules, self.dxfs)? {
             self.warn(w);
@@ -985,7 +1001,7 @@ impl SheetLoader<'_> {
             let (c0, c1) = (af.c0, af.c1);
             af.columns.retain(|c| (c0..=c1).contains(&c.col));
             if af.columns.len() != before {
-                self.warn("filter columns outside the AutoFilter range dropped".into());
+                self.warn(note!("xlsx.filter.outsideRange"));
             }
             let rows: Vec<(u32, RowInfo)> = if af.columns.is_empty() {
                 Vec::new()
@@ -1076,9 +1092,7 @@ impl SheetLoader<'_> {
             "shared" if f.text.trim().is_empty() => {
                 let si = f.si?;
                 let Some((master, mr, mc)) = self.shared.get(&si) else {
-                    self.warn(format!(
-                        "{at}: shared formula {si} has no master; cached value kept"
-                    ));
+                    self.warn(note!("xlsx.formula.sharedNoMaster", cell = at, index = si));
                     return None;
                 };
                 let ast = offset_relative(
@@ -1089,9 +1103,7 @@ impl SheetLoader<'_> {
                 return Some((format!("={ast}"), ast));
             }
             "dataTable" => {
-                self.warn(format!(
-                    "{at}: data table formula dropped; cached value kept"
-                ));
+                self.warn(note!("xlsx.formula.dataTable", cell = at));
                 return None;
             }
             _ => {}
@@ -1137,8 +1149,11 @@ impl SheetLoader<'_> {
                 Some((input, ast))
             }
             Err(e) => {
-                self.warn(format!(
-                    "{at}: formula {input:?} not supported ({e}); cached value kept"
+                self.warn(note!(
+                    "xlsx.formula.unsupported",
+                    cell = at,
+                    formula = input,
+                    error = e
                 ));
                 None
             }
@@ -1154,7 +1169,11 @@ impl SheetLoader<'_> {
                 match self.sst.get(idx) {
                     Some(s) => Value::Text(s.clone()),
                     None => {
-                        self.warn(format!("{}: shared string {idx} out of range", at()));
+                        self.warn(note!(
+                            "xlsx.cell.sharedStringRange",
+                            cell = at(),
+                            index = idx
+                        ));
                         return None;
                     }
                 }
@@ -1165,12 +1184,12 @@ impl SheetLoader<'_> {
             "e" => match v?.trim().parse::<ErrorKind>() {
                 Ok(k) => Value::Error(k),
                 Err(_) => {
-                    self.warn(format!("{}: unknown error {:?} kept as text", at(), v?));
+                    self.warn(note!("xlsx.cell.unknownError", cell = at(), value = v?));
                     Value::Text(v?.to_owned())
                 }
             },
             "d" => {
-                self.warn(format!("{}: ISO date cell kept as text", at()));
+                self.warn(note!("xlsx.cell.isoDate", cell = at()));
                 Value::Text(v?.to_owned())
             }
             _ => match v?.trim() {
@@ -1178,7 +1197,7 @@ impl SheetLoader<'_> {
                 s => match s.parse::<f64>() {
                     Ok(n) if n.is_finite() => Value::Number(n),
                     _ => {
-                        self.warn(format!("{}: invalid number {s:?} dropped", at()));
+                        self.warn(note!("xlsx.cell.invalidNumber", cell = at(), value = s));
                         return None;
                     }
                 },
@@ -1221,7 +1240,7 @@ pub(crate) struct FilterReader {
     column: Option<(u32, Option<Filter>, bool)>,
     sort_state: Option<SortState>,
     in_sort: bool,
-    pub(crate) warnings: Vec<String>,
+    pub(crate) warnings: Vec<Note>,
     /// The workbook's differential formats (colour filters and colour
     /// sort conditions refer to them).
     pub(crate) dxfs: Vec<model_sheet::DxfStyle>,
@@ -1283,9 +1302,7 @@ impl FilterReader {
         match name {
             b"autoFilter" => match range(el) {
                 Some((r0, c0, r1, c1)) => self.auto_filter = Some(AutoFilter::new(r0, c0, r1, c1)),
-                None => self
-                    .warnings
-                    .push("auto filter without a valid range dropped".into()),
+                None => self.warnings.push(note!("xlsx.filter.noRange")),
             },
             b"filterColumn" => {
                 let base = self.auto_filter.as_ref().map(|af| af.c0);
@@ -1346,9 +1363,7 @@ impl FilterReader {
                             custom_list,
                         });
                     }
-                    _ => self
-                        .warnings
-                        .push("unsupported sort condition dropped".into()),
+                    _ => self.warnings.push(note!("xlsx.filter.unsupportedSort")),
                 }
             }
             _ => {
@@ -1502,9 +1517,9 @@ impl FilterReader {
         };
         match (filter, bad, self.auto_filter.as_mut()) {
             (Some(filter), false, Some(af)) => af.columns.push(FilterColumn { col, filter }),
-            _ => self.warnings.push(format!(
-                "unsupported filter of column {} dropped (time groups or other dynamic filters)",
-                engine_formula::ast::col_to_letters(col)
+            _ => self.warnings.push(note!(
+                "xlsx.filter.unsupportedColumn",
+                column = engine_formula::ast::col_to_letters(col)
             )),
         }
     }

@@ -41,6 +41,29 @@ describe("Show app in German", () => {
       setLocale("en", { persist: false });
     }
   });
+
+  it("translates the reader's warnings by their code; unknown codes keep the English text (W-26)", async () => {
+    setLocale("de", { persist: false });
+    try {
+      const { backend } = await mount();
+      backend.openWarnings = [
+        { code: "pptx.line.dash", params: { value: "sysDot" }, text: "line dash sysDot read as dashed", count: 2 },
+        { code: "pptx.notes.dropped", params: {}, text: "speaker notes dropped", count: 1 },
+        { code: "pptx.someday", params: {}, text: "something new dropped", count: 1 },
+      ];
+      backend.nextOpen = { name: "deck.pptx", bytesBase64: "UEsDBA==" };
+      fireEvent.click(screen.getByRole("tab", { name: "Datei" }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Datei" })).getByRole("button", { name: "Öffnen…" }));
+      const w = await screen.findByTestId("warnings");
+      expect(w.textContent).toBe("3 Warnungen: Linienstrich sysDot als gestrichelt gelesen (2×)");
+      expect(w.title).toContain("Sprechernotizen verworfen");
+      expect(w.title).toContain("something new dropped");
+      act(() => setLocale("en", { persist: false }));
+      await waitFor(() => expect(screen.getByTestId("warnings").textContent).toBe("3 warnings: line dash sysDot read as dashed (2×)"));
+    } finally {
+      setLocale("en", { persist: false });
+    }
+  });
 });
 
 describe("Show app", () => {

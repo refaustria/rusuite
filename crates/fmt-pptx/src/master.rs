@@ -16,6 +16,7 @@ use crate::drawing::{
     color_and_alpha, read_body_pr, read_color, read_fill, read_ppr, read_rpr, write_body_pr_with,
     write_color, write_color_with_alpha, write_fill, write_ppr_children, write_rpr, write_xfrm,
 };
+use crate::warn::note;
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
 use crate::Warnings;
 
@@ -129,7 +130,7 @@ pub fn read_background(bg: &El, w: &mut Warnings) -> Option<Background> {
         if let Some(p) = pr.child("pattFill") {
             let preset = p.attr("prst").unwrap_or("pct5");
             if !PATTERN_PRESETS.contains(&preset) {
-                w.add(format!("background pattern {preset} drawn as 50 %"));
+                w.add(note!("pptx.background.pattern", preset = preset));
             }
             let fg = p
                 .child("fgClr")

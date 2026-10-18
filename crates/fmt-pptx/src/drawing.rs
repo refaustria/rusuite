@@ -14,6 +14,7 @@ use model_show::{
 
 use crate::link::{read_hlink, write_hlink, LinkSink, LinkXml};
 
+use crate::warn::note;
 use crate::xml::{parse_bool, parse_i64, parse_u32, El, XmlOut};
 use crate::Warnings;
 
@@ -295,8 +296,8 @@ fn color_tint(el: &El, w: &mut Warnings) -> f64 {
             // outline is `shade 50000`, which model-show writes as −0.5)
             "shade" => other = -(1.0 - pct(c)),
             "tint" => other = 1.0 - pct(c),
-            "alpha" => w.add("color transparency (a:alpha) dropped"),
-            _ => w.add(format!("color modifier {} dropped", c.qname())),
+            "alpha" => w.add(note!("pptx.color.alpha")),
+            _ => w.add(note!("pptx.color.modifier", name = c.qname())),
         }
     }
     let t = if lum_off > 0.0 {
@@ -341,7 +342,7 @@ pub fn color_of(el: &El, w: &mut Warnings) -> Option<Color> {
             match preset_color(name) {
                 Some(rgb) => Some(rgb_with_mods(rgb, w)),
                 None => {
-                    w.add(format!("preset color {name} read as black"));
+                    w.add(note!("pptx.color.preset", name = name));
                     Some(Color::Rgb(Rgb::new(0, 0, 0)))
                 }
             }
@@ -363,7 +364,7 @@ pub fn color_of(el: &El, w: &mut Warnings) -> Option<Color> {
             })
         }
         "hslClr" => {
-            w.add("HSL colors (a:hslClr) dropped");
+            w.add(note!("pptx.color.hsl"));
             None
         }
         _ => None,
@@ -455,21 +456,21 @@ pub fn read_fill(parent: &El, w: &mut Warnings) -> Option<Fill> {
             "noFill" => return Some(Fill::None),
             "solidFill" => return Some(read_color(el, w).map_or(Fill::None, Fill::Solid)),
             "gradFill" => {
-                w.add("gradient fill read as its first color");
+                w.add(note!("pptx.fill.gradient"));
                 let color = el.find("gs").and_then(|gs| read_color(gs, w));
                 return Some(color.map_or(Fill::None, Fill::Solid));
             }
             "pattFill" => {
-                w.add("pattern fill read as its foreground color");
+                w.add(note!("pptx.fill.pattern"));
                 let color = el.child("fgClr").and_then(|c| read_color(c, w));
                 return Some(color.map_or(Fill::None, Fill::Solid));
             }
             "blipFill" => {
-                w.add("picture fill of a shape dropped");
+                w.add(note!("pptx.fill.picture"));
                 return Some(Fill::None);
             }
             "grpFill" => {
-                w.add("group fill (a:grpFill) dropped");
+                w.add(note!("pptx.fill.group"));
                 return Some(Fill::None);
             }
             _ => {}
@@ -532,16 +533,16 @@ pub fn read_line(ln: Option<&El>, style: Option<Line>, w: &mut Warnings) -> Line
     if let Some(d) = ln.child("prstDash") {
         let val = d.attr("val").unwrap_or("solid");
         line.dash = dash_from(val).unwrap_or_else(|| {
-            w.add(format!("line dash {val} read as dashed"));
+            w.add(note!("pptx.line.dash", value = val));
             LineDash::Dash
         });
     } else if ln.child("custDash").is_some() {
-        w.add("custom line dash read as dashed");
+        w.add(note!("pptx.line.customDash"));
         line.dash = LineDash::Dash;
     }
     if let Some(c) = ln.attr("cmpd") {
         line.compound = LineCompound::parse(c).unwrap_or_else(|| {
-            w.add(format!("line compound type {c} read as single"));
+            w.add(note!("pptx.line.compound", value = c));
             LineCompound::Single
         });
     }
@@ -619,7 +620,7 @@ pub fn read_arrows(ln: Option<&El>, w: &mut Warnings) -> (ArrowEnd, ArrowEnd) {
             "oval" => ArrowKind::Oval,
             "arrow" => ArrowKind::Arrow,
             other => {
-                w.add(format!("arrowhead {other} read as a triangle"));
+                w.add(note!("pptx.line.arrowhead", kind = other));
                 ArrowKind::Triangle
             }
         };
@@ -660,13 +661,13 @@ pub fn read_body_pr(bp: &El, props: &mut BodyProps, w: &mut Warnings) {
         Some("t") => props.anchor = Anchor::Top,
         Some("ctr") => props.anchor = Anchor::Middle,
         Some("b") => props.anchor = Anchor::Bottom,
-        Some(other) => w.add(format!("text anchor {other} read as top")),
+        Some(other) => w.add(note!("pptx.text.anchor", value = other)),
         None => {}
     }
     if let Some(v) = bp.attr("vert") {
         match TextDirection::from_ooxml(v) {
             Some(d) => props.vert = d,
-            None => w.add(format!("text direction {v} read as horizontal")),
+            None => w.add(note!("pptx.text.direction", value = v)),
         }
     }
     if let Some(n) = bp.attr("numCol").and_then(parse_u32) {
@@ -676,7 +677,7 @@ pub fn read_body_pr(bp: &El, props: &mut BodyProps, w: &mut Warnings) {
         props.column_spacing = Emu(v.max(0));
     }
     if bp.attr("rot").and_then(parse_i64).is_some_and(|r| r != 0) {
-        w.add("text rotation (a:bodyPr rot) dropped");
+        w.add(note!("pptx.text.rotation"));
     }
     for el in bp.elements() {
         match el.name.as_str() {
@@ -693,8 +694,8 @@ pub fn read_body_pr(bp: &El, props: &mut BodyProps, w: &mut Warnings) {
                     .map_or(0, |v| v.min(FULL_SCALE));
             }
             "spAutoFit" => props.autofit = Autofit::Resize,
-            "prstTxWarp" => w.add("text warp (WordArt) dropped"),
-            "scene3d" | "sp3d" | "flatTx" => w.add("3-D text dropped"),
+            "prstTxWarp" => w.add(note!("pptx.text.warp")),
+            "scene3d" | "sp3d" | "flatTx" => w.add(note!("pptx.text.threeD")),
             _ => {}
         }
     }
@@ -810,15 +811,15 @@ pub fn bullet_of(el: &El, w: &mut Warnings) -> Option<Bullet> {
                 .and_then(parse_u32)
                 .is_some_and(|n| n != 1)
             {
-                w.add("numbered list start value (startAt) dropped");
+                w.add(note!("pptx.bullet.startAt"));
             }
             Some(Bullet::AutoNum(autonum_from(t).unwrap_or_else(|| {
-                w.add(format!("numbering scheme {t} read as arabicPeriod"));
+                w.add(note!("pptx.bullet.scheme", scheme = t));
                 AutoNumScheme::ArabicPeriod
             })))
         }
         "buBlip" => {
-            w.add("picture bullets read as •");
+            w.add(note!("pptx.bullet.picture"));
             Some(Bullet::Char("•".to_owned()))
         }
         _ => None,
@@ -851,7 +852,7 @@ pub fn read_ppr(ppr: &El, w: &mut Warnings) -> TextParagraphProps {
         Some("r") => Some(Alignment::Right),
         Some("just") => Some(Alignment::Justify),
         Some(other) => {
-            w.add(format!("paragraph alignment {other} read as justified"));
+            w.add(note!("pptx.paragraph.alignment", value = other));
             Some(Alignment::Justify)
         }
         None => None,
@@ -864,7 +865,7 @@ pub fn read_ppr(ppr: &El, w: &mut Warnings) -> TextParagraphProps {
         p.level = l.min(8) as u8;
     }
     if ppr.attr("rtl").and_then(parse_bool) == Some(true) {
-        w.add("right-to-left paragraph direction dropped");
+        w.add(note!("pptx.paragraph.rtl"));
     }
     for el in ppr.elements() {
         match el.name.as_str() {
@@ -873,7 +874,7 @@ pub fn read_ppr(ppr: &El, w: &mut Warnings) -> TextParagraphProps {
             "spcAft" => p.spacing_after = read_spacing(el),
             "tabLst" => {
                 if el.elements().next().is_some() {
-                    w.add("tab stops dropped");
+                    w.add(note!("pptx.paragraph.tabs"));
                 }
             }
             "buClrTx" | "buClr" | "buSzTx" | "buSzPct" | "buSzPts" | "buFontTx" | "buFont"
@@ -882,7 +883,7 @@ pub fn read_ppr(ppr: &El, w: &mut Warnings) -> TextParagraphProps {
                 if let Some(b) = bullet_of(el, w) {
                     p.bullet = Some(b);
                 } else {
-                    w.add(format!("paragraph property {} dropped", el.qname()));
+                    w.add(note!("pptx.paragraph.propertyDropped", name = el.qname()));
                 }
             }
         }
@@ -965,32 +966,32 @@ pub fn read_rpr(rpr: &El, w: &mut Warnings) -> RunProperties {
             _ => VerticalAlign::Baseline,
         });
     if rpr.attr("cap").is_some_and(|c| c != "none") {
-        w.add("capitalization (cap) dropped");
+        w.add(note!("pptx.run.caps"));
     }
     if rpr.attr("spc").and_then(parse_i64).is_some_and(|s| s != 0) {
-        w.add("character spacing (spc) dropped");
+        w.add(note!("pptx.run.spacing"));
     }
     for el in rpr.elements() {
         match el.name.as_str() {
             "solidFill" => p.color = read_color(el, w),
             "gradFill" => {
-                w.add("gradient text fill read as its first color");
+                w.add(note!("pptx.run.gradient"));
                 p.color = el.find("gs").and_then(|gs| read_color(gs, w));
             }
-            "noFill" => w.add("invisible text (a:noFill) read as normal text"),
+            "noFill" => w.add(note!("pptx.run.noFill")),
             "highlight" => p.highlight = read_color(el, w),
             "latin" => p.font = el.attr("typeface").and_then(font_from_typeface),
-            "ln" => w.add("text outline dropped"),
+            "ln" => w.add(note!("pptx.run.outline")),
             "effectLst" | "effectDag" => {
                 if el.elements().next().is_some() {
-                    w.add("text effects dropped");
+                    w.add(note!("pptx.run.effects"));
                 }
             }
             // runs: read by `read_paragraph`
             "hlinkClick" => {}
-            "hlinkMouseOver" => w.add("mouse-over hyperlinks dropped"),
+            "hlinkMouseOver" => w.add(note!("pptx.run.mouseOver")),
             "ea" | "cs" | "sym" | "uLnTx" | "uLn" | "uFillTx" | "uFill" | "rtl" | "extLst" => {}
-            _ => w.add(format!("run property {} dropped", el.qname())),
+            _ => w.add(note!("pptx.run.propertyDropped", name = el.qname())),
         }
     }
     p
@@ -1125,8 +1126,8 @@ pub fn read_paragraph(p: &El, w: &mut Warnings) -> TextParagraph {
                 push_run(&mut para.runs, props, "\n", link);
             }
             "endParaRPr" | "extLst" => {}
-            "AlternateContent" => w.add("equations and alternate text content dropped"),
-            _ => w.add(format!("text content {} dropped", el.qname())),
+            "AlternateContent" => w.add(note!("pptx.text.equations")),
+            _ => w.add(note!("pptx.text.contentDropped", name = el.qname())),
         }
     }
     para
@@ -1144,7 +1145,7 @@ pub fn read_text_body(tx: &El, base: BodyProps, w: &mut Warnings) -> TextBody {
             "bodyPr" => read_body_pr(el, &mut body.props, w),
             "lstStyle" => {
                 if el.elements().next().is_some() {
-                    w.add("shape list styles (a:lstStyle) dropped");
+                    w.add(note!("pptx.text.listStyles"));
                 }
             }
             "p" => body.paragraphs.push(read_paragraph(el, w)),

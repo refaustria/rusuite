@@ -18,6 +18,7 @@ use fmt_ooxml::xml::{parse, parse_i64, El};
 use fmt_ooxml::{ct, rel, Package, PartName, Relationships, TargetMode};
 use model_sheet::{CellOffset, ChartAnchor, ChartObject, Workbook};
 
+use crate::warn::{note, Note};
 use crate::xml::{xml_error, XmlOut};
 use crate::Result;
 
@@ -115,16 +116,17 @@ pub(crate) fn load(
     consumed: &mut BTreeSet<PartName>,
     slicers: &mut Vec<(String, ChartAnchor)>,
     pivot_charts: &mut Vec<(u32, String)>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<Note>> {
     let mut warnings = Vec::new();
     let Some(part) = pkg.part(drawing) else {
-        warnings.push(format!("drawing {drawing} is missing"));
+        warnings.push(note!("xlsx.drawing.missing", part = drawing));
         return Ok(warnings);
     };
     consumed.insert(drawing.clone());
     let root = parse(&part.data, drawing.as_str()).map_err(xml_error)?;
     let rels = pkg.relationships(drawing);
-    let mut dropped: BTreeSet<&'static str> = BTreeSet::new();
+    // (English name, code): the warnings come in the order of the names.
+    let mut dropped: BTreeSet<(&'static str, &'static str)> = BTreeSet::new();
     let mut charts: Vec<ChartObject> = Vec::new();
     let mut pictures: Vec<model_sheet::Picture> = Vec::new();
     for anchor_el in root.elements() {
@@ -168,7 +170,10 @@ pub(crate) fn load(
                 "from" | "to" | "ext" | "pos" | "clientData" => {}
                 "graphicFrame" => {
                     let Some(rid) = obj.find("chart").and_then(|c| c.attr("id")) else {
-                        dropped.insert("graphic frames (SmartArt, tables, …)");
+                        dropped.insert((
+                            "graphic frames (SmartArt, tables, …)",
+                            "xlsx.drawing.graphicFrames",
+                        ));
                         continue;
                     };
                     let target = rels
@@ -176,7 +181,7 @@ pub(crate) fn load(
                         .filter(|r| r.target_mode == TargetMode::Internal)
                         .and_then(|r| drawing.resolve(&r.target).ok());
                     let Some(chart_part) = target.filter(|t| pkg.part(t).is_some()) else {
-                        warnings.push(format!("chart {rid} of {drawing} is missing"));
+                        warnings.push(note!("xlsx.chart.missing", rid = rid, part = drawing));
                         continue;
                     };
                     let data = &pkg.part(&chart_part).expect("checked").data;
@@ -205,7 +210,7 @@ pub(crate) fn load(
                         }
                         None => Some(w),
                     });
-                    warnings.extend(w.map(|w| format!("{chart_part}: {w}")));
+                    warnings.extend(w.map(|w| crate::warn::chart_note(&w, chart_part.as_str())));
                     consumed.insert(chart_part.clone());
                     // Office 2013 style and color parts are cosmetic.
                     if let Some(r) = pkg.relationships(&chart_part) {
@@ -247,7 +252,7 @@ pub(crate) fn load(
                             .and_then(|r| drawing.resolve(&r.target).ok())
                     });
                     let Some(media) = target.as_ref().and_then(|t| pkg.part(t)) else {
-                        warnings.push(format!("a picture of {drawing} has no image; dropped"));
+                        warnings.push(note!("xlsx.picture.noImage", part = drawing));
                         continue;
                     };
                     let content_type = if model_sheet::picture::PICTURE_TYPES
@@ -255,7 +260,10 @@ pub(crate) fn load(
                     {
                         media.content_type.clone()
                     } else {
-                        dropped.insert("pictures of unsupported image types");
+                        dropped.insert((
+                            "pictures of unsupported image types",
+                            "xlsx.drawing.unsupportedImages",
+                        ));
                         continue;
                     };
                     consumed.insert(target.expect("checked"));
@@ -282,29 +290,29 @@ pub(crate) fn load(
                 "AlternateContent" => match crate::slicer::drawing_slicer_name(obj) {
                     Some(name) => slicers.push((name, anchor)),
                     None => {
-                        dropped.insert("drawing objects");
+                        dropped.insert(("drawing objects", "xlsx.drawing.objects"));
                     }
                 },
                 "sp" | "cxnSp" => {
-                    dropped.insert("shapes");
+                    dropped.insert(("shapes", "xlsx.drawing.shapes"));
                 }
                 "grpSp" => {
-                    dropped.insert("shape groups");
+                    dropped.insert(("shape groups", "xlsx.drawing.groups"));
                 }
                 _ => {
-                    dropped.insert("drawing objects");
+                    dropped.insert(("drawing objects", "xlsx.drawing.objects"));
                 }
             }
         }
     }
-    for what in dropped {
-        warnings.push(format!("{what} dropped"));
+    for (_, code) in dropped {
+        warnings.push(Note::new(code, Vec::new()));
     }
     if let Err(e) = wb.set_charts(sheet, charts) {
-        warnings.push(format!("charts dropped: {e}"));
+        warnings.push(note!("xlsx.chart.dropped", error = e));
     }
     if let Err(e) = wb.set_pictures(sheet, pictures) {
-        warnings.push(format!("pictures dropped: {e}"));
+        warnings.push(note!("xlsx.picture.dropped", error = e));
     }
     Ok(warnings)
 }
@@ -369,7 +377,7 @@ pub(crate) fn bind_pivot_charts(
     wb: &mut Workbook,
     sheet: SheetId,
     list: &[(u32, String)],
-) -> Vec<String> {
+) -> Vec<Note> {
     let mut warnings = Vec::new();
     if list.is_empty() {
         return warnings;
@@ -394,13 +402,11 @@ pub(crate) fn bind_pivot_charts(
         });
         match (found, charts.iter_mut().find(|c| c.id == *chart)) {
             (Some(id), Some(c)) => c.pivot = Some(id),
-            _ => warnings.push(format!(
-                "the PivotChart of {source:?} has no pivot table; kept as a chart"
-            )),
+            _ => warnings.push(note!("xlsx.pivotChart.unbound", source = source)),
         }
     }
     if let Err(e) = wb.set_charts(sheet, charts) {
-        warnings.push(format!("charts dropped: {e}"));
+        warnings.push(note!("xlsx.chart.dropped", error = e));
     }
     wb.sync_pivot_charts();
     warnings

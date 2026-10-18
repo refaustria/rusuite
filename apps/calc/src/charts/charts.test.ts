@@ -1,3 +1,4 @@
+import { parseNumberField, resetSeriesFormat, setAxis, setLabels, setSecondary, setSeriesFill, applyChartStyle, applyColors, applyElement, applyPreset, applyQuickLayout, canon, colorsOf, elementState, labelPositions, QUICK_LAYOUTS } from "@rusuite/ui-shared";
 import { describe, expect, it } from "vitest";
 import type { Chart } from "../generated/Chart";
 import type { ChartAnchor } from "../generated/ChartAnchor";
@@ -5,11 +6,8 @@ import { AxisGeometry } from "../grid/geometry";
 import { anchorRect, handleAt, insertRect, moveRect, nearestEdge, rectToAnchor, resizeRect } from "./anchor";
 import { comboChart, recommendations, selectDataCommand, selectDataOps } from "./ChartDialogs";
 import { chartElements, elementName } from "./elements";
-import { parseNumberField, resetSeriesFormat, setAxis, setLabels, setSecondary, setSeriesFill } from "./format";
 import { chartRefMarks } from "./paint";
-import {
-  applyChartStyle, applyColors, applyElement, applyPreset, applyQuickLayout, canon, colorsOf, elementState, labelPositions, presetById, presetOf, QUICK_LAYOUTS,
-} from "./presets";
+import { presetById, presetOf } from "./presets";
 import { chartDataRange, dataRefText, nameText, parseDataRef, parseName, parseRange, rangeFormula, switchRowCol } from "./refs";
 import "../i18n";
 

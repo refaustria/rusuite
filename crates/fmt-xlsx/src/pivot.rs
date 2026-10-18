@@ -23,6 +23,7 @@ use model_sheet::{SheetId, StyleTable, Workbook};
 
 use crate::a1::{parse_range, range_name};
 use crate::styles::MAIN_NS;
+use crate::warn::{note, Note};
 use crate::xml::{fmt_num, xml_error, XmlOut};
 use crate::Result;
 
@@ -2044,7 +2045,7 @@ pub(crate) fn load(
     sheets: &[(SheetId, String, PartName)],
     num_fmts: &HashMap<u32, String>,
     consumed: &mut BTreeSet<PartName>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<Note>> {
     let mut warnings = Vec::new();
     let rels = pkg.relationships(main);
     let mut models: Vec<PivotCache> = Vec::new();
@@ -2054,19 +2055,17 @@ pub(crate) fn load(
             .and_then(|r| r.get(rid))
             .filter(|r| r.target_mode == TargetMode::Internal)
         else {
-            warnings.push(format!("pivot cache {id}: part missing; dropped"));
+            warnings.push(note!("xlsx.pivotCache.missing", id = id));
             continue;
         };
         let part = main.resolve(&r.target)?;
         if pkg.part(&part).is_none() {
-            warnings.push(format!("pivot cache {id}: part missing; dropped"));
+            warnings.push(note!("xlsx.pivotCache.missing", id = id));
             continue;
         }
         let (cache, unsupported) = read_cache(pkg, &part, *id, num_fmts, consumed)?;
         if let Some(why) = unsupported {
-            warnings.push(format!(
-                "pivot cache {id}: {why} not supported; kept read-only"
-            ));
+            warnings.push(note!("xlsx.pivotCache.unsupported", id = id, reason = why));
         }
         by_part.insert(part, *id);
         models.push(cache);
@@ -2082,7 +2081,7 @@ pub(crate) fn load(
         for r in srels.by_type(TABLE_REL) {
             let tpart = part.resolve(&r.target)?;
             let Some(data) = pkg.part(&tpart) else {
-                warnings.push(format!("sheet {name:?}: pivot table part missing"));
+                warnings.push(note!("xlsx.pivot.partMissing", sheet = name));
                 continue;
             };
             consumed.insert(tpart.clone());
@@ -2094,17 +2093,17 @@ pub(crate) fn load(
                 })
                 .unwrap_or(0);
             let Some(cache) = models.iter().find(|c| c.id == cache_id) else {
-                warnings.push(format!(
-                    "sheet {name:?}: pivot table without its cache dropped"
-                ));
+                warnings.push(note!("xlsx.pivot.noCache", sheet = name));
                 continue;
             };
             let (t, why) = read_table(&root, &data.data, cache, next_id, num_fmts);
             next_id += 1;
             if let Some(why) = why {
-                warnings.push(format!(
-                    "sheet {name:?}: pivot table {:?}: {why} not supported; kept read-only",
-                    t.name
+                warnings.push(note!(
+                    "xlsx.pivot.unsupported",
+                    sheet = name,
+                    name = t.name,
+                    reason = why
                 ));
             }
             if cache.refresh_on_load && cache.raw.is_none() {
@@ -2114,13 +2113,13 @@ pub(crate) fn load(
         }
         if !tables.is_empty() {
             if let Err(e) = wb.set_pivots(*sheet, tables) {
-                warnings.push(format!("sheet {name:?}: pivot tables dropped: {e}"));
+                warnings.push(note!("xlsx.pivot.dropped", sheet = name, error = e));
             }
         }
     }
     for id in refresh {
         if let Err(e) = wb.refresh_cache(id) {
-            warnings.push(format!("pivot cache {id}: refresh on load failed: {e}"));
+            warnings.push(note!("xlsx.pivotCache.refreshFailed", id = id, error = e));
         }
     }
     Ok(warnings)

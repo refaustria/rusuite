@@ -25,6 +25,7 @@ use quick_xml::events::BytesStart;
 
 use crate::a1::{cell_name, parse_range, range_name};
 use crate::styles::color_el;
+use crate::warn::{note, Note};
 use crate::xlfn::{add_xlfn_prefixes, strip_xlfn_prefixes};
 use crate::xml::XmlOut;
 use crate::Result;
@@ -648,15 +649,15 @@ pub(crate) fn load(
     sheet: SheetId,
     subtrees: &[El],
     dxfs: &[DxfStyle],
-) -> Result<Vec<String>> {
-    let mut warnings: Vec<String> = Vec::new();
+) -> Result<Vec<Note>> {
+    let mut warnings: Vec<Note> = Vec::new();
     let mut rules: Vec<(u32, usize, CfRule, Option<String>)> = Vec::new();
     let mut validations: Vec<DataValidation> = Vec::new();
     // x14 data bars by `id`, and the other x14 rules.
     let mut x14_bars: Vec<(String, El)> = Vec::new();
     let mut x14_other = 0;
-    let dv_error = |e: String, warnings: &mut Vec<String>| {
-        warnings.push(format!("data validation dropped ({e})"));
+    let dv_error = |e: String, warnings: &mut Vec<Note>| {
+        warnings.push(note!("xlsx.validation.dropped", error = e));
     };
     for el in subtrees {
         match el.name.as_str() {
@@ -676,11 +677,8 @@ pub(crate) fn load(
                                 x14_id(r),
                             ));
                         }
-                        (Ok(_), None) => warnings
-                            .push("conditional formatting without a valid sqref dropped".into()),
-                        (Err(e), _) => {
-                            warnings.push(format!("conditional formatting rule dropped ({e})"))
-                        }
+                        (Ok(_), None) => warnings.push(note!("xlsx.cf.noRange")),
+                        (Err(e), _) => warnings.push(note!("xlsx.cf.ruleDropped", error = e)),
                     }
                 }
             }
@@ -736,9 +734,7 @@ pub(crate) fn load(
         }
     }
     if x14_other > 0 {
-        warnings.push(format!(
-            "{x14_other} Excel 2010 conditional formatting extension(s) (x14) dropped"
-        ));
+        warnings.push(note!("xlsx.cf.x14Dropped", count = x14_other));
     }
     let mut rules: Vec<(u32, usize, CfRule)> =
         rules.into_iter().map(|(p, o, r, _)| (p, o, r)).collect();
@@ -749,12 +745,12 @@ pub(crate) fn load(
             ..rule
         };
         if let Err(e) = wb.add_cf_rule(sheet, rule) {
-            warnings.push(format!("conditional formatting rule dropped ({e})"));
+            warnings.push(note!("xlsx.cf.ruleDropped", error = e));
         }
     }
     for dv in validations {
         if let Err(e) = wb.set_validation(sheet, dv) {
-            warnings.push(format!("data validation dropped ({e})"));
+            warnings.push(note!("xlsx.validation.dropped", error = e));
         }
     }
     Ok(warnings)

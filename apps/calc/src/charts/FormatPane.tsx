@@ -5,7 +5,7 @@
 // legend, titles and trendlines. Every change is one undoable command.
 
 import { useState, type ReactNode } from "react";
-import { ColorPicker, type ChartElement, type Color } from "@rusuite/ui-shared";
+import { ColorPicker, type ChartElement, type Color, parseNumberField, setAxis, setLabels, setSecondary, setSeriesFill, setSeriesLine, setSeriesMarker, setSeriesProp, setTrendline, labelPositions } from "@rusuite/ui-shared";
 import type { Axis } from "../generated/Axis";
 import type { Chart } from "../generated/Chart";
 import type { LabelPosition } from "../generated/LabelPosition";
@@ -16,8 +16,6 @@ import type { TrendlineKind } from "../generated/TrendlineKind";
 import { useT } from "../i18n";
 import { useCalc, type CalcStore } from "../state/store";
 import { elementName } from "./elements";
-import { parseNumberField, setAxis, setLabels, setSecondary, setSeriesFill, setSeriesLine, setSeriesMarker, setSeriesProp, setTrendline } from "./format";
-import { labelPositions } from "./presets";
 import { AreaSection, ChartExtrasSection, ErrorBarSection, LabelExtrasSection, TextSection } from "./FormatPaneC6";
 import { setChartArea, setPlotArea } from "./extras";
 

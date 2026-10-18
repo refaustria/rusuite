@@ -26,6 +26,7 @@ use fmt_ooxml::{Package, PartName, Relationships, TargetMode};
 use model_sheet::{ChartAnchor, SheetId, Slicer, SlicerCache, SlicerSort, SlicerSource, Workbook};
 
 use crate::styles::MAIN_NS;
+use crate::warn::{note, Note};
 use crate::xml::XmlOut;
 use crate::Result;
 
@@ -457,7 +458,7 @@ pub(crate) fn load(
     sheets: &[(SheetId, String, PartName)],
     anchors: &HashMap<SheetId, Vec<(String, ChartAnchor)>>,
     consumed: &mut BTreeSet<PartName>,
-) -> Vec<String> {
+) -> Vec<Note> {
     let mut warnings = Vec::new();
     // (part number, cache): read in part order (the extLst lists pivot
     // caches before table caches).
@@ -472,19 +473,19 @@ pub(crate) fn load(
     };
     for rid in rids {
         let Some(part) = resolve(pkg, main, rid, SLICER_CACHE_REL) else {
-            warnings.push(format!("slicer cache {rid} is missing"));
+            warnings.push(note!("xlsx.slicerCache.relMissing", rid = rid));
             continue;
         };
         let Some(root) = pkg
             .part(&part)
             .and_then(|p| parse(&p.data, part.as_str()).ok())
         else {
-            warnings.push(format!("{part}: unreadable slicer cache dropped"));
+            warnings.push(note!("xlsx.slicerCache.unreadable", part = part));
             continue;
         };
         consumed.insert(part.clone());
         let (Some(name), Some(source_name)) = (root.attr("name"), root.attr("sourceName")) else {
-            warnings.push(format!("{part}: slicer cache without a name dropped"));
+            warnings.push(note!("xlsx.slicerCache.noName", part = part));
             continue;
         };
         let mut cache = SlicerCache {
@@ -502,9 +503,7 @@ pub(crate) fn load(
         if let Some(t) = table {
             let num = |a| t.attr(a).and_then(|v| v.trim().parse::<u32>().ok());
             let (Some(table), Some(column)) = (num("tableId"), num("column")) else {
-                warnings.push(format!(
-                    "{part}: table slicer cache without a table dropped"
-                ));
+                warnings.push(note!("xlsx.slicerCache.noTable", part = part));
                 continue;
             };
             cache.source = SlicerSource::Table { table, column };
@@ -514,9 +513,7 @@ pub(crate) fn load(
                 .attr("pivotCacheId")
                 .and_then(|v| v.trim().parse::<u32>().ok())
             else {
-                warnings.push(format!(
-                    "{part}: slicer cache without a pivot cache dropped"
-                ));
+                warnings.push(note!("xlsx.slicerCache.noPivot", part = part));
                 continue;
             };
             let pivots: Vec<u32> = root
@@ -541,8 +538,10 @@ pub(crate) fn load(
                     .iter()
                     .position(|f| f.name.eq_ignore_ascii_case(source_name))
             }) else {
-                warnings.push(format!(
-                    "{part}: slicer field {source_name:?} not found; dropped"
+                warnings.push(note!(
+                    "xlsx.slicerCache.fieldMissing",
+                    part = part,
+                    field = source_name
                 ));
                 continue;
             };
@@ -561,7 +560,7 @@ pub(crate) fn load(
                 pivots,
             };
         } else {
-            warnings.push(format!("{part}: unsupported slicer cache (OLAP?) dropped"));
+            warnings.push(note!("xlsx.slicerCache.unsupported", part = part));
             continue;
         }
         let number = part
@@ -590,7 +589,11 @@ pub(crate) fn load(
                 .part(&target)
                 .and_then(|p| parse(&p.data, target.as_str()).ok())
             else {
-                warnings.push(format!("sheet {name:?}: slicer part {target} is missing"));
+                warnings.push(note!(
+                    "xlsx.slicer.partMissing",
+                    sheet = name,
+                    part = target
+                ));
                 continue;
             };
             consumed.insert(target.clone());
@@ -603,9 +606,7 @@ pub(crate) fn load(
                     .and_then(|a| a.iter().find(|(n, _)| n == sname))
                     .map(|(_, a)| *a)
                 else {
-                    warnings.push(format!(
-                        "sheet {name:?}: slicer {sname:?} has no position; dropped"
-                    ));
+                    warnings.push(note!("xlsx.slicer.noPosition", sheet = name, name = sname));
                     continue;
                 };
                 let num = |a: &str| el.attr(a).and_then(|v| v.trim().parse::<i64>().ok());
@@ -668,12 +669,14 @@ pub(crate) fn load(
         for (_, list) in &mut per_sheet {
             list.retain(|s| kept.iter().any(|c| c.name.eq_ignore_ascii_case(&s.cache)));
         }
-        warnings.push(format!(
-            "{} of {n} slicer cache(s) dropped ({e})",
-            n - kept.len()
+        warnings.push(note!(
+            "xlsx.slicerCache.dropped",
+            dropped = n - kept.len(),
+            total = n,
+            error = e
         ));
         if let Err(e) = wb.set_slicer_state((kept, per_sheet)) {
-            warnings.push(format!("slicers dropped: {e}"));
+            warnings.push(note!("xlsx.slicer.dropped", error = e));
             let _ = wb.set_slicer_state((Vec::new(), Vec::new()));
         }
     }

@@ -9,6 +9,7 @@ import type { PathCmd } from "../generated/PathCmd";
 import type { PathQuery } from "../generated/PathQuery";
 import type { ShapePaths } from "../generated/ShapePaths";
 import type { Presentation } from "../generated/Presentation";
+import type { ReaderWarning } from "../generated/ReaderWarning";
 import type { Request } from "../generated/Request";
 import type { Shape } from "../generated/Shape";
 import type { ShowCommand } from "../generated/ShowCommand";
@@ -119,6 +120,8 @@ export class FakeBackend implements ShowBackend {
 
   /** What `peekPresentation` answers (Reuse Slides). */
   peek: Presentation | null = null;
+  /** The reader warnings `openPptx` replies with (W-26). */
+  openWarnings: ReaderWarning[] = [];
 
   /** Set by `restoreRecovery` (dirty until saved; the fake has no save). */
   restored = false;
@@ -867,7 +870,7 @@ export class FakeBackend implements ShowBackend {
         this.dirty = false;
         return ok({ type: "presentation", presentation: clone(this.pres), envelope: this.envelope({}) });
       case "openPptx":
-        return ok({ type: "opened", presentation: clone(this.pres), warnings: [], envelope: this.envelope({}) });
+        return ok({ type: "opened", presentation: clone(this.pres), warnings: clone(this.openWarnings), envelope: this.envelope({}) });
       case "savePptx":
         return ok({ type: "saved", bytesBase64: "UEsDBA==", suggestedName: "Presentation.pptx" });
       case "saveTheme":
