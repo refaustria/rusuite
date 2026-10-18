@@ -7,6 +7,7 @@
 // P9-LR2: also the browser-language detection per translated language and the carry-over from the portal to an
 // app (formerly the per-language specs i18n-l3/l4).
 // P9-LR3: pl/cs/sk/sl browsers with their region tags (pl-PL, cs-CZ, sk-SK, sl-SI).
+// P9-LR4: hr/hu/ro/bg browsers with their region tags (hr-HR, hu-HU, ro-RO, bg-BG).
 // `I18N_SHOTS=<dir>` also saves screenshots of the German UI there.
 
 import { expect, test, type Page } from "@playwright/test";
@@ -75,7 +76,7 @@ test.describe("German UI", () => {
 // P9-LR1: one spec for every translated language. Expected labels come from the catalogs
 // (support/i18n.ts), so a reworded catalog value does not break the test. A translation task adds its
 // language here once its catalogs have landed (P9-L3 … L11).
-const TRANSLATED = ["de", "fr", "es", "it", "pt", "nl", "sv", "da", "fi", "pl", "cs", "sk", "sl", "hr", "hu", "ro", "bg", "lv", "et"] as const;
+const TRANSLATED = ["de", "fr", "es", "it", "pt", "nl", "sv", "da", "fi", "pl", "cs", "sk", "sl", "hr", "hu", "ro", "bg", "el", "lt", "lv", "et"] as const;
 
 /** The browser language (BCP 47 with region) of the detection test; a language without an entry uses its bare code. */
 const BROWSER_TAG: Partial<Record<string, string>> = {
@@ -92,6 +93,10 @@ const BROWSER_TAG: Partial<Record<string, string>> = {
   cs: "cs-CZ",
   sk: "sk-SK",
   sl: "sl-SI",
+  hr: "hr-HR",
+  hu: "hu-HU",
+  ro: "ro-RO",
+  bg: "bg-BG",
   lv: "lv-LV",
   et: "et-EE",
 };

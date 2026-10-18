@@ -94,6 +94,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
 ## i18n follow-ups
+- From the LR reviews (2026-10-18): `i18n-check` should flag leading/trailing whitespace or control characters absent from English, mixed-script words in Cyrillic catalogs, and punctuation/ellipsis/length-ratio parity (catches index-slip swaps); the i18n e2e should open the contextual tabs (Sparkline, Chart, Picture) for the clipping scan; derive the spec's `TRANSLATED` list from the catalogs to stop the per-language merge conflicts.
 - Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
 
 ## Calc parity follow-ups

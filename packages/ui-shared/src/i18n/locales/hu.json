@@ -382,8 +382,8 @@
   "print.pages": "Oldalak",
   "print.paper.A3": "A3 (29,7 × 42 cm)",
   "print.paper.A4": "A4 (21 × 29,7 cm)",
-  "print.paper.Legal": "Legal (8,5 × 14 hüvelyk)",
-  "print.paper.Letter": "Letter (8,5 × 11 hüvelyk)",
+  "print.paper.Legal": "Legal (21,6 × 35,6 cm)",
+  "print.paper.Letter": "Letter (21,6 × 27,9 cm)",
   "print.paperSize": "Papírméret",
   "print.portrait": "Álló",
   "print.preparing": "Előkészítés…",
@@ -596,5 +596,5 @@
   "reader.docx.styles.childDropped": "{ctx}: a(z) {name} elhagyva",
   "reader.docx.styles.tableFormattingOnNonTable": "{ctx}: a nem táblázatstílus táblázatformázása elhagyva",
   "reader.docx.styles.conditionalDropped": "{ctx}: a(z) {kind} feltételes táblázatformázás elhagyva",
-  "reader.docx.styles.conditionalChildDropped": "{ctx}: a(z) {name} feltételes táblázat-/sorformázás elhagyva\n"
+  "reader.docx.styles.conditionalChildDropped": "{ctx}: a(z) {name} feltételes táblázat-/sorformázás elhagyva"
 }
