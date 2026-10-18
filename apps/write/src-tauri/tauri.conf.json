@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Rusuite Write",
-  "version": "0.1.0",
+  "version": "3.141.0",
   "identifier": "dev.rusuite.write",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -22,7 +22,7 @@
     "security": { "csp": null }
   },
   "bundle": {
-    "windows": { "wix": { "version": "0.1.0" } },
+    "windows": { "wix": { "version": "3.141.0" } },
     "active": true,
     "targets": "all",
     "icon": [

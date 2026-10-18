@@ -14,6 +14,9 @@ Release built by `.github/workflows/release.yml`; nothing is public until someon
    MSI (WiX) accepts only numeric versions, so a pre-release `X.Y.Z-pre.N` gets `bundle.windows.wix.version` =
    `X.Y.Z.N` (`0.1.0-rc.1` → `0.1.0.1`); a release gets `X.Y.Z`. Windows Installer compares only the first three
    fields, so an rc and its final release upgrade each other.
+   **π versions (docs/versioning.md):** `3.141.0` is a valid MSI version as is (MINOR 141 ≤ 255). The next cycle's
+   `3.1415.0` is not – WiX limits MINOR to 255 – so that release task changes `wix_version` in
+   `scripts/versions-lib.sh` (the single place; e.g. `3.1.4159.0`, BUILD ≤ 65535) before running `set-version.sh`.
 3. Regenerate `NOTICE` if dependencies changed: `scripts/gen-notice.sh` (needs `cargo-license`, docs/setup.md).
 4. Update `CHANGELOG.md`: move the finished items from **Unreleased** into the version's section (user language, no
    task ids; the source is the task board in STATUS.md and `git log`), refresh **Known limitations** from ROADMAP.md and
