@@ -60,5 +60,10 @@ link them).
 - `crates/fmt-pptx/src/tablestyle_powerpoint.xml` holds six `a:tblStyle` definitions exactly as PowerPoint writes them
   into `ppt/tableStyles.xml`. They were taken from the extraction published with *Dewiride PPTX Studio* (Apache-2.0),
   cross-checked with LibreOffice's `predefined-table-styles.cxx` (MPL-2.0). The content is PowerPoint's own output
-  (format data, not authored code); to be safe the release task (P9-R1) adds a "Data sources" paragraph to
-  `scripts/gen-notice.sh` naming both projects with their licences.
+  (format data, not authored code); to be safe `scripts/gen-notice.sh` writes a "Data sources" paragraph into
+  `NOTICE` naming both projects with their licences (done in P9-R1, together with the ECMA-376 preset geometry of
+  item 5 and the table style GUIDs).
+
+State at 3.141 (P9-R1, NOTICE regenerated 2026-10-18): 447 crates and 63 npm packages, licence groups unchanged
+(still the same five MPL-2.0 crates, no GPL). New in the list since 0.1.0-rc.1: the report relay's `axum`, `axum-core`, `matchit`, `httpdate`, `serde_path_to_error` (item 8; listed
+because the relay is a workspace member, although it is not shipped in the apps) and `html-to-image`.
