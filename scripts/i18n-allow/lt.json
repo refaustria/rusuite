@@ -1,0 +1,8 @@
+{
+  "register": {},
+  "untranslated": {
+    "apps/write/src/locales:write.bevel.artDeco": "Office bevel preset name \"Art Deco\", a proper name kept in every language",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "number format sample (roman numerals), the same in every language",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number format sample (roman numerals), the same in every language"
+  }
+}

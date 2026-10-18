@@ -1,0 +1,9 @@
+{
+  "register": {
+    "apps/portal/locales:portal.dl.win.1": "quotes the Windows SmartScreen dialog verbatim (Greek Windows says \"Τα Windows προστάτευσαν τον υπολογιστή σας\"); it is the OS's own wording, not an address to the user"
+  },
+  "untranslated": {
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "number format sample (roman numerals), the same in every language",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number format sample (roman numerals), the same in every language"
+  }
+}
