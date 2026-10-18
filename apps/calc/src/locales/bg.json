@@ -899,7 +899,7 @@
   "calc.filter.values": "Стойности",
   "calc.filter.wildcards": "Използвай ? за всеки единичен знак и * за всяка поредица от знаци.",
   "calc.find.hideReplace": "Скриване на замяната",
-  "calc.find.matchCase": "Главни и малки букви",
+  "calc.find.matchCase": "Различаване на главни и малки букви",
   "calc.find.next": "Намери следващото",
   "calc.find.noMatch": "Не е намерено съвпадение.",
   "calc.find.prev": "Намери предишното",

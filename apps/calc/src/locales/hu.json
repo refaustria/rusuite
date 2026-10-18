@@ -1319,7 +1319,7 @@
   "calc.pivot.filterPagesShow": "Az összes jelentésszűrő-oldal megjelenítése:",
   "calc.pivot.filterPagesTitle": "Jelentésszűrő-oldalak megjelenítése",
   "calc.pivot.filterPanel": "{field} szűrője",
-  "calc.pivot.forEmpty": "Üres cellák esetén ezt jelenítse meg:",
+  "calc.pivot.forEmpty": "Üres cellák esetén megjelenítendő:",
   "calc.pivot.forErrors": "Hibaértékek esetén ezt jelenítse meg:",
   "calc.pivot.format": "Formátum",
   "calc.pivot.formatCode": "Formátumkód",
@@ -1524,9 +1524,9 @@
   "calc.print.fitSheet": "A munkalap egy oldalra",
   "calc.print.footerHint": "&P. oldal / &N",
   "calc.print.headings": "Sor- és oszlopfejlécek",
-  "calc.print.margins.narrow": "Keskeny (0,75 / 0,25 hüvelyk)",
-  "calc.print.margins.normal": "Normál (0,75 / 0,7 hüvelyk)",
-  "calc.print.margins.wide": "Széles (1 hüvelyk)",
+  "calc.print.margins.narrow": "Keskeny (1,9 / 0,6 cm)",
+  "calc.print.margins.normal": "Normál (1,9 / 1,8 cm)",
+  "calc.print.margins.wide": "Széles (2,5 cm)",
   "calc.print.noScaling": "Nincs méretezés (100 %)",
   "calc.print.noteLabel": "Jegyzet",
   "calc.print.repeatRows": "Felül ismétlődő sorok",
@@ -2095,5 +2095,5 @@
   "calc.wizard.thousands": "Ezreselválasztó",
   "calc.wizard.ttcButton": "Szövegből oszlopok",
   "calc.wizard.ttcTitle": "Szöveg oszlopokká alakítása varázsló",
-  "calc.workbookViews": "Munkafüzetnézetek\n"
+  "calc.workbookViews": "Munkafüzetnézetek"
 }

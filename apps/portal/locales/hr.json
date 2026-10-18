@@ -18,7 +18,7 @@
   "portal.dl.released": "Objavljeno {date}",
   "portal.dl.prerelease": "Predizdanje",
   "portal.dl.unsigned.title": "Ove inačice još nisu potpisane – sustav će te upozoriti jednom",
-  "portal.dl.unsigned.text": "Instalacijski programi još nisu potpisani kodom, pa Windows i macOS upozoravaju pri prvom otvaranju svake aplikacije. To je očekivano i nije znak oštećenja; koraci za tvoj sustav nalaze se odmah iznad gumba za preuzimanje. Da bi bio siguran da je datoteka ona koju smo izgradili, usporedi njezin SHA-256 kontrolni zbroj s popisom ispod.",
+  "portal.dl.unsigned.text": "Instalacijski programi još nisu potpisani kodom, pa Windows i macOS upozoravaju pri prvom otvaranju svake aplikacije. To je očekivano i nije znak oštećenja; koraci za tvoj sustav nalaze se odmah iznad gumba za preuzimanje. Da provjeriš je li datoteka ona koju smo izgradili, usporedi njezin SHA-256 kontrolni zbroj s popisom ispod.",
   "portal.dl.recommended": "Preporučeno za ovaj uređaj",
   "portal.dl.checksums": "SHA-256 kontrolni zbrojevi",
   "portal.dl.verify": "Izračunaj kontrolni zbroj datoteke naredbom <code>{command}</code> i usporedi ga s popisom.",
@@ -88,7 +88,7 @@
   "portal.write.open": "Otvori Write u pregledniku",
   "portal.write.text": "Stilovi, popisi, tablice, slike, zaglavlja i podnožja s prikazom stranice – sprema se kao <code>.docx</code>.",
   "portal.privacy.h.connections": "Veze s tvojim vlastitim oblakom (samo aplikacije za stolna računala)",
-  "portal.privacy.connections": "Veze s tvojim vlastitim oblakom i AI asistent postoje samo u aplikacijama za stolna računala. Web-mjesto nikad ne kontaktira drugi poslužitelj: njegova sigurnosna politika dopušta zahtjeve samo prema ovom web-mjestu, a Calc, Write i Show na webu ne prikazuju veze ni AI asistenta. U aplikacijama za stolna računala možeš otvarati i spremati datoteke na WebDAV poslužitelju koji koristiš – Nextcloud, ownCloud, NAS ili uslugu pohrane u oblaku – u Datoteka › Otvori › Dodaj vezu…. Ništa se ne događa dok to ne učiniš: Rusuite ne nudi vlastiti oblak, ne registrira aplikacije pružatelja i nije uključen nikakav Rusuite poslužitelj. Jedini poslužitelj kojem se pristupa je onaj koji si konfigurirao, izravno iz aplikacije, i to samo kad ondje pregledavaš, otvaraš ili spremaš. Veza i – samo ako označiš „Zapamti lozinku na ovom uređaju” – njezina lozinka ostaju na ovom uređaju (mapa s podacima aplikacije i sistemski privjesak ključeva). Datoteka › Početna › Privatnost › Zaboravi sve veze uklanja ih.",
+  "portal.privacy.connections": "Veze s tvojim vlastitim oblakom i AI asistent postoje samo u aplikacijama za stolna računala. Web-mjesto nikad ne kontaktira drugi poslužitelj: njegova sigurnosna politika dopušta zahtjeve samo prema ovom web-mjestu, a Calc, Write i Show na webu ne prikazuju veze ni AI asistenta. U aplikacijama za stolna računala možeš otvarati i spremati datoteke na WebDAV poslužitelju koji koristiš – Nextcloud, ownCloud, NAS ili uslugu pohrane u oblaku – u Datoteka › Otvori › Dodaj vezu…. Ništa se ne događa dok to ne učiniš: Rusuite ne nudi vlastiti oblak, ne registrira aplikacije pružatelja i nije uključen nikakav Rusuite poslužitelj. Jedini poslužitelj kojem se pristupa je onaj koji je konfiguriran, izravno iz aplikacije, i to samo kad ondje pregledavaš, otvaraš ili spremaš. Veza i – samo ako označiš „Zapamti lozinku na ovom uređaju” – njezina lozinka ostaju na ovom uređaju (mapa s podacima aplikacije i sistemski privjesak ključeva). Datoteka › Početna › Privatnost › Zaboravi sve veze uklanja ih.",
   "portal.privacy.h.ai": "AI asistent (samo aplikacije za stolna računala, tvoj vlastiti račun)",
   "portal.privacy.ai": "AI asistent postoji samo u aplikacijama za stolna računala; web-mjesto nikad ne kontaktira drugi poslužitelj. U aplikacijama Calc, Write i Show za stolna računala isključen je dok ga ne uključiš u Datoteka › Mogućnosti… › AI i ne uneseš API ključ svog vlastitog računa kod pružatelja (Anthropicov Claude ili usluga kompatibilna s OpenAI-jem, uključujući lokalne poslužitelje kao što je Ollama). Rusuite ne pokreće nikakvu AI uslugu ni poslužitelj između. Tekst koji odabereš – uz jednoredni opis dokumenta (naslov i brojevi) te cijeli dokument samo ako označiš „Uključi cijeli dokument” – šalje se izravno iz aplikacije odabranom pružatelju, i to samo kad koristiš AI radnju ili pritisneš Testiraj; za te podatke vrijede uvjeti pružatelja. Ključ ostaje u sistemskom privjesku ključeva; „Zaboravi ključ” ga uklanja. Razgovori se ne pohranjuju.",
   "portal.privacy.h.report": "Prijava problema (neobavezno, javno)",
@@ -108,10 +108,10 @@
   "portal.soon.item1": "<strong>Mobilni uređaji</strong> – planiraju se Android i iOS aplikacije za Calc, Write i Show.",
   "portal.soon.item2": "<strong>Oblak</strong> – planiraju se dodatne veze s oblakom u aplikacijama za stolna računala: Google Drive, OneDrive, Dropbox i S3.",
   "portal.soon.item3": "<strong>AI asistent</strong> – planiraju se unos slika i brži kontekst cijelog dokumenta.",
-  "portal.soon.item4": "<strong>Calc</strong> – planiraju se filtri za izrezivanje (slicers), minigrafikoni (sparklines), zaštita lista i Flash Fill.",
+  "portal.soon.item4": "<strong>Calc</strong> – planiraju se rezači, minigrafikoni, zaštita lista i brzo popunjavanje.",
   "portal.soon.item5": "<strong>Write</strong> – planiraju se povezani tekstni okviri, grupirani oblici i predlošci.",
   "portal.soon.item6": "<strong>Show</strong> – planiraju se dodatni stilovi tablica, slobodno crtanje i skraćivanje medija.",
   "portal.soon.item7": "<strong>Jezici</strong> – planiraju se dodatni jezici sučelja.",
   "portal.soon.close": "Tvoje povratne informacije određuju redoslijed: reci nam što trebaš putem izbornika ? Pomoć u aplikaciji (Prijavi problem…).",
-  "portal.soon.link": "Što dolazi uskoro\n"
+  "portal.soon.link": "Što dolazi uskoro"
 }

@@ -18,7 +18,7 @@
   "portal.dl.released": "Publicată la {date}",
   "portal.dl.prerelease": "Versiune preliminară",
   "portal.dl.unsigned.title": "Aceste versiuni nu sunt încă semnate – sistemul tău te va avertiza o singură dată",
-  "portal.dl.unsigned.text": "Programele de instalare nu sunt încă semnate digital, așa că Windows și macOS te avertizează la prima deschidere a fiecărei aplicații. Este normal și nu indică nicio problemă; pașii pentru sistemul tău se află chiar deasupra butoanelor de descărcare. Ca să fii sigur că un fișier este cel construit de noi, compară suma lui de control SHA-256 cu lista de mai jos.",
+  "portal.dl.unsigned.text": "Programele de instalare nu sunt încă semnate digital, așa că Windows și macOS te avertizează la prima deschidere a fiecărei aplicații. Este normal și nu indică nicio problemă; pașii pentru sistemul tău se află chiar deasupra butoanelor de descărcare. Ca să verifici că un fișier este cel construit de noi, compară suma lui de control SHA-256 cu lista de mai jos.",
   "portal.dl.recommended": "Recomandat pentru acest dispozitiv",
   "portal.dl.checksums": "Sume de control SHA-256",
   "portal.dl.verify": "Calculează suma de control a unui fișier cu <code>{command}</code> și compară-o cu lista.",
