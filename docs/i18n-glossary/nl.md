@@ -376,3 +376,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Go To Special… / Special… | Selecteren speciaal… / Speciaal… | Calc |
 | Picture Format / Alt Text | Afbeeldingsopmaak / Alternatieve tekst | Calc |
 | Mention someone | Iemand vermelden | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Redeneren | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | genegeerd | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | gelezen als | reader warnings |
+| dangling relationship | ongeldige relatie | reader warnings |
+| Custom show (PowerPoint) | Aangepaste voorstelling | `reader.pptx.customShow.*` |
+| Pivot cache | draaitabelcache | `reader.xlsx.pivotCache.*` |

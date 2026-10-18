@@ -388,3 +388,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Go To Special… / Special… | Idi na posebno… / Posebno… | Calc |
 | Picture Format / Alt Text | Oblikovanje slike / Alternativni tekst | Calc |
 | Mention someone | Spomeni nekoga | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Razmišljanje | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | izostavljen(a/o/i/e) | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | pročitan(a/o) kao | reader warnings |
+| dangling relationship | nepostojeća veza | reader warnings |
+| Custom show (PowerPoint) | Prilagođena prezentacija | `reader.pptx.customShow.*` |
+| Pivot cache | predmemorija zaokretne tablice | `reader.xlsx.pivotCache.*` |

@@ -389,3 +389,13 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 - The PowerPoint transition names (Show › Transitions) and effect names are translated descriptively, not from a running Irish PowerPoint.
 - Plural/mutation forms: checked in P9-LR5 (lenition after 1–6, eclipsis after 7–10); a native speaker should still proof-read the `.other` forms for 11–19 ("aon … déag").
 - Terms added by P9-LR5 from tearma.ie: Running Total = "Iomlán Reatha", Grand Total = "Móriomlán", gutter margin = "corrlach ceangail", underscore = "fostríoc", Ripple = "Cuilithín", Switch (transition) = "Malartú".
+
+## Terms added by P9-LF pass 2 (AI settings, reader warnings)
+| English | Office term | Note |
+| --- | --- | --- |
+| Reasoning (AI setting, reasoning_effort) | Réasúnaíocht | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | scaoileadh … | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | léadh … mar | reader warnings |
+| dangling relationship | caidreamh scaoilte | reader warnings |
+| Custom show (PowerPoint) | Taispeántas saincheaptha | `reader.pptx.customShow.*` |
+| Pivot cache | taisce Tábla Pivot | `reader.xlsx.pivotCache.*` |

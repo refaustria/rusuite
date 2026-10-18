@@ -371,3 +371,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Alt text | Alternatyvusis tekstas | |
 | Hyperlink | Hipersaitas | |
 | Margins | Paraštės | |
+| Reasoning (AI setting, reasoning_effort) | Samprotavimas | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | pašalintas/a/i/os | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | nuskaitytas/a kaip | reader warnings |
+| dangling relationship | nutrūkęs ryšys | reader warnings |
+| Custom show (PowerPoint) | Pasirinktinis demonstravimas | `reader.pptx.customShow.*` |
+| Pivot cache | suvestinės talpykla | `reader.xlsx.pivotCache.*` |

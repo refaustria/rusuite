@@ -377,3 +377,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Go To Special… / Special… | Salt la special… / Special… | Calc |
 | Picture Format / Alt Text | Format imagine / Text alternativ | Calc |
 | Mention someone | Menționează pe cineva | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Raționament | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | ignorat(ă)/ignorate | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | citit(ă) ca | reader warnings |
+| dangling relationship | relație nevalidă | reader warnings |
+| Custom show (PowerPoint) | Expunere particularizată | `reader.pptx.customShow.*` |
+| Pivot cache | cache PivotTable | `reader.xlsx.pivotCache.*` |

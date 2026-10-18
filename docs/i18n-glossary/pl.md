@@ -379,3 +379,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | Go To Special… / Special… | Przejdź do — specjalnie… / Specjalnie… (title: Przechodzenie do — specjalnie) | Calc |
 | Picture Format / Alt Text | Format obrazu / Tekst alternatywny | Calc |
 | Mention someone | Wspomnij o kimś | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Rozumowanie | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | pominięto … | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | odczytano jako | reader warnings |
+| dangling relationship | nieistniejąca relacja | reader warnings |
+| Custom show (PowerPoint) | Pokaz niestandardowy | `reader.pptx.customShow.*` |
+| Pivot cache | pamięć podręczna tabeli przestawnej | `reader.xlsx.pivotCache.*` |

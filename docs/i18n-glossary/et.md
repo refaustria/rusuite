@@ -372,3 +372,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Gridlines / Guides | Ruudujooned / Juhised | |
 | Comment / Note (Calc) | Kommentaar / Märge | |
 | Hyperlink / ScreenTip | Hüperlink / Ekraanivihje | |
+| Reasoning (AI setting, reasoning_effort) | Arutlemine | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | jäeti välja | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | loeti …ks / kujul | reader warnings |
+| dangling relationship | rippuv seos | reader warnings |
+| Custom show (PowerPoint) | Kohandatud seanss | `reader.pptx.customShow.*` |
+| Pivot cache | PivotTable-vahemälu | `reader.xlsx.pivotCache.*` |

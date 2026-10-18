@@ -372,3 +372,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Gridlines / Guides | Režģlīnijas / Palīglīnijas | |
 | Comment / Note (Calc) | Komentārs / Piezīme | |
 | Hyperlink / ScreenTip | Hipersaite / Ekrāna padoms | |
+| Reasoning (AI setting, reasoning_effort) | Spriešana | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | izlaists/a/i/as | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | nolasīts/a kā | reader warnings |
+| dangling relationship | nederīga attiecība | reader warnings |
+| Custom show (PowerPoint) | Pielāgota slaidrāde | `reader.pptx.customShow.*` |
+| Pivot cache | rakurstabulas kešatmiņa | `reader.xlsx.pivotCache.*` |

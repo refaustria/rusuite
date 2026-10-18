@@ -378,3 +378,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Go To Special… / Special… | Отиване на специални… / Специални… | Calc |
 | Picture Format / Alt Text | Формат на картината / Алтернативен текст | Calc |
 | Mention someone | Споменаване на някого | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Разсъждение | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | … е пропуснат(а/о/и) | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | прочетен(а/о) като | reader warnings |
+| dangling relationship | невалидна релация | reader warnings |
+| Custom show (PowerPoint) | Персонализирано шоу | `reader.pptx.customShow.*` |
+| Pivot cache | кеш на обобщена таблица | `reader.xlsx.pivotCache.*` |
