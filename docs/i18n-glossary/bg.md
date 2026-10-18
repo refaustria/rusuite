@@ -374,3 +374,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | AI assistant | AI асистент | |
 | Entrance / Emphasis / Exit | Влизане / Акцентиране / Излизане | Show animations; "Подчертаване" is Underline |
 | Diagonal (pattern) | диагонал (m.): "Светъл низходящ диагонал" | |
+| Split (View) | Разделяне | Calc (P9-LF) |
+| Go To Special… / Special… | Отиване на специални… / Специални… | Calc |
+| Picture Format / Alt Text | Формат на картината / Алтернативен текст | Calc |
+| Mention someone | Споменаване на някого | Calc comments |
