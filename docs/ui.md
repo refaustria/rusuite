@@ -28,7 +28,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Keyboard](#keyboard)
 - [Tabs per app](#tabs-per-app)
 - [Cloud connections (P8-36)](#cloud-connections-p8-36)
-- [AI assistant (P8-37)](#ai-assistant-p8-37)
+- [AI assistant (P8-37)](#ai-assistant-p8-37) (round 2: [P9-A1](#ai-assistant-round-2-p9-a1))
 - [Save and Save As on the desktop (P7-7)](#save-and-save-as-on-the-desktop-p7-7)
 - [Unsaved changes (P7-6)](#unsaved-changes-p7-6)
 - [Show: slide show and presenter view (P7-8)](#show-slide-show-and-presenter-view-p7-8)
@@ -1104,6 +1104,30 @@ selection summary, Insert / Replace buttons).
 - **Errors** in the turn, localized by kind with the provider's message: wrong key, rate limit ("Try again in N s"),
   overloaded, offline / interrupted, CORS, **CSP** ("This site's security policy does not allow connections to the
   AI provider…" – only when the page has a CSP; the desktop apps have none and the web build does not offer the assistant), refusal, cut off (raise Max tokens), no usable result.
+
+### AI assistant round 2 (P9-A1)
+
+- **Options › AI** adds **Reasoning** (Off / Low / Medium / High, default Low; Anthropic only – disabled with "Used with
+  Anthropic models only." for OpenAI-compatible), **Reply in** ("Interface language (<language>)" – default –,
+  "Language of the document", the 24 languages by their own names) and, for OpenAI-compatible endpoints, "This model
+  accepts pictures (vision)" (per model id). Max tokens defaults to 16 000 (reasoning counts against it). **Test**
+  lists the models and sends a 1-token request to the chosen model: "Connected. The provider lists N models.
+  <model> answered.", "Connected (the provider offers no model list). <model> answered.", or "Test failed – <class>:"
+  / "The key works, but <model> failed – <class>:" followed by the localized error (classes: API key, rate limit or
+  overload, model or request, connection, provider error).
+- **Pane**: per turn a collapsed **Thinking…** expander with the streamed reasoning summary (never part of Insert /
+  Replace / Copy), "Pictures sent: …", the whole-document state ("The whole document was sent and cached for follow-up
+  questions." / "…unchanged: read from the provider's cache." / "The document changed since the last question: sent
+  again."), and the usage line "N in · M out tokens · R from cache · W written to cache · <model> · reasoning: <level>";
+  the session line adds "(R from cache)". Under the chips: **Attach selected picture** (Write, Show), **Attach current
+  slide as image** (Show) – disabled with a reason without a picture or when the model takes no pictures – and the
+  pictures waiting for the next question (thumbnail, label, size, ×).
+- **New actions**: Write and Show – **Describe picture → alt text** (the selected picture is sent; **Set as alt text**
+  writes it through the alt-text command – Write `SetImageAlt`, Show `setAltText`). Calc and Show – **Explain this
+  chart** (the selected chart drawn as a PNG plus its data table; Calc: **Insert as note** under the chart's top-left
+  cell; Show: **Add to speaker notes**). Formula from description and Transform range think at least at Medium.
+- **Ribbon**: the Home tab's AI group collapses last (it was first; in Show's German Home tab at 1400 px it collapsed
+  into a "KI ▾" button although that saved 9 px).
 
 ## Save and Save As on the desktop (P7-7)
 
