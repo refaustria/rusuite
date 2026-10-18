@@ -7,6 +7,7 @@
 // P9-LR2: also the browser-language detection per translated language and the carry-over from the portal to an
 // app (formerly the per-language specs i18n-l3/l4).
 // P9-LR3: pl/cs/sk/sl browsers with their region tags (pl-PL, cs-CZ, sk-SK, sl-SI).
+// P9-LR4: hr/hu/ro/bg browsers with their region tags (hr-HR, hu-HU, ro-RO, bg-BG).
 // `I18N_SHOTS=<dir>` also saves screenshots of the German UI there.
 
 import { expect, test, type Page } from "@playwright/test";
@@ -92,6 +93,10 @@ const BROWSER_TAG: Partial<Record<string, string>> = {
   cs: "cs-CZ",
   sk: "sk-SK",
   sl: "sl-SI",
+  hr: "hr-HR",
+  hu: "hu-HU",
+  ro: "ro-RO",
+  bg: "bg-BG",
 };
 
 /** Ribbon tabs of the app that are always there (File opens the backstage; contextual tabs need a selection). */
