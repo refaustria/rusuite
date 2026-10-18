@@ -18,7 +18,7 @@
     ["pl", "Polski"], ["pt", "Português"], ["ro", "Română"], ["sk", "Slovenčina"], ["sl", "Slovenščina"], ["sv", "Svenska"],
   ];
   /** Languages with a portal catalog in `locales/` (pnpm i18n:check keeps this in sync with the files). */
-  const CATALOGS = ["bg", "cs", "da", "de", "el", "en", "es", "fi", "fr", "hr", "hu", "it", "nl", "pl", "pt", "ro", "sk", "sl", "sv"];
+  const CATALOGS = ["bg", "cs", "da", "de", "el", "en", "es", "fi", "fr", "hr", "hu", "it", "lt", "nl", "pl", "pt", "ro", "sk", "sl", "sv"];
   const IDS = LOCALES.map(([id]) => id);
   const stored = () => {
     try {
