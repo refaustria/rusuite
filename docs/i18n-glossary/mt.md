@@ -387,3 +387,13 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 - Office's exact Maltese wording of "Undo" (Annulla), "Paste" (Waħħal), "Wrap Text" (Mgeżwir tat-test), "Sparkline", "Slicer", "Outline" (Skeda/Kontorn) and the PowerPoint transition and effect names (translated descriptively) was not verified in a running Maltese Office.
 - Plural forms (`two`, `few`: plural noun; `many`, `other`: singular noun) follow the standard counting rules and were checked in P9-LR5 (the number before the noun in `one`).
 - Transition names corrected by P9-LR5 (nouns, not verb forms or wrong words): Fall Over = "Waqgħa" (was "Waqa'"), Peel Off = "Tqaxxir" (was "Qala'"), Honeycomb = "Xehda" (was "Għasel" = honey), Switch = "Bdil", Page Curl = "Tidwir tal-Paġna"; effects Grow/Shrink = "Kabbar/Ċekken", Teeter = "Tixxengil". Still unverified against a Maltese PowerPoint.
+
+## Terms added by P9-LF pass 2 (AI settings, reader warnings)
+| English | Office term | Note |
+| --- | --- | --- |
+| Reasoning (AI setting, reasoning_effort) | Raġunament | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | tneħħa/tneħħiet/tneħħew | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | inqara/inqrat bħala | reader warnings |
+| dangling relationship | relazzjoni mitlufa | reader warnings |
+| Custom show (PowerPoint) | Preżentazzjoni personalizzata | `reader.pptx.customShow.*` |
+| Pivot cache | cache tal-PivotTable | `reader.xlsx.pivotCache.*` |

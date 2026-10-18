@@ -372,3 +372,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Alt text | Εναλλακτικό κείμενο | |
 | Hyperlink | Υπερσύνδεση | |
 | Margins | Περιθώρια | |
+| Reasoning (AI setting, reasoning_effort) | Συλλογισμός | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | αφαιρέθηκε/αφαιρέθηκαν | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | διαβάστηκε ως | reader warnings |
+| dangling relationship | ανύπαρκτη σχέση | reader warnings |
+| Custom show (PowerPoint) | Προσαρμοσμένη προβολή | `reader.pptx.customShow.*` |
+| Pivot cache | κρυφή μνήμη συγκεντρωτικού πίνακα | `reader.xlsx.pivotCache.*` |
