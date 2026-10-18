@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { setLocale } from "@rusuite/ui-shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "./App";
 import { FakeBackend, FakeCalcCore } from "./dev/fakeBackend";
@@ -249,5 +250,31 @@ describe("App recovery (P5-3)", () => {
     expect(screen.getByTestId("recent-web-note")).toBeTruthy();
     fireEvent.click(entry);
     await waitFor(() => expect((screen.getByLabelText("Formula bar") as HTMLInputElement).value).toBe("from recent"));
+  });
+});
+
+describe("Calc in German", () => {
+  it("translates the reader's warnings by their code; unknown codes keep the English text (W-26)", async () => {
+    setLocale("de", { persist: false });
+    try {
+      const { core, backend } = await setup();
+      core.openWarnings = [
+        { code: "xlsx.cell.isoDate", params: { sheet: "Daten", cell: "B2" }, text: "sheet \"Daten\": B2: ISO date cell kept as text", count: 2 },
+        { code: "xlsx.drawing.shapes", params: { sheet: "Daten" }, text: "sheet \"Daten\": shapes dropped", count: 1 },
+        { code: "xlsx.someday", params: {}, text: "something new dropped", count: 1 },
+      ];
+      backend.nextOpen = { name: "b.xlsx", bytesBase64: "UEsDBA==" };
+      fireEvent.click(screen.getByRole("tab", { name: "Datei" }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Datei" })).getByRole("button", { name: "Öffnen…" }));
+      const w = await screen.findByTestId("open-warnings");
+      expect(w.textContent).toContain("Blatt „Daten“: B2: ISO-Datumszelle als Text behalten (2×)");
+      expect(w.textContent).toContain("3 Warnungen");
+      expect(w.title).toContain("Blatt „Daten“: Formen verworfen");
+      expect(w.title).toContain("something new dropped");
+      act(() => setLocale("en", { persist: false }));
+      await waitFor(() => expect(screen.getByTestId("open-warnings").title).toContain('sheet "Daten": shapes dropped'));
+    } finally {
+      setLocale("en", { persist: false });
+    }
   });
 });

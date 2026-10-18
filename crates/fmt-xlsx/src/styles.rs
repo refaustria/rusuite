@@ -25,6 +25,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
 use crate::theme::{index_of_slot, slot_from_index};
+use crate::warn::{note, Note};
 use crate::xml::{attr, attr_bool, attr_parse, name_of, toggle, xml_err, XmlOut};
 use crate::Result;
 
@@ -299,7 +300,7 @@ fn protection_of(el: &BytesStart<'_>) -> Protection {
 }
 
 /// Parses `styles.xml`. Lossy mappings are reported through `warn`.
-pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Result<ParsedStyles> {
+pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(Note)) -> Result<ParsedStyles> {
     let mut reader = Reader::from_reader(xml);
     let mut section = Section::Other;
     let mut num_fmts: HashMap<u32, String> = HashMap::new();
@@ -512,7 +513,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
         })
         .collect();
     if approximated {
-        warn("gradient fills approximated (no fill)".into());
+        warn(note!("xlsx.styles.gradient"));
     }
 
     let borders: Vec<Borders> = borders
@@ -572,9 +573,7 @@ pub fn parse_styles(xml: &[u8], part: &str, warn: &mut dyn FnMut(String)) -> Res
         })
         .collect();
     for id in unknown_fmts {
-        warn(format!(
-            "number format id {id} is not defined (locale-dependent built-in); read as General"
-        ));
+        warn(note!("xlsx.styles.numFmtUndefined", id = id));
     }
     let dxfs = dxfs.map_or_else(Vec::new, |el| {
         crate::condfmt::parse_dxfs(&el, &|c| RawColor::from_dom(c).resolve(&palette))
@@ -595,7 +594,7 @@ fn parse_table_styles(
     el: Option<&fmt_ooxml::xml::El>,
     default: Option<String>,
     dxfs: &[model_sheet::DxfStyle],
-    warn: &mut dyn FnMut(String),
+    warn: &mut dyn FnMut(Note),
 ) -> model_sheet::TableStyles {
     use model_sheet::{CustomTableStyle, TableStyleElement, TableStyleElementType};
     let mut out = model_sheet::TableStyles::default();
@@ -608,15 +607,11 @@ fn parse_table_styles(
             continue;
         };
         if ts.attr("table") == Some("0") {
-            warn(format!(
-                "pivot table style {name:?} is not supported; dropped"
-            ));
+            warn(note!("xlsx.styles.pivotTableStyle", name = name));
             continue;
         }
         if model_sheet::table_styles::is_builtin_table_style(name) || out.get(name).is_some() {
-            warn(format!(
-                "table style {name:?} is duplicate or built-in; dropped"
-            ));
+            warn(note!("xlsx.styles.tableStyleDuplicate", name = name));
             continue;
         }
         let mut style = CustomTableStyle {
@@ -1132,7 +1127,7 @@ mod tests {
 
     fn parse(xml: &str) -> (ParsedStyles, Vec<String>) {
         let mut warnings = Vec::new();
-        let p = parse_styles(xml.as_bytes(), "styles", &mut |w| warnings.push(w)).unwrap();
+        let p = parse_styles(xml.as_bytes(), "styles", &mut |w| warnings.push(w.text())).unwrap();
         (p, warnings)
     }
 

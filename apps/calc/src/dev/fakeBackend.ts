@@ -10,6 +10,7 @@ import type { AutoFilter } from "../generated/AutoFilter";
 import type { CalcCommand } from "../generated/CalcCommand";
 import type { CalcPatch } from "../generated/CalcPatch";
 import type { CalcState } from "../generated/CalcState";
+import type { ReaderWarning } from "../generated/ReaderWarning";
 import type { ErrorIssue } from "../generated/ErrorIssue";
 import type { CellKind } from "../generated/CellKind";
 import type { CellStyle } from "../generated/CellStyle";
@@ -153,6 +154,8 @@ export class FakeCalcCore {
   /** Slicers (toy): table sources only; the selection per cache (`null` = all). */
   private slicerList: { sheet: number; slicer: Slicer; source: SlicerSource; selected: string[] | null }[] = [];
   private bookPassword = "";
+  /** The reader warnings `openXlsx` replies with (W-26; an unknown code shows its English text). */
+  openWarnings: ReaderWarning[] = [{ code: "fake.contentIgnored", params: {}, text: "fake backend: file content ignored", count: 1 }];
   revision = 0;
   undoStack: CalcCommand[] = [];
   redoStack: CalcCommand[] = [];
@@ -2332,7 +2335,7 @@ export class FakeCalcCore {
             ok: {
               type: "opened",
               info: "ok" in info && info.ok.type === "info" ? info.ok.info : { sheets: [], styles: [], revision: this.revision, activeSheet: 0, calc: structuredClone(this.calc) },
-              warnings: ["fake backend: file content ignored"],
+              warnings: structuredClone(this.openWarnings),
               envelope: this.envelope(this.emptyPatch()),
             },
           };

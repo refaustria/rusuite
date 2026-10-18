@@ -235,6 +235,22 @@ impl CalcDocument {
     /// Returns the document and the reader's warnings about content that
     /// was dropped or approximated.
     pub fn open_xlsx(bytes: &[u8], name: &str) -> Result<(Self, Vec<String>)> {
+        let (doc, out) = Self::read_xlsx(bytes, name)?;
+        Ok((doc, out.warnings))
+    }
+
+    /// [`open_xlsx`](Self::open_xlsx) with the warnings' stable codes and
+    /// parameters, repeats merged (the UI translates them, W-26).
+    pub fn open_xlsx_coded(
+        bytes: &[u8],
+        name: &str,
+    ) -> Result<(Self, Vec<fmt_xlsx::ReaderWarning>)> {
+        let (doc, out) = Self::read_xlsx(bytes, name)?;
+        Ok((doc, out.details))
+    }
+
+    /// The document of an `.xlsx` file and the reader's warnings.
+    fn read_xlsx(bytes: &[u8], name: &str) -> Result<(Self, ReadWarnings)> {
         let out =
             fmt_xlsx::read_with_context(bytes).map_err(|e| CalcError::ReadXlsx(e.to_string()))?;
         let doc = CalcDocument {
@@ -243,7 +259,13 @@ impl CalcDocument {
             source_name: Some(name.to_owned()),
             ..Self::default()
         };
-        Ok((doc, out.warnings))
+        Ok((
+            doc,
+            ReadWarnings {
+                warnings: out.warnings,
+                details: out.details,
+            },
+        ))
     }
 
     /// Writes the document as `.xlsx`, with the file-level data it was
@@ -3222,6 +3244,13 @@ fn inherited_format(wb: &model_sheet::Workbook, host: SheetId, input: &str) -> O
             .clone()
             .filter(|f| !f.eq_ignore_ascii_case("general"))
     })
+}
+
+/// The reader's warnings of an opened file: the English lines and the
+/// coded warnings.
+struct ReadWarnings {
+    warnings: Vec<String>,
+    details: Vec<fmt_xlsx::ReaderWarning>,
 }
 
 #[cfg(test)]

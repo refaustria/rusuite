@@ -222,6 +222,31 @@ pub enum Request {
     PeekPresentation { bytes_base64: String },
 }
 
+/// A reader warning on the wire (`openPptx`, W-26): a stable code (the UI's
+/// catalog key is `reader.<code>`), the values of its `{name}`
+/// placeholders, the English text (the fallback) and how often it
+/// occurred.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/show/src/generated/")]
+pub struct ReaderWarning {
+    pub code: String,
+    pub params: std::collections::BTreeMap<String, String>,
+    pub text: String,
+    pub count: usize,
+}
+
+impl From<fmt_pptx::ReaderWarning> for ReaderWarning {
+    fn from(w: fmt_pptx::ReaderWarning) -> Self {
+        Self {
+            code: w.code,
+            params: w.params,
+            text: w.text,
+            count: w.count,
+        }
+    }
+}
+
 /// The successful part of a [`Response`].
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(
@@ -244,7 +269,7 @@ pub enum ResponseBody {
     /// (empty patch, new revision, clean, no undo).
     Opened {
         presentation: Box<Presentation>,
-        warnings: Vec<String>,
+        warnings: Vec<ReaderWarning>,
         envelope: Box<Envelope<ShowPatch>>,
     },
     /// The reply to `savePptx`: the file (standard base64) and the file
@@ -280,7 +305,7 @@ pub enum ResponseBody {
     /// The reply to `peekPresentation`.
     Peeked {
         presentation: Box<Presentation>,
-        warnings: Vec<String>,
+        warnings: Vec<ReaderWarning>,
     },
 }
 
@@ -341,11 +366,11 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
         Request::OpenPptx { bytes_base64, name } => {
             let bytes = base64_decode(&bytes_base64)
                 .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
-            let (doc, warnings) = ShowDocument::open_pptx(&bytes, &name)?;
+            let (doc, warnings) = ShowDocument::open_pptx_coded(&bytes, &name)?;
             host.replace(doc);
             ResponseBody::Opened {
                 presentation: Box::new(host.doc().presentation().clone()),
-                warnings,
+                warnings: warnings.into_iter().map(ReaderWarning::from).collect(),
                 envelope: Box::new(host.envelope(ShowPatch::default())),
             }
         }
@@ -401,10 +426,10 @@ fn handle(host: &mut ShowHost, request: Request) -> Result<ResponseBody, Dispatc
         Request::PeekPresentation { bytes_base64 } => {
             let bytes = base64_decode(&bytes_base64)
                 .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
-            let (doc, warnings) = ShowDocument::open_pptx(&bytes, "")?;
+            let (doc, warnings) = ShowDocument::open_pptx_coded(&bytes, "")?;
             ResponseBody::Peeked {
                 presentation: Box::new(doc.into_presentation()),
-                warnings,
+                warnings: warnings.into_iter().map(ReaderWarning::from).collect(),
             }
         }
         Request::GetThemes => ResponseBody::Themes {

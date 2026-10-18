@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use fmt_ooxml::{rel, Relationships, TargetMode};
 use model_show::{Hyperlink, LinkTarget, NodeId, Presentation, Shape, ShapeKind, SlideRef};
 
+use crate::warn::note;
 use crate::xml::{El, XmlOut};
 use crate::Warnings;
 
@@ -48,7 +49,7 @@ pub fn read_hlink(h: &El, w: &mut Warnings) -> Option<Hyperlink> {
         } else if let Some(r) = SlideRef::from_jump_name(jump) {
             LinkTarget::Slide(r)
         } else {
-            w.add(format!("slide show jump {jump} dropped"));
+            w.add(note!("pptx.link.jump", jump = jump));
             return None;
         }
     } else if let Some(query) = action.strip_prefix(CUSTOM_SHOW) {
@@ -62,7 +63,7 @@ pub fn read_hlink(h: &El, w: &mut Warnings) -> Option<Hyperlink> {
             }
         }
         let Some(id) = id else {
-            w.add("custom show link without id dropped");
+            w.add(note!("pptx.link.customShowNoId"));
             return None;
         };
         LinkTarget::CustomShow { id, return_after }
@@ -74,7 +75,7 @@ pub fn read_hlink(h: &El, w: &mut Warnings) -> Option<Hyperlink> {
     } else if action.starts_with(MEDIA_ACTION) || action == "ppaction://noaction" {
         return None;
     } else {
-        w.add("click actions other than hyperlinks and slide jumps dropped (programs, macros, sounds, other files)");
+        w.add(note!("pptx.link.actions"));
         return None;
     };
     Some(Hyperlink { target, tooltip })
@@ -136,11 +137,11 @@ pub fn resolve_part_links(
                 Some(LinkTarget::Url(format!("{PART}{part}")))
             }
             Some(_) => {
-                w.add("hyperlinks to other parts (files, custom shows) dropped");
+                w.add(note!("pptx.link.otherParts"));
                 None
             }
             None => {
-                w.add("hyperlinks with a dangling relationship dropped");
+                w.add(note!("pptx.link.dangling"));
                 None
             }
         };
@@ -169,7 +170,7 @@ pub fn resolve_slide_links(
         match (parts.get(&part), slot.as_mut()) {
             (Some(&id), Some(h)) => h.target = LinkTarget::Slide(SlideRef::Id(id)),
             _ => {
-                w.add("hyperlinks to missing slides dropped");
+                w.add(note!("pptx.link.missingSlide"));
                 *slot = None;
             }
         }

@@ -15,6 +15,7 @@ use quick_xml::Reader;
 use crate::a1::{parse_range, range_name};
 use crate::read::FilterReader;
 use crate::styles::MAIN_NS;
+use crate::warn::{note, Note};
 use crate::xlfn::{add_xlfn_prefixes, strip_xlfn_prefixes};
 use crate::xml::{
     attr, attr_bool, attr_parse, decode_x_escapes, encode_x_escapes, name_of, push_ref, push_text,
@@ -110,7 +111,7 @@ fn formula_to_file(text: &str, table: &str) -> String {
 }
 
 /// Reads one table part.
-fn parse_table(xml: &[u8], part: &str, warnings: &mut Vec<String>) -> Result<Option<Table>> {
+fn parse_table(xml: &[u8], part: &str, warnings: &mut Vec<Note>) -> Result<Option<Table>> {
     let mut reader = Reader::from_reader(xml);
     let mut table: Option<Table> = None;
     let mut filter = FilterReader::default();
@@ -126,7 +127,7 @@ fn parse_table(xml: &[u8], part: &str, warnings: &mut Vec<String>) -> Result<Opt
                     b"table" => {
                         let Some((r0, c0, r1, c1)) = attr(el, "ref").and_then(|r| parse_range(&r))
                         else {
-                            warnings.push(format!("{part}: table without a range dropped"));
+                            warnings.push(note!("xlsx.table.noRange", part = part));
                             return Ok(None);
                         };
                         let name = attr(el, "displayName")
@@ -228,7 +229,11 @@ fn parse_table(xml: &[u8], part: &str, warnings: &mut Vec<String>) -> Result<Opt
                             (Some("total"), Some(c), Some(f)) => {
                                 c.totals = Some(TotalsCell::Custom { formula: f })
                             }
-                            _ => warnings.push(format!("{part}: table formula {f:?} dropped")),
+                            _ => warnings.push(note!(
+                                "xlsx.table.formulaDropped",
+                                part = part,
+                                formula = f
+                            )),
                         }
                     }
                     _ => {}
@@ -238,7 +243,15 @@ fn parse_table(xml: &[u8], part: &str, warnings: &mut Vec<String>) -> Result<Opt
             _ => {}
         }
     }
-    warnings.extend(filter.warnings.drain(..).map(|w| format!("{part}: {w}")));
+    // The filter's notes in a table part: the part instead of the sheet.
+    warnings.extend(filter.warnings.drain(..).map(|w| {
+        let code = match w.code {
+            "xlsx.filter.noRange" => "xlsx.tableFilter.noRange",
+            "xlsx.filter.unsupportedSort" => "xlsx.tableFilter.unsupportedSort",
+            _ => "xlsx.tableFilter.unsupportedColumn",
+        };
+        Note::new(code, w.params).with("part", part)
+    }));
     let Some(mut t) = table else {
         return Ok(None);
     };
@@ -262,7 +275,7 @@ pub(crate) fn load(
     wb: &mut Workbook,
     sheets: &[(SheetId, String, PartName)],
     consumed: &mut BTreeSet<PartName>,
-) -> Result<Vec<String>> {
+) -> Result<Vec<Note>> {
     let mut warnings = Vec::new();
     let mut used_ids = BTreeSet::new();
     for (id, name, part) in sheets {
@@ -278,7 +291,7 @@ pub(crate) fn load(
                 continue;
             };
             let Some(p) = pkg.part(&target) else {
-                warnings.push(format!("sheet {name:?}: table {} is missing", r.target));
+                warnings.push(note!("xlsx.table.missing", sheet = name, part = r.target));
                 continue;
             };
             consumed.insert(target.clone());
@@ -296,10 +309,12 @@ pub(crate) fn load(
             }
             let width = (t.c1 - t.c0 + 1) as usize;
             if t.columns.len() != width {
-                warnings.push(format!(
-                    "sheet {name:?}: table {:?} has {} columns for a {width}-column range; columns fixed",
-                    t.name,
-                    t.columns.len()
+                warnings.push(note!(
+                    "xlsx.table.columnsFixed",
+                    sheet = name,
+                    name = t.name,
+                    columns = t.columns.len(),
+                    width = width
                 ));
                 t.columns.truncate(width);
                 while t.columns.len() < width {
@@ -319,7 +334,12 @@ pub(crate) fn load(
                 if wb.set_tables(*id, trial).is_ok() {
                     kept.push(t);
                 } else {
-                    warnings.push(format!("sheet {name:?}: table {:?} dropped ({e})", t.name));
+                    warnings.push(note!(
+                        "xlsx.table.dropped",
+                        sheet = name,
+                        name = t.name,
+                        error = e
+                    ));
                 }
             }
             if kept.len() != count {

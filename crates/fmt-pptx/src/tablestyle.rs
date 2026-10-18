@@ -9,6 +9,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::warn::note;
 use crate::Warnings;
 use model_show::table::MEDIUM_STYLE_2_ACCENT_1;
 use model_show::tablestyle::{LINE_REF_WIDTHS, PART_NAMES};
@@ -112,13 +113,13 @@ fn read_part(el: &El, w: &mut Warnings) -> TableStylePart {
                 if let Some(slot) = edge_mut(&mut p, &e.name) {
                     *slot = read_edge(e, w);
                 } else {
-                    w.add("diagonal table style borders dropped");
+                    w.add(note!("pptx.tableStyle.diagonal"));
                 }
             }
         }
         p.fill = read_part_fill(tc, w);
         if tc.child("cell3D").is_some() {
-            w.add("3-D table style effects dropped");
+            w.add(note!("pptx.tableStyle.threeD"));
         }
     }
     p
@@ -150,7 +151,7 @@ fn read_style(st: &El, id: &str, w: &mut Warnings) -> TableStyleDef {
             } else if part.name == "tblBg" {
                 def.background = read_background(part, w);
             } else {
-                w.add(format!("table style part {} dropped", part.name));
+                w.add(note!("pptx.tableStyle.partDropped", part = part.name));
             }
         }
         def

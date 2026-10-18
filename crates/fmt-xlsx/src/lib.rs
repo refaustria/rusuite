@@ -42,6 +42,7 @@ mod sparkline;
 mod styles;
 mod tables;
 mod theme;
+mod warn;
 mod write;
 mod xlfn;
 mod xml;
@@ -50,6 +51,7 @@ use core_model::{ColorScheme, RunProperties};
 use serde::{Deserialize, Serialize};
 
 pub use read::{read, read_with_context, read_with_warnings, ReadOutput};
+pub use warn::ReaderWarning;
 pub use write::{write, write_with_context};
 pub use xlfn::{add_xlfn_prefixes, strip_xlfn_prefixes, XLFN_FUNCTIONS, XLWS_FUNCTIONS};
 

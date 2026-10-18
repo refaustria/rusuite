@@ -28,8 +28,9 @@ use crate::master::{
 use crate::table::{read_table, TABLE_URI};
 use crate::theme::read_theme;
 use crate::transition::read_slide_transition;
+use crate::warn::{note, Note};
 use crate::xml::{parse, parse_bool, parse_i64, parse_u32, El};
-use crate::{Error, PptxContext, Result, Warnings};
+use crate::{Error, PptxContext, ReaderWarning, Result, Warnings};
 
 /// `p:ext/@uri` of the PowerPoint 2010 section list.
 pub(crate) const SECTION_EXT_URI: &str = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}";
@@ -41,8 +42,12 @@ pub struct ReadOutput {
     pub presentation: Presentation,
     /// File-level data to pass to [`write_with_context`](crate::write_with_context).
     pub context: PptxContext,
-    /// Human-readable notes about content that was dropped or approximated.
+    /// Human-readable notes about content that was dropped or approximated
+    /// (English; the lines of [`details`](Self::details)).
     pub warnings: Vec<String>,
+    /// The same notes with their stable codes and parameters (for a
+    /// translated UI, W-26).
+    pub details: Vec<ReaderWarning>,
 }
 
 /// Reads a `.pptx` file. Unsupported content is dropped silently; use
@@ -148,9 +153,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         if let Some(part) = pkg.part(&theme) {
             p.theme = read_theme(&part.data, theme.as_str())?;
             if pkg.relationships(&theme).is_some_and(|r| !r.is_empty()) {
-                w.add(format!(
-                    "{theme}: theme has its own relationships; a generated theme part is written"
-                ));
+                w.add(note!("pptx.theme.relationships", part = theme));
             } else {
                 context.theme_xml = Some(part.data.clone());
             }
@@ -191,7 +194,7 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
     if let Some(list) = root.child("sldIdLst") {
         for el in list.elements().filter(|e| e.name == "sldId") {
             let Some(part) = id_target(&pkg, &main, el) else {
-                reader.w.add("slide with dangling relationship dropped");
+                reader.w.add(note!("pptx.slide.dangling"));
                 continue;
             };
             let id = reader.read_slide(&part)?;
@@ -241,19 +244,25 @@ pub fn read_with_context(bytes: &[u8]) -> Result<ReadOutput> {
         }
         if ct.ends_with("notesSlide+xml") {
             // Notes of slides that were dropped (or not linked from one).
-            w.add("speaker notes dropped");
+            w.add(note!("pptx.notes.dropped"));
         } else if ct.contains("comment") {
-            w.add("comments dropped");
+            w.add(note!("pptx.comments.dropped"));
         } else if ct.starts_with("image/") {
-            w.add("unused or unsupported images dropped");
+            w.add(note!("pptx.images.unused"));
         } else {
-            w.add(format!("part {name} ({ct}) dropped"));
+            w.add(note!(
+                "pptx.package.partDropped",
+                part = name,
+                contentType = ct
+            ));
         }
     }
+    let (warnings, details) = w.finish();
     Ok(ReadOutput {
         presentation: p,
         context,
-        warnings: w.into_vec(),
+        warnings,
+        details,
     })
 }
 
@@ -294,18 +303,18 @@ pub(crate) fn read_thmx(
     };
     match &master {
         Some(m) => reader.read_master(m)?,
-        None => reader
-            .w
-            .add("the theme file has no slide master: the Office master is kept"),
+        None => reader.w.add(note!("pptx.theme.noMaster")),
     }
     p.normalize();
+    let (warnings, details) = w.finish();
     Ok(ReadOutput {
         presentation: p,
         context: PptxContext {
             theme_xml: Some(data.clone()),
             ..PptxContext::default()
         },
-        warnings: w.into_vec(),
+        warnings,
+        details,
     })
 }
 
@@ -346,7 +355,7 @@ fn read_sections(root: &El, numbers: &[(u32, NodeId)], p: &mut Presentation, w: 
     }
     p.fix_sections();
     if p.validate_sections().is_err() {
-        w.add("sections out of slide order rearranged");
+        w.add(note!("pptx.sections.reordered"));
     }
 }
 
@@ -366,7 +375,7 @@ fn read_custom_shows(
     };
     for el in list.elements().filter(|e| e.name == "custShow") {
         let Some(id) = el.attr("id").and_then(parse_u32) else {
-            w.add("custom show without id dropped");
+            w.add(note!("pptx.customShow.noId"));
             continue;
         };
         let name = el.attr("name").unwrap_or("").trim().to_owned();
@@ -375,9 +384,7 @@ fn read_custom_shows(
             .iter()
             .any(|c| c.id == id || c.name.eq_ignore_ascii_case(&name));
         if name.is_empty() || taken {
-            w.add(format!(
-                "custom show {name:?} dropped (no or a duplicate name or id)"
-            ));
+            w.add(note!("pptx.customShow.dropped", name = name));
             continue;
         }
         let mut slide_ids = Vec::new();
@@ -390,9 +397,7 @@ fn read_custom_shows(
             let target = s.attr("id").and_then(|rid| target_of(pkg, main, rid));
             match target.and_then(|t| slide_parts.get(t.as_str())) {
                 Some(n) => slide_ids.push(*n),
-                None => w.add(format!(
-                    "custom show {name:?}: a slide that is not in the presentation dropped"
-                )),
+                None => w.add(note!("pptx.customShow.missingSlide", name = name)),
             }
         }
         p.custom_shows.push(model_show::CustomShow {
@@ -449,9 +454,7 @@ pub(crate) fn infer_layout(ph_types: &[&str], layout_type: &str, w: &mut Warning
             Some(LayoutKind::Title) => LayoutKind::Title,
             Some(_) => LayoutKind::TitleContent,
             None => {
-                w.add(format!(
-                    "slide layout type {layout_type} mapped to Title and Content"
-                ));
+                w.add(note!("pptx.layout.typeMapped", layoutType = layout_type));
                 LayoutKind::TitleContent
             }
         };
@@ -697,7 +700,8 @@ impl Reader<'_> {
                 let Some(ph) = ph_of(sp) else { continue };
                 let ty = ph_type(ph);
                 let Some(kind) = kind_of_type(ty, false) else {
-                    self.w.add(format!("master placeholder type {ty} dropped"));
+                    self.w
+                        .add(note!("pptx.master.placeholderType", phType = ty));
                     continue;
                 };
                 let transform = sp
@@ -800,8 +804,7 @@ impl Reader<'_> {
             assign_ids(self.p, s, &mut spids);
         }
         if remap_attachments(&mut shapes, &spids) {
-            self.w
-                .add("connector attachments to missing shapes dropped");
+            self.w.add(note!("pptx.connector.missingShapes"));
         }
         shapes
     }
@@ -873,7 +876,8 @@ impl Reader<'_> {
                 let Some(ph) = ph_of(sp) else { continue };
                 let pty = ph_type(ph);
                 let Some(pk) = kind_of_type(pty, on_title) else {
-                    self.w.add(format!("layout placeholder type {pty} dropped"));
+                    self.w
+                        .add(note!("pptx.layout.placeholderType", phType = pty));
                     continue;
                 };
                 let base = m.placeholder_for(pk);
@@ -883,7 +887,7 @@ impl Reader<'_> {
                     .map(|x| Space::SLIDE.map(&read_xfrm(x)))
                     .or_else(|| base.map(|d| d.transform));
                 let Some(transform) = transform else {
-                    self.w.add("layout placeholder without position dropped");
+                    self.w.add(note!("pptx.layout.placeholderNoPosition"));
                     continue;
                 };
                 let (bp, br) = match base {
@@ -1048,13 +1052,11 @@ impl Reader<'_> {
                 assign_ids(self.p, s, &mut spids);
             }
             if remap_attachments(&mut shapes, &spids) {
-                self.w
-                    .add("connector attachments to missing shapes dropped");
+                self.w.add(note!("pptx.connector.missingShapes"));
             }
             slide.shapes = shapes;
             if !slide.detach_missing().is_empty() {
-                self.w
-                    .add("connector attachments to groups or connectors dropped");
+                self.w.add(note!("pptx.connector.groups"));
             }
         }
         slide.transition = read_slide_transition(root, self.w).map(|(mut t, sound)| {
@@ -1073,7 +1075,7 @@ impl Reader<'_> {
                             loop_until_next,
                         }),
                         None => {
-                            self.w.add("transition sound file missing; sound dropped");
+                            self.w.add(note!("pptx.transition.soundMissing"));
                             None
                         }
                     }
@@ -1143,12 +1145,16 @@ impl Reader<'_> {
     }
 
     /// The media id of image relationship `rid` of `part` (the image is
-    /// added to the media store once); `what` names the dropped thing in
-    /// warnings.
-    fn image_of(&mut self, part: &PartName, rid: &str, what: &str) -> Option<MediaId> {
+    /// added to the media store once); `codes` are the warnings for a
+    /// dangling relationship and a missing image part (with `rid` / `part`).
+    fn image_of(
+        &mut self,
+        part: &PartName,
+        rid: &str,
+        codes: (&'static str, &'static str),
+    ) -> Option<MediaId> {
         let Some(part_name) = target_of(self.pkg, part, rid) else {
-            self.w
-                .add(format!("{what} with dangling relationship {rid} dropped"));
+            self.w.add(Note::new(codes.0, Vec::new()).with("rid", rid));
             return None;
         };
         if let Some(id) = self.media.get(&part_name) {
@@ -1156,7 +1162,7 @@ impl Reader<'_> {
         }
         let Some(data) = self.pkg.part(&part_name) else {
             self.w
-                .add(format!("image part {part_name} missing; {what} dropped"));
+                .add(Note::new(codes.1, Vec::new()).with("part", &part_name));
             return None;
         };
         let id = self
@@ -1175,10 +1181,17 @@ impl Reader<'_> {
         if let Some(blip_fill) = bg.child("bgPr").and_then(|pr| pr.child("blipFill")) {
             let blip = blip_fill.child("blip");
             let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
-                self.w.add("background picture without image dropped");
+                self.w.add(note!("pptx.background.noImage"));
                 return None;
             };
-            let media = self.image_of(part, rid, "background picture")?;
+            let media = self.image_of(
+                part,
+                rid,
+                (
+                    "pptx.background.danglingImage",
+                    "pptx.background.imageMissing",
+                ),
+            )?;
             let transparency = blip
                 .and_then(|b| b.child("alphaModFix"))
                 .and_then(|a| a.attr("amt"))
@@ -1244,8 +1257,7 @@ impl Reader<'_> {
                                 .map(|s| self.with_action(s, el)),
                         );
                     } else {
-                        self.w
-                            .add("graphic frames (diagrams, embedded objects) dropped");
+                        self.w.add(note!("pptx.shape.graphicFrames"));
                     }
                     None
                 }
@@ -1257,12 +1269,13 @@ impl Reader<'_> {
                     None
                 }
                 "contentPart" => {
-                    self.w.add("ink (content parts) dropped");
+                    self.w.add(note!("pptx.shape.ink"));
                     None
                 }
                 "nvGrpSpPr" | "grpSpPr" | "extLst" => None,
                 _ => {
-                    self.w.add(format!("shape element {} dropped", el.qname()));
+                    self.w
+                        .add(note!("pptx.shape.elementDropped", name = el.qname()));
                     None
                 }
             };
@@ -1301,7 +1314,7 @@ impl Reader<'_> {
             .elements()
             .any(|e| e.name.starts_with("nv") && e.find("hlinkMouseOver").is_some())
         {
-            self.w.add("mouse-over actions dropped");
+            self.w.add(note!("pptx.shape.mouseOver"));
         }
         shape
     }
@@ -1353,19 +1366,19 @@ impl Reader<'_> {
             .unwrap_or("")
             .to_owned();
         let Some(xfrm) = el.child("xfrm") else {
-            self.w.add("shape without position dropped");
+            self.w.add(note!("pptx.shape.noPosition"));
             return None;
         };
         let mut transform = space.map(&read_xfrm(xfrm));
         if transform.rotation_deg != 0.0 || transform.flip_h || transform.flip_v {
-            self.w.add("chart rotation and flips dropped");
+            self.w.add(note!("pptx.chart.rotation"));
             transform.rotation_deg = 0.0;
             transform.flip_h = false;
             transform.flip_v = false;
         }
         let rid = el.find("graphicData")?.child("chart")?.attr("id")?;
         let Some(part) = target_of(self.pkg, ctx.part, rid) else {
-            self.w.add("chart with a dangling relationship dropped");
+            self.w.add(note!("pptx.chart.dangling"));
             return None;
         };
         let data = self.pkg.part(&part)?.data.clone();
@@ -1373,12 +1386,12 @@ impl Reader<'_> {
         let read = match fmt_ooxml::chart::read_chart_ext(&data, part.as_str()) {
             Ok(r) => r,
             Err(e) => {
-                self.w.add(format!("unreadable chart dropped ({e})"));
+                self.w.add(note!("pptx.chart.unreadable", error = e));
                 return None;
             }
         };
         for msg in read.warnings {
-            self.w.add(msg);
+            self.w.add(crate::warn::chart_note(&msg));
         }
         let mut workbook = None;
         if let Some(rels) = self.pkg.relationships(&part) {
@@ -1395,7 +1408,7 @@ impl Reader<'_> {
                     workbook = Some(target);
                 } else {
                     if wanted {
-                        self.w.add("chart data embedded as an OLE object dropped (the chart keeps its data)");
+                        self.w.add(note!("pptx.chart.oleData"));
                     }
                     // chart style / colour parts, OLE objects, images of the chart
                     self.consumed.insert(target);
@@ -1449,8 +1462,7 @@ impl Reader<'_> {
         let rels = self.pkg.relationships(ctx.part);
         let rel = embed.and_then(|rid| rels?.get(rid));
         let Some(rel) = rel.filter(|r| r.target_mode == TargetMode::Internal) else {
-            self.w
-                .add("linked (not embedded) audio/video kept as its poster picture");
+            self.w.add(note!("pptx.media.linked"));
             return None;
         };
         let target = ctx.part.resolve(&rel.target).ok()?;
@@ -1460,8 +1472,7 @@ impl Reader<'_> {
             MediaKind::Audio => "audio/mpeg",
         });
         let Some(media) = self.media_of_part(&target, Some(fallback)) else {
-            self.w
-                .add("audio/video part missing; kept as its poster picture");
+            self.w.add(note!("pptx.media.missing"));
             return None;
         };
         // the other relationship (a:videoFile r:link) points at the same part
@@ -1555,10 +1566,8 @@ impl Reader<'_> {
         let kind = ph.and_then(|ph| {
             let k = placeholder_kind(ph_type(ph), &ctx.layout.kind);
             if k.is_none() {
-                self.w.add(format!(
-                    "placeholder type {} read as a plain text box",
-                    ph_type(ph)
-                ));
+                self.w
+                    .add(note!("pptx.placeholder.plainText", phType = ph_type(ph)));
             }
             k
         });
@@ -1569,7 +1578,7 @@ impl Reader<'_> {
             None => match ph.and_then(|ph| self.inherited_xfrm(ph, kind, ctx)) {
                 Some(t) => t,
                 None => {
-                    self.w.add("shape without position dropped");
+                    self.w.add(note!("pptx.shape.noPosition"));
                     return None;
                 }
             },
@@ -1611,7 +1620,7 @@ impl Reader<'_> {
                 })
             } else {
                 if arrows {
-                    self.w.add("arrowheads dropped");
+                    self.w.add(note!("pptx.connector.arrowheads"));
                 }
                 ShapeKind::Auto {
                     geometry,
@@ -1646,21 +1655,19 @@ impl Reader<'_> {
             .to_owned();
         let sp_pr = el.child("spPr");
         let Some(xfrm) = sp_pr.and_then(|s| s.child("xfrm")) else {
-            self.w.add("shape without position dropped");
+            self.w.add(note!("pptx.shape.noPosition"));
             return None;
         };
         let geom = sp_pr.and_then(|s| s.child("prstGeom"));
         let prst = geom.and_then(|g| g.attr("prst"));
         if sp_pr.is_some_and(|s| s.child("custGeom").is_some()) {
-            self.w
-                .add("custom connector geometry read as a straight line");
+            self.w.add(note!("pptx.connector.customGeometry"));
         }
         let (kind, bends) = match prst.map(|p| (p, ConnectorKind::from_prst(p))) {
             None => (ConnectorKind::Straight, 2),
             Some((_, Some(k))) => k,
             Some((other, None)) => {
-                self.w
-                    .add(format!("connector {other} read as a straight line"));
+                self.w.add(note!("pptx.connector.kind", kind = other));
                 (ConnectorKind::Straight, 2)
             }
         };
@@ -1734,12 +1741,12 @@ impl Reader<'_> {
             .unwrap_or("")
             .to_owned();
         let Some(xfrm) = el.child("xfrm") else {
-            self.w.add("shape without position dropped");
+            self.w.add(note!("pptx.shape.noPosition"));
             return None;
         };
         let mut transform = space.map(&read_xfrm(xfrm));
         if transform.rotation_deg != 0.0 || transform.flip_h || transform.flip_v {
-            self.w.add("table rotation and flips dropped");
+            self.w.add(note!("pptx.table.rotation"));
             transform.rotation_deg = 0.0;
             transform.flip_h = false;
             transform.flip_v = false;
@@ -1775,7 +1782,7 @@ impl Reader<'_> {
         let blip = blip_fill.and_then(|b| b.child("blip"));
         if let Some(mut clip) = self.read_media(el, ctx) {
             let Some(xfrm) = el.child("spPr").and_then(|s| s.child("xfrm")) else {
-                self.w.add("shape without position dropped");
+                self.w.add(note!("pptx.shape.noPosition"));
                 return None;
             };
             let poster = blip
@@ -1817,13 +1824,17 @@ impl Reader<'_> {
         }
         let Some(rid) = blip.and_then(|b| b.attr("embed")) else {
             if blip.and_then(|b| b.attr("link")).is_some() {
-                self.w.add("linked (external) pictures dropped");
+                self.w.add(note!("pptx.picture.linked"));
             } else {
-                self.w.add("picture without image dropped");
+                self.w.add(note!("pptx.picture.noImage"));
             }
             return None;
         };
-        let media = self.image_of(ctx.part, rid, "picture")?;
+        let media = self.image_of(
+            ctx.part,
+            rid,
+            ("pptx.picture.danglingImage", "pptx.picture.imageMissing"),
+        )?;
         let sp_pr = el.child("spPr");
         let ph = ph_of(el);
         let ph_kind = ph.and_then(|ph| placeholder_kind(ph_type(ph), &ctx.layout.kind));
@@ -1832,7 +1843,7 @@ impl Reader<'_> {
             None => match ph.and_then(|ph| self.inherited_xfrm(ph, ph_kind, ctx)) {
                 Some(t) => t,
                 None => {
-                    self.w.add("shape without position dropped");
+                    self.w.add(note!("pptx.shape.noPosition"));
                     return None;
                 }
             },
@@ -1883,7 +1894,7 @@ impl Reader<'_> {
             };
         }
         if blip_fill.is_some_and(|b| b.child("tile").is_some()) {
-            self.w.add("tiled picture fill read as stretched");
+            self.w.add(note!("pptx.picture.tiled"));
         }
         if let Some(blip) = blip_fill.and_then(|b| b.child("blip")) {
             for e in blip.elements() {
@@ -1913,7 +1924,7 @@ impl Reader<'_> {
                                 Recolor::Duotone { dark, light }
                             };
                         } else {
-                            self.w.add("picture duotone without two colours dropped");
+                            self.w.add(note!("pptx.picture.duotone"));
                         }
                     }
                     "lum" => {
@@ -1926,7 +1937,7 @@ impl Reader<'_> {
                             props.contrast = pct(bc, "contrast");
                         }
                     }
-                    other => self.w.add(format!("picture effect {other} dropped")),
+                    other => self.w.add(note!("pptx.picture.effect", effect = other)),
                 }
             }
         }
@@ -1957,8 +1968,7 @@ impl Reader<'_> {
                             direction_deg: n("dir") as f64 / ANGLE_UNITS_PER_DEGREE,
                         });
                     } else {
-                        self.w
-                            .add("picture effects other than an outer shadow dropped");
+                        self.w.add(note!("pptx.picture.effects"));
                     }
                 }
             }

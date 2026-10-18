@@ -289,6 +289,31 @@ pub struct SheetScroll {
     pub pane_col: u32,
 }
 
+/// A reader warning on the wire (`openXlsx`, W-26): a stable code (the UI's
+/// catalog key is `reader.<code>`), the values of its `{name}`
+/// placeholders, the English text (the fallback) and how often it
+/// occurred.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct ReaderWarning {
+    pub code: String,
+    pub params: std::collections::BTreeMap<String, String>,
+    pub text: String,
+    pub count: usize,
+}
+
+impl From<fmt_xlsx::ReaderWarning> for ReaderWarning {
+    fn from(w: fmt_xlsx::ReaderWarning) -> Self {
+        Self {
+            code: w.code,
+            params: w.params,
+            text: w.text,
+            count: w.count,
+        }
+    }
+}
+
 /// The successful part of a [`Response`].
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(
@@ -315,7 +340,7 @@ pub enum ResponseBody {
     /// new revision, clean).
     Opened {
         info: WorkbookInfo,
-        warnings: Vec<String>,
+        warnings: Vec<ReaderWarning>,
         envelope: Box<Envelope<CalcPatch>>,
     },
     /// The reply to `saveXlsx`: the file (standard base64) and the file
@@ -556,11 +581,11 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(bytes_base64.as_bytes())
                 .map_err(|e| DispatchError::new("bad_request", format!("invalid base64: {e}")))?;
-            let (doc, warnings) = CalcDocument::open_xlsx(&bytes, &name)?;
+            let (doc, warnings) = CalcDocument::open_xlsx_coded(&bytes, &name)?;
             host.replace(doc);
             ResponseBody::Opened {
                 info: workbook_info(host),
-                warnings,
+                warnings: warnings.into_iter().map(ReaderWarning::from).collect(),
                 envelope: Box::new(host.envelope(CalcPatch::default())),
             }
         }

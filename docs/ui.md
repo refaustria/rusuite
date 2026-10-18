@@ -341,7 +341,8 @@ The deferred items of docs/qa/write-2026-10.md:
 - **Reader warnings in the UI language (W-26)**: fmt-docx reports every warning as a stable code (`docx.numbering.levelStyleLink`)
   with named parameters and the English text; the shared catalog has `reader.<code>` in English and German
   (`readerWarningText` in `@rusuite/ui-shared`), the status bar and its tooltip show them translated; an unknown code
-  shows the English text. Calc and Show (fmt-xlsx / fmt-pptx) still send English strings, which the helper passes through.
+  shows the English text. Since P9-X2 fmt-xlsx and fmt-pptx report coded warnings too (`reader.xlsx.*`, `reader.pptx.*`),
+  shown translated in Calc's and Show's status bars (docs/i18n.md "Reader warnings").
 - **Mixed page sizes (W-18)**: in print layout every sheet has its own section's width and height and is centred in a
   frame as wide as the widest page (the view scrolls sideways to it); the blocks of a section with another text width
   are moved and widened into its text column (node decorations), so a landscape section's lines are as long as on paper.

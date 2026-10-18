@@ -21,6 +21,7 @@ use model_show::{
     MediaStart, NodeId, Repeat, StartOn, TextBuild, Trigger,
 };
 
+use crate::warn::note;
 use crate::xml::{parse_bool, parse_u32, El, XmlOut};
 use crate::Warnings;
 
@@ -1524,25 +1525,29 @@ fn read_effect(
         "path" => AnimationKind::Path,
         "mediacall" => AnimationKind::Media,
         _ => {
-            w.add(format!("animations of class {class} dropped"));
+            w.add(note!("pptx.anim.classDropped", class = class));
             return None;
         }
     };
     let preset = ctn.attr("presetID").and_then(parse_u32).unwrap_or(0);
     let Some((effect, preset_dir)) = effect_of(kind, preset) else {
-        w.add(format!("animation effect {class} #{preset} dropped"));
+        w.add(note!(
+            "pptx.anim.effectDropped",
+            class = class,
+            preset = preset
+        ));
         return None;
     };
     let Some(tgt) = ctn.find("spTgt") else {
-        w.add("animations without a shape target dropped");
+        w.add(note!("pptx.anim.noTarget"));
         return None;
     };
     let Some(spid) = tgt.attr("spid").and_then(parse_u32) else {
-        w.add("animations without a shape target dropped");
+        w.add(note!("pptx.anim.noTarget"));
         return None;
     };
     let Some(&shape) = spids.get(&spid) else {
-        w.add("animations of dropped shapes dropped");
+        w.add(note!("pptx.anim.droppedShapes"));
         return None;
     };
     let trigger = match ctn.attr("nodeType") {
@@ -1600,7 +1605,7 @@ fn read_effect(
                 }
             }
             Some(Err(_)) => {
-                w.add("motion paths with an unreadable path dropped");
+                w.add(note!("pptx.anim.badPath"));
                 return None;
             }
             None => {}
@@ -1737,12 +1742,12 @@ pub(crate) fn read_timing(
             Some("interactiveSeq") => match sequence_trigger(ctn, spids) {
                 Some(t) => Some(t),
                 None => {
-                    w.add("triggered animations dropped");
+                    w.add(note!("pptx.anim.triggered"));
                     continue;
                 }
             },
             _ => {
-                w.add("animation timing nodes outside the main sequence dropped");
+                w.add(note!("pptx.anim.outsideMain"));
                 continue;
             }
         };
@@ -1764,7 +1769,7 @@ pub(crate) fn read_timing(
                         _ => Trigger::WithPrevious,
                     };
                     if ectn.attr("presetClass").is_none() {
-                        w.add("animations without a preset dropped");
+                        w.add(note!("pptx.anim.noPreset"));
                         continue;
                     }
                     let Some(r) = read_effect(ectn, position, spids, w) else {
@@ -1789,9 +1794,7 @@ pub(crate) fn read_timing(
                                 }
                                 a.build = Some(builds[&(r.spid, g)]);
                             }
-                            None => {
-                                w.add("animations of text paragraphs applied to the whole shape")
-                            }
+                            None => w.add(note!("pptx.anim.paragraphs")),
                         }
                     }
                     if let Some((on, _)) = &start_on {

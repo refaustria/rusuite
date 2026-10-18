@@ -10,6 +10,7 @@
 
 use model_show::{Direction, Transition, TransitionKind, TransitionOption, TransitionSound};
 
+use crate::warn::note;
 use crate::xml::{parse_bool, parse_u32, El, XmlOut};
 use crate::Warnings;
 
@@ -99,7 +100,7 @@ fn transition_effect(t: &El, w: &mut Warnings) -> Result<Read, String> {
     Ok(match (e.prefix.as_str(), e.name.as_str()) {
         (_, "fade") => {
             if flag("thruBlk") {
-                w.add("fade-through-black transition read as fade");
+                w.add(note!("pptx.transition.fadeThroughBlack"));
             }
             (TransitionKind::Fade, None, None)
         }
@@ -290,7 +291,7 @@ pub(crate) fn read_slide_transition(
         let (kind, direction, option) = match effect {
             Ok(e) => e,
             Err(name) => {
-                w.add(format!("slide transition {name} dropped"));
+                w.add(note!("pptx.transition.dropped", name = name));
                 return None;
             }
         };

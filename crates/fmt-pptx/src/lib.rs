@@ -42,12 +42,15 @@ mod table;
 mod tablestyle;
 mod theme;
 mod transition;
+mod warn;
 mod write;
 mod xml;
 
 use serde::{Deserialize, Serialize};
 
 pub use read::{read, read_with_context, read_with_warnings, ReadOutput};
+pub use warn::ReaderWarning;
+pub(crate) use warn::Warnings;
 pub use write::{write, write_thmx, write_with_context};
 
 /// Design › Browse for Themes (P9-S5): reads the design of a theme file –
@@ -144,46 +147,4 @@ pub fn write_path(
 ) -> Result<()> {
     std::fs::write(path, write(presentation)?)?;
     Ok(())
-}
-
-/// Collects warnings, merging repeats into one line with a count.
-#[derive(Debug, Default)]
-pub(crate) struct Warnings {
-    order: Vec<String>,
-    counts: std::collections::HashMap<String, usize>,
-}
-
-impl Warnings {
-    pub(crate) fn add(&mut self, msg: impl Into<String>) {
-        let msg = msg.into();
-        let n = self.counts.entry(msg.clone()).or_insert(0);
-        if *n == 0 {
-            self.order.push(msg);
-        }
-        *n += 1;
-    }
-
-    pub(crate) fn into_vec(self) -> Vec<String> {
-        self.order
-            .into_iter()
-            .map(|m| match self.counts[&m] {
-                1 => m,
-                n => format!("{m} ({n}x)"),
-            })
-            .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn warnings_merge_repeats() {
-        let mut w = Warnings::default();
-        w.add("a");
-        w.add("b");
-        w.add("a");
-        assert_eq!(w.into_vec(), ["a (2x)", "b"]);
-    }
 }

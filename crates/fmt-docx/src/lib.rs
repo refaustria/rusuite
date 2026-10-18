@@ -312,14 +312,26 @@ mod warning_tests {
             std::fs::read_to_string(format!("{}/src/{f}", env!("CARGO_MANIFEST_DIR"))).unwrap()
         })
         .collect();
-        let catalog: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(format!(
-                "{}/../../packages/ui-shared/src/i18n/locales/en.json",
-                env!("CARGO_MANIFEST_DIR")
-            ))
-            .unwrap(),
-        )
-        .unwrap();
+        let load = |lang: &str| -> serde_json::Value {
+            serde_json::from_str(
+                &std::fs::read_to_string(format!(
+                    "{}/../../packages/ui-shared/src/i18n/locales/{lang}.json",
+                    env!("CARGO_MANIFEST_DIR")
+                ))
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let (catalog, german) = (load("en"), load("de"));
+        let names = |t: &str| {
+            let mut v: Vec<String> = t
+                .split('{')
+                .skip(1)
+                .filter_map(|s| s.split_once('}').map(|(n, _)| n.to_owned()))
+                .collect();
+            v.sort();
+            v
+        };
         assert_eq!(
             catalog["reader.docx.field.flattened"].as_str(),
             Some(read::FLATTENED)
@@ -357,6 +369,15 @@ mod warning_tests {
             assert!(
                 prev.is_none() || prev.as_deref() == Some(template),
                 "{code}: two templates"
+            );
+            // … and a German message with the same placeholders (P9-X2).
+            let de = german[format!("reader.{code}")]
+                .as_str()
+                .unwrap_or_else(|| panic!("reader.{code}: no German message"));
+            assert_eq!(
+                names(de),
+                names(template),
+                "reader.{code}: German placeholders"
             );
             for ph in template.split('{').skip(1) {
                 let name = ph.split('}').next().unwrap();

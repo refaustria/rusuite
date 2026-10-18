@@ -13,6 +13,7 @@ use model_sheet::{
 
 use crate::a1::cell_name;
 use crate::styles::{color_el, color_of_dom};
+use crate::warn::{note, Note};
 use crate::xml::{fmt_num, XmlOut};
 
 /// The `<ext>` URI of the sparkline groups.
@@ -129,7 +130,7 @@ pub(crate) fn sheet_ext_xml(x: &mut XmlOut, wb: &Workbook, sheet: SheetId) {
     x.end("ext");
 }
 
-fn group_of(el: &El, warnings: &mut Vec<String>) -> Option<SparklineGroup> {
+fn group_of(el: &El, warnings: &mut Vec<Note>) -> Option<SparklineGroup> {
     let flag = |name: &str| el.attr(name).and_then(parse_bool).unwrap_or(false);
     let num = |name: &str| {
         el.attr(name)
@@ -163,7 +164,7 @@ fn group_of(el: &El, warnings: &mut Vec<String>) -> Option<SparklineGroup> {
             (Some(data), Some((row, col))) if !data.is_empty() => {
                 sparklines.push(Sparkline { row, col, data })
             }
-            _ => warnings.push("a sparkline without data or location dropped".into()),
+            _ => warnings.push(note!("xlsx.sparkline.incomplete")),
         }
     }
     if sparklines.is_empty() {
@@ -209,7 +210,7 @@ fn group_of(el: &El, warnings: &mut Vec<String>) -> Option<SparklineGroup> {
 
 /// Loads the sparkline groups of the captured `<extLst>` subtrees of a
 /// sheet; returns warnings.
-pub(crate) fn load(wb: &mut Workbook, sheet: SheetId, subtrees: &[El]) -> Vec<String> {
+pub(crate) fn load(wb: &mut Workbook, sheet: SheetId, subtrees: &[El]) -> Vec<Note> {
     let mut warnings = Vec::new();
     let mut groups = Vec::new();
     for ext in subtrees
@@ -227,7 +228,7 @@ pub(crate) fn load(wb: &mut Workbook, sheet: SheetId, subtrees: &[El]) -> Vec<St
         return warnings;
     }
     if let Err(e) = wb.set_sparkline_groups(sheet, groups) {
-        warnings.push(format!("sparklines dropped ({e})"));
+        warnings.push(note!("xlsx.sparkline.dropped", error = e));
     }
     warnings
 }

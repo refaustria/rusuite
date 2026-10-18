@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use model_show::{Adjust, GeomPath, PathCmd, Preset};
 
+use crate::warn::note;
 use crate::xml::{parse_i64, El, XmlOut};
 use crate::Warnings;
 
@@ -26,7 +27,7 @@ pub fn read_adjust(geom: &El, allowed: &[(&str, i64)], what: &str, w: &mut Warni
             Some(v) if allowed.iter().any(|(n, _)| *n == name) => {
                 out.insert(name.to_owned(), v);
             }
-            _ => w.add(format!("adjust value {name} of {what} dropped")),
+            _ => w.add(note!("pptx.geom.adjust", name = name, shape = what)),
         }
     }
     out
@@ -47,7 +48,7 @@ pub fn read_geometry(sp_pr: Option<&El>, w: f64, h: f64, warn: &mut Warnings) ->
                 (p, adj)
             }
             None => {
-                warn.add(format!("preset geometry {prst} read as rectangle"));
+                warn.add(note!("pptx.geom.preset", preset = prst));
                 (Preset::Rect, Adjust::new())
             }
         };
@@ -55,7 +56,7 @@ pub fn read_geometry(sp_pr: Option<&El>, w: f64, h: f64, warn: &mut Warnings) ->
     if let Some(c) = sp_pr.child("custGeom") {
         let paths = read_cust_geom(c, w, h, warn);
         if paths.is_empty() {
-            warn.add("custom geometry without paths read as rectangle");
+            warn.add(note!("pptx.geom.noPaths"));
             return (Preset::Rect, Adjust::new());
         }
         return (Preset::Custom { paths }, Adjust::new());
@@ -223,7 +224,7 @@ impl Guides {
             return *v;
         }
         self.builtin(s).unwrap_or_else(|| {
-            w.add(format!("custom geometry guide {s} unknown (read as 0)"));
+            w.add(note!("pptx.geom.guide", guide = s));
             0.0
         })
     }
@@ -282,9 +283,7 @@ impl Guides {
             }
             "sqrt" => a(0).max(0.0).sqrt(),
             other => {
-                w.add(format!(
-                    "custom geometry formula {other} unknown (read as 0)"
-                ));
+                w.add(note!("pptx.geom.formula", formula = other));
                 0.0
             }
         }
@@ -372,7 +371,7 @@ fn read_cust_geom(c: &El, w: f64, h: f64, warn: &mut Warnings) -> Vec<GeomPath> 
                     }
                 }
                 "close" => commands.push(PathCmd::Close),
-                other => warn.add(format!("custom geometry command {other} dropped")),
+                other => warn.add(note!("pptx.geom.command", command = other)),
             }
         }
         out.push(GeomPath {
