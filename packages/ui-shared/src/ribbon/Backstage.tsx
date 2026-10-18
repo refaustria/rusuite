@@ -43,7 +43,7 @@ export interface BackstageActions {
   info?: ReactNode;
   /** The Info page (document properties), rendered while the page is shown. */
   infoPage?: ReactNode;
-  /** The Save As shortcut shown (default `Mod+Shift+S`; Write uses Word's F12). */
+  /** The Save As shortcut shown (default `F12`, Office's key in all three apps; Calc and Show also take Ctrl+Shift+S). */
   saveAsShortcut?: string;
 }
 
@@ -163,7 +163,7 @@ function PrivacySection({ session }: { session: AnySession }) {
 /** Full-pane File view (Office "backstage"). */
 export function Backstage({
   open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument, onOptions,
-  session, fileDisabledReason, exportDisabled, info, infoPage, print, page: pageProp = "home", onPage, saveAsShortcut = "Mod+Shift+S",
+  session, fileDisabledReason, exportDisabled, info, infoPage, print, page: pageProp = "home", onPage, saveAsShortcut = "F12",
 }: BackstageProps) {
   const t = useT();
   const connectors = session?.connectors ?? null;

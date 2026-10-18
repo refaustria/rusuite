@@ -18,7 +18,8 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Mod+O | Open |
 | Mod+S | Save |
 | Mod+S on the desktop | Saves to the document's file without asking (untitled: the save dialog) |
-| Mod+Shift+S | Save as (web: asks for a file name; desktop: the native save dialog). Write: F12, as in Word (Mod+Shift+S is Apply Styles there) |
+| F12 | Save as, Office's key in all three apps (web: asks for a file name; desktop: the native save dialog); the File backstage shows F12 next to Save As (P9-X2) |
+| Mod+Shift+S | Save as in Calc and Show as well (Excel and PowerPoint have no Apply Styles box); in Write it is Apply Styles, as in Word |
 | Enter, Tab, Esc in "Save changes to …?" | The question before New, Open, a recent file, Restore, Close or closing the window with unsaved changes: Enter = Save (focused first), Tab moves to Don't save / Cancel, Esc = Cancel |
 | Mod+P | File › Print (settings and preview); PageUp/PageDown in the preview change the page |
 | Mod+Z, Mod+Y, Mod+Shift+Z | Undo, redo, redo |

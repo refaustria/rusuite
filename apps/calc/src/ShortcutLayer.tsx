@@ -76,6 +76,12 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       const next = list[i + step];
       if (next) store.setActiveSheet(next.id);
     };
+    const saveAs = {
+      label: t("cmd.saveAs"),
+      group: File,
+      inField: true,
+      run: () => (store.api.backend.kind === "tauri" ? void store.saveFile(undefined, true) : setSaveAsOpen(true)),
+    };
     return {
       "Mod+Shift+`": { label: t("calc.quick.general"), group: t("sc.format"), when: inGrid, run: numberFormat("General") },
       "Mod+Shift+1": { label: t("calc.quick.number"), group: t("sc.format"), when: inGrid, run: numberFormat("#,##0.00") },
@@ -97,13 +103,10 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Mod+N": { label: t("calc.sc.newWorkbook"), group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
       "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void guard.run(() => store.openFile()) },
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void store.saveFile() },
+      // Save As: F12 as in Excel, and Ctrl+Shift+S (P9-X2: Excel has no Apply Styles box, so both keys stay).
       // Desktop: the native save dialog is the Save As; web: name the download first.
-      "Mod+Shift+S": {
-        label: t("cmd.saveAs"),
-        group: File,
-        inField: true,
-        run: () => (store.api.backend.kind === "tauri" ? void store.saveFile(undefined, true) : setSaveAsOpen(true)),
-      },
+      F12: saveAs,
+      "Mod+Shift+S": saveAs,
       "Mod+P": {
         label: t("sc.printTip"),
         group: File,

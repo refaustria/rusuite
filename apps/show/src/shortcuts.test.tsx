@@ -199,6 +199,23 @@ describe("Show shortcuts", () => {
     await waitFor(() => expect(screen.getByTestId("doc-name").textContent).toBe("pitch.pptx"));
   });
 
+  it("F12 is Save As too, as in PowerPoint (P9-X2); Ctrl+/ and the backstage show it", async () => {
+    const { backend } = await mount();
+    await key({ key: "F12" });
+    const input = screen.getByLabelText("File name") as HTMLInputElement;
+    expect(input.value).toBe("Presentation.pptx");
+    fireEvent.change(input, { target: { value: "f12" } });
+    fireEvent.submit(input.form!);
+    await waitFor(() => expect(backend.saved.map((s) => s.name)).toEqual(["f12.pptx"]));
+    await key(ctrl("/"));
+    const help = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
+    expect(help.textContent).toContain("F12");
+    expect(help.textContent).toContain("Ctrl+Shift+S");
+    fireEvent.keyDown(help, { key: "Escape" });
+    fireEvent.click(screen.getByRole("tab", { name: "File" }));
+    expect(within(screen.getByRole("dialog", { name: "File" })).getByRole("button", { name: "Save As…" }).title).toBe("Save As… (F12)");
+  });
+
   it("Ctrl+N starts a new presentation; unsaved changes ask Save / Don't save / Cancel", async () => {
     const { backend, store } = await mount();
     store.selectSlide(7);

@@ -69,6 +69,8 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterVie
       "Mod+N": { label: t("show.sc.newPres"), group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
       "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: fileIo(() => void guard.run(() => store.open())) },
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: fileIo(() => void store.save()) },
+      // Save As: F12 as in PowerPoint, and Ctrl+Shift+S (P9-X2: PowerPoint has no Apply Styles box, so both keys stay).
+      F12: { label: t("cmd.saveAs"), group: File, inField: true, run: fileIo(() => setSaveAsOpen(true)) },
       "Mod+Shift+S": { label: t("cmd.saveAs"), group: File, inField: true, run: fileIo(() => setSaveAsOpen(true)) },
       "Mod+P": {
         label: t("sc.printTip"),
