@@ -374,3 +374,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | Navigation Pane / Selection Pane | Podokno za krmarjenje / Podokno za izbiro | Write |
 | Table of contents | Kazalo vsebine | Write |
 | Sparkline | Minigrafikon | Calc |
+| Split (View) | Razdeli | Calc (P9-LF) |
+| Go To Special… / Special… | Pojdi na posebno… / Posebno… | Calc |
+| Picture Format / Alt Text | Oblika slike / Nadomestno besedilo | Calc |
+| Mention someone | Omeni nekoga | Calc comments |
