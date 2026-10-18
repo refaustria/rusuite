@@ -282,6 +282,14 @@ fn table_and_pivot_slicers_round_trip() {
     wb.set_slicer_selection("Slicer_Region1", Some(&["East".into(), "North".into()]))
         .unwrap();
     let bytes = fmt_xlsx::write(&wb).unwrap();
+    // For checking the file in Excel by hand (scripts/office-check-pack.sh).
+    if let Some(dir) = std::env::var_os("RUSUITE_SLICER_OUT") {
+        std::fs::write(
+            std::path::PathBuf::from(dir).join("rusuite-slicers.xlsx"),
+            &bytes,
+        )
+        .unwrap();
+    }
 
     assert_eq!(
         content_type(&bytes, "/xl/slicerCaches/slicerCache1.xml"),

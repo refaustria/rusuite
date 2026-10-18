@@ -20,7 +20,7 @@ test.describe("Portal", () => {
     }
     const logos = await page.locator("img").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).naturalWidth));
     expect(logos.every((w) => w > 0)).toBe(true);
-    await expect(page.getByTestId("version")).toHaveText(/^Build \S+ · \d{4}-\d{2}-\d{2}$/);
+    await expect(page.getByTestId("version")).toHaveText(/^Rusuite \d+\.\d+(\.\d+)?(-\S+)? · Build \S+ · \d{4}-\d{2}-\d{2}$/);
     errors.expectNone();
   });
 
@@ -59,19 +59,31 @@ test.describe("Portal", () => {
     errors.expectNone();
   });
 
-  test("P8-49: Coming soon section (EN, DE) and the footer link on the Downloads page", async ({ page }) => {
+  test("P8-49/P9-R1: New in 3.141 and Coming soon sections (EN, DE, English for pending keys) and the footer link on the Downloads page", async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto("./");
+    const fresh = page.locator("#new");
+    await expect(fresh.getByRole("heading", { name: "New in 3.141" })).toBeVisible();
+    await expect(fresh.locator("li")).toHaveCount(5);
+    await expect(fresh).toContainText("Sheet protection, slicers, sparklines, Flash Fill");
+    await expect(fresh.getByRole("link", { name: "release notes" })).toHaveAttribute("href", /docs\/release-notes\/3\.141\.md$/);
     const soon = page.locator("#soon");
     await expect(soon.getByRole("heading", { name: "Coming soon" })).toBeVisible();
-    await expect(soon.locator("li")).toHaveCount(7);
+    await expect(soon.locator("li")).toHaveCount(3);
     await expect(soon.locator("li").first()).toContainText("Android and iOS");
-    await expect(soon).toContainText("Slicers, sparklines, sheet protection and Flash Fill are planned.");
+    await expect(soon).toContainText("Signed desktop builds");
+    await expect(soon).not.toContainText("Slicers");
     await expect(soon).toContainText("Your feedback shapes the order");
     await page.getByTestId("portal-language").selectOption("de");
+    await expect(fresh.getByRole("heading", { name: "Neu in 3.141" })).toBeVisible();
+    await expect(fresh).toContainText("Blattschutz, Datenschnitte, Sparklines, Blitzvorschau");
     await expect(soon.getByRole("heading", { name: "Demnächst" })).toBeVisible();
-    await expect(soon).toContainText("Datenschnitte, Sparklines, Blattschutz und Blitzvorschau sind geplant.");
+    await expect(soon).toContainText("Signierte Desktop-Versionen");
     await expect(soon).toContainText("Dein Feedback bestimmt die Reihenfolge");
+    // A language whose catalog lacks a key yet shows the English text, never the key name.
+    await page.getByTestId("portal-language").selectOption("fr");
+    await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+    expect(await page.locator("main").innerText()).not.toMatch(/\bportal\.[a-z]/);
     await page.getByTestId("portal-language").selectOption("en");
     await page.goto("downloads.html");
     await expect(page.getByRole("link", { name: "What's coming soon" })).toHaveAttribute("href", "./#soon");

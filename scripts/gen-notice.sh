@@ -52,6 +52,20 @@ const section = (title, list, fmt) => {
     for (const x of items.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version))) out.push(`  ${fmt(x)}`);
   }
 };
+// Data taken from specifications and other projects (docs/legal-notes.md, "Preset shape and table style data" and
+// "Data fixtures from third-party projects"). Not code; listed for provenance.
+out.push("");
+out.push("Data sources");
+out.push("------------");
+out.push("");
+out.push("- Preset shape geometry (crates/core-model/src/geometry/presets/): converted from presetShapeDefinitions.xml of");
+out.push("  ECMA-376 Part 1 (Office Open XML File Formats), (c) Ecma International; Ecma's copyright notice permits copies");
+out.push("  and derivative works that assist in implementing the standard.");
+out.push("- PowerPoint table style fixture (crates/fmt-pptx/src/tablestyle_powerpoint.xml): six a:tblStyle definitions as");
+out.push("  PowerPoint writes them, taken from the extraction published with Dewiride PPTX Studio (Apache License 2.0) and");
+out.push("  cross-checked with LibreOffice's predefined-table-styles.cxx (Mozilla Public License 2.0, The Document");
+out.push("  Foundation). The 74 built-in table style GUIDs are identifiers published by Microsoft; the looks Rusuite");
+out.push("  generates from them are its own.");
 section(`Rust crates (${rust.length})`, rust, (c) => `${c.name} ${c.version}${c.repository ? ` – ${c.repository}` : ""}`);
 section(`npm packages (${npm.length})`, npm, (p) => `${p.name} ${p.version}${p.url ? ` – ${p.url}` : ""}`);
 out.push("");

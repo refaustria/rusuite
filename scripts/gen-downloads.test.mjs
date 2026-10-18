@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { classify, loadCatalog, render, renderNone } from "./gen-downloads.mjs";
+import { classify, loadCatalog, publicName, render, renderNone } from "./gen-downloads.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -21,17 +21,17 @@ const NAMES = ["Calc", "Write", "Show"].flatMap((app) => [
   `Rusuite.${app}_x64.app.tar.gz`,
 ]);
 
-export const fixture = () => ({
-  tagName: "v0.1.0-rc.1",
-  name: "Rusuite v0.1.0-rc.1",
-  url: "https://github.com/refaustria/rusuite/releases/tag/v0.1.0-rc.1",
+export const fixture = (tag = "v0.1.0-rc.1", names = NAMES) => ({
+  tagName: tag,
+  name: `Rusuite ${tag}`,
+  url: `https://github.com/refaustria/rusuite/releases/tag/${tag}`,
   publishedAt: "2026-10-20T10:00:00Z",
   isDraft: false,
-  isPrerelease: true,
-  assets: NAMES.map((name, i) => ({
+  isPrerelease: tag.includes("-"),
+  assets: names.map((name, i) => ({
     name,
     size: 4_000_000 + i,
-    url: `https://github.com/refaustria/rusuite/releases/download/v0.1.0-rc.1/${name}`,
+    url: `https://github.com/refaustria/rusuite/releases/download/${tag}/${name}`,
     digest: `sha256:${i.toString(16).padStart(2, "0").repeat(32)}`,
   })),
 });
@@ -61,7 +61,7 @@ test("the page lists every installer with its size and SHA-256, in English and G
   }
   const en = render(fixture());
   assert.match(en, /These builds are not signed yet – your system will warn once/);
-  assert.match(en, /Rusuite v0\.1\.0-rc\.1 for Windows, macOS and Linux/);
+  assert.match(en, /Rusuite 0\.1\.0-rc\.1 for Windows, macOS and Linux/);
   assert.match(en, /<code>certutil -hashfile &lt;file&gt; SHA256<\/code>/);
   assert.match(render(fixture(), loadCatalog("de")), /Diese Versionen sind noch nicht signiert/);
 });
@@ -117,4 +117,38 @@ test("the committed apps/portal/downloads.html is the generator's no-release pag
   const committed = fs.readFileSync(path.join(ROOT, "apps/portal/downloads.html"), "utf8");
   assert.equal(committed, renderNone(), "regenerate: node scripts/gen-downloads.mjs --none --out apps/portal/downloads.html");
   assert.match(renderNone(loadCatalog("de")), /noch keine Desktop-Version/);
+});
+
+test("publicName drops a trailing .0 patch only (π numbering, docs/versioning.md)", () => {
+  assert.equal(publicName("v3.141.0"), "3.141");
+  assert.equal(publicName("3.141.0"), "3.141");
+  assert.equal(publicName("v3.1415.0"), "3.1415");
+  assert.equal(publicName("v3.141.1"), "3.141.1");
+  assert.equal(publicName("v3.141.10"), "3.141.10");
+  assert.equal(publicName("v3.141.0-rc.1"), "3.141.0-rc.1");
+  assert.equal(publicName("v0.1.0-rc.1"), "0.1.0-rc.1");
+});
+
+test("the 3.141 release shows the public name; tag and file names keep the semver; files grouped by app", () => {
+  const names = NAMES.map((n) => n.replace("0.1.0", "3.141.0"));
+  const r = fixture("v3.141.0", names);
+  for (const locale of ["en", "de"]) {
+    const html = render(r, loadCatalog(locale));
+    assert.match(html, /data-release="v3\.141\.0" data-version="3\.141"/, locale);
+    assert.doesNotMatch(html, /data-i18n="portal\.dl\.prerelease"/, locale);
+    assert.equal(html.match(/<a class="button/g).length, 21, locale);
+    assert.ok(html.includes("Rusuite.Calc_3.141.0_x64-setup.exe"), locale);
+  }
+  const en = render(r);
+  assert.match(en, /Rusuite 3\.141 for Windows, macOS and Linux/);
+  assert.doesNotMatch(en, /Rusuite 3\.141\.0 for/);
+  assert.match(render(r, loadCatalog("de")), /Rusuite 3\.141 für Windows, macOS und Linux/);
+  // Checksums per OS: Calc, Write, Show in that order, each in the OS's package order.
+  const linux = en.slice(en.indexOf('data-os="linux"'));
+  const dts = [...linux.matchAll(/<dt data-app="(\w+)">([^<]+)<\/dt>/g)].map((m) => m[2]);
+  assert.deepEqual(dts, ["Calc", "Write", "Show"].flatMap((app) => [
+    `Rusuite.${app}_3.141.0_amd64.deb`,
+    `Rusuite.${app}-3.141.0-1.x86_64.rpm`,
+    `Rusuite.${app}_3.141.0_amd64.AppImage`,
+  ]));
 });

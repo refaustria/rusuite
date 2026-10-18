@@ -48,7 +48,10 @@ rsync -a apps/portal/index.html apps/portal/privacy.html apps/portal/styles.css 
 scripts/gen-downloads.sh --out "$TARGET/downloads.html"
 rsync -a --delete apps/portal/logos/ "$TARGET/logos/"
 rsync -a --delete apps/portal/locales/ "$TARGET/locales/"
-printf '{"commit":"%s","builtAt":"%s"}\n' "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/version.json"
+# The release version (semver from Cargo.toml; the portal shows its public name, docs/versioning.md).
+# shellcheck source=scripts/versions-lib.sh
+source scripts/versions-lib.sh
+printf '{"version":"%s","commit":"%s","builtAt":"%s"}\n' "$(workspace_version)" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/version.json"
 
 scheme=https
 if ! curl -fsS -o /dev/null "https://$HOST/calc/" 2>/dev/null; then

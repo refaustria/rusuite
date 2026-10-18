@@ -64,15 +64,21 @@ jobs:
       - id: tag
         shell: bash
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"; else echo "name=${{ inputs.tag || 'v0.0.0-test' }}" >> "$GITHUB_OUTPUT"; fi
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then name="${GITHUB_REF_NAME}"; else name="${{ inputs.tag || 'v0.0.0-test' }}"; fi
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          # Public name (docs/versioning.md): without `v` and a trailing `.0` patch – v3.141.0 → "3.141"; v3.141.1 and
+          # pre-releases stay as they are. Same rule as ui-shared's publicVersion and scripts/gen-downloads.mjs.
+          v="${name#v}"
+          if [[ "$v" =~ ^([0-9]+\.[0-9]+)\.0$ ]]; then v="${BASH_REMATCH[1]}"; fi
+          echo "public=${v}" >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/${{ matrix.app }}
           tagName: ${{ steps.tag.outputs.name }}
-          releaseName: "Rusuite ${{ steps.tag.outputs.name }}"
-          releaseBody: "Unsigned preview builds. Windows SmartScreen and macOS Gatekeeper will warn; see docs/release.md. The full notes (docs/release-notes/) replace this text before publishing."
+          releaseName: "Rusuite ${{ steps.tag.outputs.public }}"
+          releaseBody: "Rusuite ${{ steps.tag.outputs.public }} – unsigned builds: Windows SmartScreen and macOS Gatekeeper warn once (steps: https://rusuit.es/downloads.html). Release notes: https://github.com/refaustria/rusuite/blob/main/docs/release-notes/${{ steps.tag.outputs.public }}.md – paste that file here before publishing (docs/release.md)."
           releaseDraft: true
           prerelease: true
           args: ${{ matrix.platform == 'macos-latest' && '--target aarch64-apple-darwin' || matrix.platform == 'macos-15-intel' && '--target x86_64-apple-darwin' || '' }}

@@ -38,7 +38,8 @@ http
     const [, app, ...rest] = decodeURIComponent(url.pathname).split("/");
     if (app === "version.json" && rest.length === 0) {
       res.writeHead(200, { ...securityHeaders, "content-type": types[".json"] });
-      res.end(JSON.stringify({ commit: "local", builtAt: new Date().toISOString() }));
+      const version = JSON.parse(fs.readFileSync(path.join(root, "calc", "package.json"), "utf8")).version;
+      res.end(JSON.stringify({ version, commit: "local", builtAt: new Date().toISOString() }));
       return;
     }
     const isApp = ["calc", "write", "show"].includes(app);

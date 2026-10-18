@@ -103,6 +103,13 @@
   "portal.os.share": "es weitergeben – mit oder ohne Änderungen",
   "portal.os.code": "Den Code findest du auf <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Problem gefunden? Nutze das Hilfe-Menü ? in der App (Problem melden…) oder eröffne ein <a href=\"https://github.com/refaustria/rusuite/issues\">Issue auf GitHub</a>.",
+  "portal.new.h": "Neu in 3.141",
+  "portal.new.intro": "Das bringt die aktuelle Version – Details findest du in den <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">Versionshinweisen</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Blattschutz, Datenschnitte, Sparklines, Blitzvorschau, Gruppieren in PivotTables, LAMBDA und die neuen Matrixfunktionen sowie viele neue Diagrammelemente.",
+  "portal.new.item2": "<strong>Write</strong> – Die Nummerierungskataloge von Word, verknüpfte Textfelder, gruppierte Formen, Vorlagen, neue Tabellenwerkzeuge und Kommentare mit Formatierung und @-Erwähnungen.",
+  "portal.new.item3": "<strong>Show</strong> – Die Tabellenformate von PowerPoint, Freihandzeichnen, viele neue Animationen und Übergänge, Medien kürzen und eine Referentenansicht mit Stift.",
+  "portal.new.item4": "<strong>Sprachen</strong> – Alle 24 Amtssprachen der EU.",
+  "portal.new.item5": "<strong>KI-Assistent</strong> – Bilder als Eingabe, schnellerer Kontext für das ganze Dokument und wählbarer Denkaufwand (Desktop-Apps).",
   "portal.soon.h": "Demnächst",
   "portal.soon.intro": "Das sollen die nächsten Versionen bringen – ohne Termine, und Pläne können sich ändern:",
   "portal.soon.item1": "<strong>Mobil</strong> – Apps für Android und iOS für Calc, Write und Show sind geplant.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – Verknüpfte Textfelder, gruppierte Formen und Vorlagen sind geplant.",
   "portal.soon.item6": "<strong>Show</strong> – Weitere Tabellenformate, Freihandzeichnen und Medien kürzen sind geplant.",
   "portal.soon.item7": "<strong>Sprachen</strong> – Weitere Oberflächensprachen sind geplant.",
+  "portal.soon.item8": "<strong>Signierte Apps</strong> – Signierte Desktop-Versionen, damit Windows und macOS vor dem ersten Start nicht mehr warnen, sind geplant.",
   "portal.soon.close": "Dein Feedback bestimmt die Reihenfolge: Sag uns über das Hilfe-Menü ? in der App (Problem melden…), was du brauchst.",
   "portal.soon.link": "Was demnächst kommt"
 }

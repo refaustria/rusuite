@@ -68,7 +68,7 @@ test.describe("German UI", () => {
     // Informal German (P8-48).
     await expect(page.getByText(/deine Dateien bleiben auf deinem Rechner/)).toBeVisible();
     expect(await page.locator("body").innerText()).not.toMatch(/\b(Sie|Ihnen|Ihre?[mnrs]?)\b/);
-    await expect(page.getByTestId("version")).toHaveText(/^Build \S+ · \d{4}-\d{2}-\d{2}$/);
+    await expect(page.getByTestId("version")).toHaveText(/^Rusuite \d+\.\d+(\.\d+)?(-\S+)? · Build \S+ · \d{4}-\d{2}-\d{2}$/);
     await shot(page, "portal-de");
     errors.expectNone();
   });

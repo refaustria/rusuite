@@ -48,7 +48,9 @@
   // Until a catalog has loaded (or if it cannot be), the page's own English texts.
   const FALLBACK = { "portal.versionUnknown": "Version unknown", "portal.build": "Build {commit}", "portal.built": "Built {date}" };
   let messages = {};
-  const t = (key, params) => interpolate(messages[key] ?? FALLBACK[key] ?? key, params);
+  // A key a translated catalog does not have yet (pending, docs/i18n.md) shows its English text, never the key.
+  let english = {};
+  const t = (key, params) => interpolate(messages[key] ?? english[key] ?? FALLBACK[key] ?? key, params);
   window.rusuiteI18n = { locale: "en", t };
 
   const escapeHtml = (v) => String(v).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -97,6 +99,7 @@
     if (shown !== locale) console.info(`rusuite: no "${locale}" portal translation yet – showing English`);
     try {
       messages = await load(shown);
+      if (shown !== "en") english = await load("en").catch(() => ({}));
     } catch {
       fillSelect("en");
       return; // the page stays as it is (English)
