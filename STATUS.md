@@ -291,6 +291,7 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 - Next: docs/plan-after-0.1.0.md (owner starts follow-up activities the week of 2026-10-19).
 
 ## Open questions
+- 2026-10-18: CI `rust` job red on main since the X1 merge: `core-model` `preset_geometry_is_unchanged` digests of cloud/star5/cloudCallout differ on the GitHub runner (floating-point platform difference; passes here, also with CI=true). Fix task P9-X1b (quantise before hashing) running; the tag waits for a green CI.
 - 2026-10-17 (languages, decided by the PM unless you object): Portuguese is **European (pt-PT)** with informal "tu"; a Brazilian variant would be a 25th catalog later. German stays bundled with English (synchronous tests), the other 22 languages load lazily.
 - Fixed 2026-10-17 (P9-W4 follow-up): `tsc --noEmit` failed on main in two W3 test files (vitest and `build:web` do not type-check; only the desktop `build` does). Now `pnpm typecheck` exists, runs in CI's frontend job and in the PM's verification.
 - 2026-10-16 (owner, macOS): Gatekeeper blocks the unsigned app. Durable fix = signing + notarization (needs the owner's Apple Developer Program membership → GitHub secrets). Workaround documented (P8-50).
