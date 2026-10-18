@@ -4,12 +4,12 @@
 // Structured results use tool use: one strict tool, `tool_choice: auto` (the 5.5 models reject forced tool choice)
 // and an instruction to call it; the client validates the input again (`schemas.ts`).
 
-import type { AiProvider, AiRequest, AiTool, Delta, ModelInfo } from "../types";
+import type { AiEffort, AiMessage, AiProvider, AiRequest, AiTool, Delta, ModelInfo } from "../types";
 import { AiError } from "../types";
 import { aiFetch, errorFromResponse, markUnsupported, parseToolJson, rejectedParam, sseEvents, unsupportedParams, type FetchLike } from "./http";
 
 /** Optional parameters dropped (and retried once) when a model rejects them with a 400. */
-export const ANTHROPIC_OPTIONAL = ["fallbacks", "temperature", "tool_choice"] as const;
+export const ANTHROPIC_OPTIONAL = ["fallbacks", "temperature", "tool_choice", "thinking", "output_config"] as const;
 
 export const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5-5";
@@ -31,15 +31,77 @@ export function supportsFallback(model: string): boolean {
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
+/** The base id of a model (`claude-opus-4-5-20251101` → `claude-opus-4-5`; the 4.6+ / 5.x ids have no date). */
+const baseId = (model: string) => model.replace(/-\d{8}$/, "");
+
+/** Thinking cannot be turned off (`{type:"disabled"}` returns a 400): the lowest setting is effort `low`. */
+const ALWAYS_THINKING = new Set(["claude-opus-5-5", "claude-fable-5", "claude-fable-5-1", "claude-mythos-5", "claude-mythos-5-1"]);
+/** Thinking off is `{type:"between_tools"}` (`disabled` returns a 400). */
+const BETWEEN_TOOLS = new Set(["claude-sonnet-5-5"]);
+/** Take `{type:"disabled"}` (at effort high or below, which is all this setting uses). */
+const DISABLEABLE = new Set(["claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"]);
+
+/** Models with adaptive thinking and `output_config.effort` (Claude 4.6+ and the 5.x family). */
+export function supportsEffort(model: string): boolean {
+  const id = baseId(model);
+  return ALWAYS_THINKING.has(id) || BETWEEN_TOOLS.has(id) || DISABLEABLE.has(id);
+}
+
+/**
+ * The request fields for a reasoning effort (docs/ai-api-notes.md §4):
+ * - low / medium / high → `thinking: {type: "adaptive", display: "summarized"}` (the summary is streamed to the
+ *   panel; the 5.x default `display` is "omitted") and `output_config: {effort}`;
+ * - off → `{type: "between_tools"}` on Sonnet 5.5, `{type: "disabled"}` where accepted, and effort `low` on the
+ *   models whose thinking cannot be disabled (Opus 5.5, Fable);
+ * - other models (Claude 3.x, 4.0–4.5, unknown ids): nothing – their defaults apply.
+ */
+export function reasoningParams(model: string, effort: AiEffort | undefined): { thinking?: Record<string, unknown>; output_config?: Record<string, unknown> } {
+  if (!effort || !supportsEffort(model)) return {};
+  const id = baseId(model);
+  if (effort !== "off") return { thinking: { type: "adaptive", display: "summarized" }, output_config: { effort } };
+  if (BETWEEN_TOOLS.has(id)) return { thinking: { type: "between_tools" } };
+  if (ALWAYS_THINKING.has(id)) return { output_config: { effort: "low" } };
+  return { thinking: { type: "disabled" } };
+}
+
+/** A message's content: a string, or image blocks (base64) followed by the text blocks. */
+export function anthropicContent(m: AiMessage): string | Record<string, unknown>[] {
+  if (typeof m.content === "string") return m.content;
+  return m.content.map((p) =>
+    p.type === "image"
+      ? { type: "image", source: { type: "base64", media_type: p.image.mediaType, data: p.image.data } }
+      : { type: "text", text: p.text },
+  );
+}
+
+/**
+ * The system prompt: a plain string, or – with the whole document – two text blocks, the document first and marked
+ * `cache_control: { type: "ephemeral" }` (5-minute cache, refreshed on every hit), then the instructions. The
+ * document comes first so that actions with other instructions still share its cached prefix (tools come before
+ * the system prompt, so structured actions only share it among themselves). Below the model's minimum (512 tokens
+ * on the 5.x models) the API silently caches nothing.
+ */
+export function anthropicSystem(req: AiRequest): string | Record<string, unknown>[] {
+  if (!req.documentContext) return req.system;
+  return [
+    { type: "text", text: req.documentContext, cache_control: { type: "ephemeral" } },
+    { type: "text", text: req.system },
+  ];
+}
+
 export function anthropicBody(req: AiRequest, official: boolean, skip: ReadonlySet<string> = new Set()): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     max_tokens: req.maxTokens,
-    system: req.system,
-    messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+    system: anthropicSystem(req),
+    messages: req.messages.map((m) => ({ role: m.role, content: anthropicContent(m) })),
     stream: true,
   };
-  if (req.temperature !== undefined && acceptsTemperature(req.model)) body.temperature = req.temperature;
+  const reasoning = reasoningParams(req.model, req.effort);
+  Object.assign(body, reasoning);
+  // Thinking requires the default temperature on the models that still take one.
+  const thinking = (reasoning.thinking?.type ?? "") === "adaptive";
+  if (req.temperature !== undefined && acceptsTemperature(req.model) && !thinking) body.temperature = req.temperature;
   if (req.tools?.length) {
     body.tools = req.tools.map((t: AiTool) => ({ name: t.name, description: t.description, input_schema: t.schema, strict: true }));
     body.tool_choice = { type: "auto" };
@@ -47,6 +109,27 @@ export function anthropicBody(req: AiRequest, official: boolean, skip: ReadonlyS
   if (official && supportsFallback(req.model)) body.fallbacks = "default";
   for (const p of skip) delete body[p];
   return body;
+}
+
+/**
+ * A Messages API `usage` object → a usage delta. `message_start` carries the input side (`input_tokens` = the
+ * uncached part, `cache_read_input_tokens`, `cache_creation_input_tokens`); `message_delta` the cumulative
+ * `output_tokens` (and, on newer API versions, the input fields again – then they replace the earlier ones).
+ */
+export function usageDelta(u: Record<string, unknown>, start: boolean): Delta {
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const plain = n(u.input_tokens);
+  const read = n(u.cache_read_input_tokens);
+  const write = n(u.cache_creation_input_tokens);
+  const out: Delta & { type: "usage" } = { type: "usage" };
+  if (start || plain !== undefined || read !== undefined || write !== undefined) {
+    if (start || plain !== undefined) out.inputTokens = (plain ?? 0) + (read ?? 0) + (write ?? 0);
+    if (start || read !== undefined) out.cacheReadTokens = read ?? 0;
+    if (start || write !== undefined) out.cacheWriteTokens = write ?? 0;
+  }
+  const o = n(u.output_tokens);
+  if (o !== undefined || start) out.outputTokens = o ?? 0;
+  return out;
 }
 
 interface Block {
@@ -72,20 +155,20 @@ export async function* anthropicDeltas(events: AsyncIterable<{ event: string; da
       case "message_start": {
         const m = d.message ?? {};
         if (typeof m.model === "string") yield { type: "model", model: m.model };
-        const u = m.usage ?? {};
-        const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-        yield { type: "usage", inputTokens: input, outputTokens: u.output_tokens ?? 0 };
+        yield usageDelta(m.usage ?? {}, true);
         break;
       }
       case "content_block_start": {
         const b = d.content_block ?? {};
         blocks.set(d.index, { type: b.type, id: b.id, name: b.name, json: "" });
         if (b.type === "text" && b.text) yield { type: "text", text: b.text };
+        else if (b.type === "thinking" && b.thinking) yield { type: "thinking", text: b.thinking };
         break;
       }
       case "content_block_delta": {
         const delta = d.delta ?? {};
         if (delta.type === "text_delta" && typeof delta.text === "string") yield { type: "text", text: delta.text };
+        else if (delta.type === "thinking_delta" && typeof delta.thinking === "string" && delta.thinking) yield { type: "thinking", text: delta.thinking };
         else if (delta.type === "input_json_delta") {
           const b = blocks.get(d.index);
           if (b) b.json += delta.partial_json ?? "";
@@ -99,7 +182,7 @@ export async function* anthropicDeltas(events: AsyncIterable<{ event: string; da
       }
       case "message_delta": {
         if (d.delta?.stop_reason) stop = d.delta.stop_reason;
-        if (d.usage && typeof d.usage.output_tokens === "number") yield { type: "usage", outputTokens: d.usage.output_tokens };
+        if (d.usage && typeof d.usage === "object") yield usageDelta(d.usage, false);
         break;
       }
       case "message_stop":

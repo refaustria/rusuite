@@ -374,3 +374,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | Gridlines | Mřížka | |
 | Spill (error) | Přetečení | |
 | Dialog title (verbal noun) | Vložení funkce, Ověření dat … | |
+| Split (View) | Rozdělit | Calc (P9-LF) |
+| Go To Special… / Special… | Přejít na – jinak… / Jinak… | Calc |
+| Picture Format / Alt Text | Formát obrázku / Alternativní text | Calc |
+| Mention someone | Zmínit někoho | Calc comments |

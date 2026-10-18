@@ -384,3 +384,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Presets (borders, columns) | Unaprijed postavljeno | |
 | Chart title / Axis / Legend / Trendline | Naslov grafikona / Os / Legenda / Linija trenda | |
 | Column / Bar / Pie / Doughnut / Scatter chart | Stupčasti / Trakasti / Tortni / Prstenasti / Raspršeni grafikon | |
+| Split (View) | Podijeli | Calc (P9-LF) |
+| Go To Special… / Special… | Idi na posebno… / Posebno… | Calc |
+| Picture Format / Alt Text | Oblikovanje slike / Alternativni tekst | Calc |
+| Mention someone | Spomeni nekoga | Calc comments |

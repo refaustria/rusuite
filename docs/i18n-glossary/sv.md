@@ -375,3 +375,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Poster Frame | Affischram | PowerPoint media |
 | Set Up Slide Show | Konfigurera bildspel | |
 | Trace Precedents / Dependents | Spåra överordnade / underordnade | Calc |
+| Split (View) | Dela | Calc (P9-LF) |
+| Go To Special… / Special… | Gå till special… / Special… | Calc |
+| Picture Format / Picture Styles | Bildformat / Bildformat | Calc (as Office) |
+| Alt Text / Mention someone | Alternativ text / Nämn någon | Calc |

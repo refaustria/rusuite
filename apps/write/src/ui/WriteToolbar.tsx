@@ -765,7 +765,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
           </RibbonStack>
         ),
       },
-      { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
+      aiRibbonGroup(session.ai),
     ],
   };
 

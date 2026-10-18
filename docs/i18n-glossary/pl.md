@@ -375,3 +375,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | Widow/Orphan control | Kontrola wdów i sierot | |
 | Gridlines | Linie siatki | |
 | Dialog title (gerund) | Formatowanie komórek, Wstawianie funkcji … | |
+| Split (View) | Podziel | Calc (P9-LF) |
+| Go To Special… / Special… | Przejdź do — specjalnie… / Specjalnie… (title: Przechodzenie do — specjalnie) | Calc |
+| Picture Format / Alt Text | Format obrazu / Tekst alternatywny | Calc |
+| Mention someone | Wspomnij o kimś | Calc comments |

@@ -11,7 +11,9 @@ import { eventCombo } from "../../shortcuts/keys";
 import { RibbonIcon } from "../../ribbon/icons";
 import type { AiAction, AiTurn, Assistant } from "../controller";
 import type { AiAppAdapter } from "../adapter";
-import { askAction } from "../adapter";
+import { askAction, type AiAttachSource } from "../adapter";
+import { errorText } from "../controller";
+import { conversationMarkdown, exportFileName, saveTextFile } from "../export";
 import { CONTEXT_LIMITS, estimateTokens } from "../prompts";
 import { AI_BUTTON, AI_CHIP, AI_PRIMARY, useAssistant, useProviderName } from "./hooks";
 
@@ -39,6 +41,20 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
     <li className="flex flex-col gap-1.5 border-b border-ui-border pb-3" data-testid="ai-turn" data-status={turn.status}>
       <p className="text-xs font-semibold">{turn.prompt}</p>
       <p className="text-[11px] text-ui-muted">{turn.contextLabel}</p>
+      {turn.images?.length ? (
+        <p className="text-[11px] text-ui-muted" data-testid="ai-turn-images">
+          {t("ai.pane.sentPictures", { list: turn.images.join(", ") })}
+        </p>
+      ) : null}
+      {turn.thinking && (
+        // The reasoning summary: collapsed, apart from the answer (Insert / Replace use the answer only).
+        <details className="rounded border border-ui-border px-2 py-1 text-xs text-ui-muted" data-testid="ai-thinking">
+          <summary className={`cursor-pointer select-none ${FOCUS_RING}`}>{t("ai.pane.thinking")}</summary>
+          <div className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words" data-testid="ai-thinking-text">
+            {turn.thinking}
+          </div>
+        </details>
+      )}
       {structured && done && turn.action.preview ? (
         <div className="text-sm" data-testid="ai-preview">
           {turn.action.preview(turn.value)}
@@ -52,9 +68,18 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
       )}
       {turn.status === "stopped" && <p className="text-xs text-ui-muted">{t("ai.pane.stopped")}</p>}
       {turn.error && (
-        <p role="alert" className="text-xs text-red-700 dark:text-red-400" data-testid="ai-error">
+        <div role="alert" className="text-xs text-red-700 dark:text-red-400" data-testid="ai-error">
           {turn.error}
-        </p>
+          {turn.errorDetail && (
+            // The provider's own (English) wording, apart from the translated message.
+            <details className="mt-0.5 text-ui-muted" data-testid="ai-error-details">
+              <summary className={`cursor-pointer select-none ${FOCUS_RING}`}>{t("ai.pane.errorDetails")}</summary>
+              <div className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap break-words" data-testid="ai-error-detail-text">
+                {turn.errorDetail}
+              </div>
+            </details>
+          )}
+        </div>
       )}
       {turn.applied && (
         <p role="status" className="text-xs text-green-700 dark:text-green-400" data-testid="ai-applied">
@@ -91,13 +116,94 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
           )}
         </div>
       )}
+      {turn.document && (
+        <p className="text-[11px] text-ui-muted" data-testid="ai-turn-document" data-document={turn.document}>
+          {t(`ai.pane.doc.${turn.document}`)}
+        </p>
+      )}
+      {turn.model && (
+        <p className="text-[11px] text-ui-muted" data-testid="ai-turn-model" data-pinned={turn.modelPinned ? "true" : "false"}>
+          {t(turn.modelPinned ? "ai.pane.turnModelPinned" : "ai.pane.turnModel", { model: turn.model })}
+          {turn.effort ? <span data-testid="ai-turn-effort">{` · ${t("ai.pane.effort", { level: t(`ai.effort.${turn.effort}`) })}`}</span> : null}
+        </p>
+      )}
       {(turn.usage.input > 0 || turn.usage.output > 0) && (
-        <p className="text-[11px] text-ui-muted">
+        <p className="text-[11px] text-ui-muted" data-testid="ai-turn-usage">
           {t("ai.pane.turnUsage", { input: formatNumber(turn.usage.input), output: formatNumber(turn.usage.output) })}
-          {turn.model ? ` · ${turn.model}` : ""}
+          {turn.usage.cacheRead > 0 || turn.usage.cacheWrite > 0 ? (
+            <span data-testid="ai-turn-cache">
+              {" · "}
+              {t("ai.pane.cacheUsage", { read: formatNumber(turn.usage.cacheRead), write: formatNumber(turn.usage.cacheWrite) })}
+            </span>
+          ) : null}
         </p>
       )}
     </li>
+  );
+}
+
+/** "Attach selected picture" / "Attach current slide as image" and the pictures waiting for the next turn. */
+function Attachments({ ai, sources, disabled }: { ai: Assistant; sources: AiAttachSource[]; disabled: boolean }) {
+  const t = useT();
+  const pending = useAssistant(ai, (s) => s.attachments);
+  const settings = useAssistant(ai, (s) => s.settings);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!sources.length && !pending.length) return null;
+  const vision = ai.acceptsImages();
+  const attach = async (src: AiAttachSource) => {
+    setError(null);
+    setBusy(true);
+    try {
+      ai.attach(await src.load());
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1 text-xs" data-testid="ai-attachments">
+      <div className="flex flex-wrap gap-1.5">
+        {sources.map((src) => {
+          const reason = !vision ? t("ai.pane.noVision", { model: settings.models[settings.provider] }) : src.unavailable();
+          return (
+            <button
+              key={src.id}
+              type="button"
+              className={`${AI_BUTTON} h-7 px-2 text-xs ${FOCUS_RING}`}
+              disabled={disabled || busy || reason !== null}
+              title={reason ?? src.label}
+              onClick={() => void attach(src)}
+            >
+              <RibbonIcon name="image" size={14} />
+              {src.label}
+            </button>
+          );
+        })}
+      </div>
+      {pending.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5" aria-label={t("ai.pane.attached")} data-testid="ai-pending-pictures">
+          {pending.map((img, i) => (
+            <li key={`${i}:${img.label}`} className="flex items-center gap-1 rounded border border-ui-border bg-ui-bg p-0.5 pr-1">
+              <img src={`data:${img.mediaType};base64,${img.data}`} alt="" className="h-8 w-8 rounded object-contain" />
+              <span>{img.label}</span>
+              <span className="text-ui-muted">
+                {img.width}×{img.height}
+              </span>
+              <button type="button" className={`rounded px-1 hover:bg-ui-hover ${FOCUS_RING}`} aria-label={t("ai.pane.detach", { name: img.label })} onClick={() => ai.detach(i)}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && (
+        <p role="alert" className="text-red-700 dark:text-red-400" data-testid="ai-attach-error">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -125,6 +231,8 @@ function Pane({ ai, adapter }: { ai: Assistant; adapter: AiAppAdapter }) {
   const provider = useProviderName(ai);
   const label = useSyncExternalStore(adapter.subscribe, () => adapter.selectionLabel());
   const hasSelection = useSyncExternalStore(adapter.subscribe, () => adapter.hasSelection());
+  // Re-render when what can be attached changes (a picture selected, …).
+  useSyncExternalStore(adapter.subscribe, () => (adapter.attachSources ?? []).map((a) => a.unavailable() ?? "").join("\u0001"));
   const [pending, setPending] = useState<AiAction<unknown> | null>(null);
   const [needsDoc, setNeedsDoc] = useState<{ action: AiAction<unknown>; input: string } | null>(null);
   const [input, setInput] = useState("");
@@ -133,6 +241,15 @@ function Pane({ ai, adapter }: { ai: Assistant; adapter: AiAppAdapter }) {
   const list = useRef<HTMLOListElement>(null);
   const actions = adapter.actions() as AiAction<unknown>[];
   const ask = useMemo(() => askAction(t("ai.pane.ask"), adapter.textApply) as AiAction<unknown>, [t, adapter]);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  useEffect(() => {
+    // Settings › AI › Actions lists these (the ask action first).
+    ai.actionList = () => [{ id: ask.id, label: ask.label }, ...adapter.actions().map((a) => ({ id: a.id, label: a.label }))];
+    return () => {
+      ai.actionList = null;
+    };
+  }, [ai, adapter, ask]);
+  useEffect(() => setExportNote(null), [turns]);
 
   useEffect(() => {
     if (open) prompt.current?.focus();
@@ -255,6 +372,7 @@ function Pane({ ai, adapter }: { ai: Assistant; adapter: AiAppAdapter }) {
         <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("ai.pane.actions")} data-testid="ai-actions">
           {actions.map(chip)}
         </div>
+        <Attachments ai={ai} sources={adapter.attachSources ?? []} disabled={!ready || running} />
         {needsDoc && (
           <div role="alert" className="flex flex-col items-start gap-1.5 rounded border border-amber-600/40 p-2 text-xs" data-testid="ai-needs-document">
             <p>{t("ai.pane.needsDocument", { chars: formatNumber(adapter.documentSize()), provider })}</p>
@@ -335,13 +453,47 @@ function Pane({ ai, adapter }: { ai: Assistant; adapter: AiAppAdapter }) {
           )}
         </div>
         <p className="flex items-center gap-2 text-[11px] text-ui-muted" data-testid="ai-usage">
-          <span className="flex-1">{t("ai.pane.usage", { input: formatNumber(usage.input), output: formatNumber(usage.output) })}</span>
+          <span className="flex-1">
+            {t("ai.pane.usage", { input: formatNumber(usage.input), output: formatNumber(usage.output) })}
+            {usage.cacheRead > 0 ? ` (${t("ai.pane.usageCached", { read: formatNumber(usage.cacheRead) })})` : ""}
+          </span>
           {turns.length > 0 && !running && (
             <button type="button" className={`rounded px-1 hover:bg-ui-hover ${FOCUS_RING}`} onClick={() => ai.clearConversation()}>
               {t("ai.pane.clear")}
             </button>
           )}
         </p>
+        {turns.length > 0 && !running && (
+          <div className="flex flex-wrap items-center gap-1 text-[11px] text-ui-muted" data-testid="ai-export">
+            <button
+              type="button"
+              className={`rounded px-1 hover:bg-ui-hover ${FOCUS_RING}`}
+              data-testid="ai-export-save"
+              onClick={() => {
+                const md = conversationMarkdown(turns, { app: adapter.appName?.(), provider });
+                void saveTextFile(exportFileName(), md).then((ok) => setExportNote(ok ? t("ai.pane.exportSaved") : null));
+              }}
+            >
+              {t("ai.pane.exportSave")}
+            </button>
+            <button
+              type="button"
+              className={`rounded px-1 hover:bg-ui-hover ${FOCUS_RING}`}
+              data-testid="ai-export-copy"
+              onClick={() => {
+                const md = conversationMarkdown(turns, { app: adapter.appName?.(), provider });
+                void navigator.clipboard?.writeText(md).then(() => setExportNote(t("ai.pane.exportCopied")), () => setExportNote(null));
+              }}
+            >
+              {t("ai.pane.exportCopy")}
+            </button>
+            {exportNote && (
+              <span role="status" data-testid="ai-export-note">
+                {exportNote}
+              </span>
+            )}
+          </div>
+        )}
       </form>
     </aside>
   );

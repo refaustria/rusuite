@@ -161,6 +161,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Office parity – tracked in docs/parity-backlog.md (Phase 8)
 
 ## AI assistant – docs/ai-plan.md
+- P9-A1/A2 (3.141): `export_file` command in the Write and Calc shells (conversation export on the desktop); cache breakpoint on the conversation history; optional 2576 px images; replay thinking blocks once the history is append-only; per-action max-tokens override; export as HTML/docx; generic ribbon rule to skip collapsing a group whose collapsed button is as wide as the group; owner's real-key desktop smoke still open.
 - v1 merged 2026-10-16. Next: prompt caching for whole-document context; reasoning-effort choice for 5.5 models; attach a selected image (Write/Show); desktop smoke with a real key; Show's Home tab AI group may fall off-screen at 1400 px (ribbon collapse work); web CSP decision.
 
 ## Cloud connectors (user-owned accounts) – see docs/cloud-connectors-plan.md

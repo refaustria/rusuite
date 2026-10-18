@@ -18,7 +18,7 @@
   "portal.dl.released": "Ippubblikat {date}",
   "portal.dl.prerelease": "Pre-rilaxx",
   "portal.dl.unsigned.title": "Dawn il-builds għadhom mhumiex iffirmati – is-sistema tiegħek tagħti twissija darba",
-  "portal.dl.unsigned.text": "L-installaturi għadhom mhumiex iffirmati bil-kodiċi, għalhekk Windows u macOS jagħtu twissija l-ewwel darba li tiftaħ kull app. Dan huwa mistenni u mhuwiex sinjal ta' ħsara; il-passi għas-sistema tiegħek jinsabu eżatt fuq il-buttuni tad-download. Biex tkun żgur li fajl huwa dak li bnejna, qabbel is-checksum SHA-256 tiegħu mal-lista t'hawn taħt.",
+  "portal.dl.unsigned.text": "L-installaturi għadhom mhumiex iffirmati bil-kodiċi, għalhekk Windows u macOS jagħtu twissija l-ewwel darba li tiftaħ kull app. Dan huwa mistenni u mhuwiex sinjal ta' ħsara; il-passi għas-sistema tiegħek jinsabu eżatt fuq il-buttuni tad-download. Biex tivverifika li fajl huwa dak li bnejna, qabbel is-checksum SHA-256 tiegħu mal-lista t'hawn taħt.",
   "portal.dl.recommended": "Rakkomandat għal dan l-apparat",
   "portal.dl.checksums": "Checksums SHA-256",
   "portal.dl.verify": "Ikkalkula s-checksum ta' fajl bi <code>{command}</code> u qabbilha mal-lista.",

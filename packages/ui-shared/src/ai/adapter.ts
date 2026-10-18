@@ -3,10 +3,23 @@
 
 import type { AiAction, AiApply } from "./controller";
 import type { AiApp, DocContext } from "./prompts";
+import type { AiImage } from "./types";
+
+/** A picture the user can attach to the next turn ("Attach selected picture", "Attach current slide as image"). */
+export interface AiAttachSource {
+  id: string;
+  label: string;
+  /** Why it cannot be used now (`null`: it can) – a primitive, re-read after `subscribe` events. */
+  unavailable(): string | null;
+  /** The picture, scaled for sending (`images.ts`). */
+  load(): Promise<AiImage>;
+}
 import { PLAIN_TEXT_RULE } from "./prompts";
 
 export interface AiAppAdapter {
   app: AiApp;
+  /** "Rusuite Write" (the title of an exported conversation). */
+  appName?(): string;
   /** The action chips (re-read on every render: labels follow the UI language). */
   actions(): AiAction<any>[]; // eslint-disable-line @typescript-eslint/no-explicit-any
   /** The context for a request; `includeDocument`: with the whole document. */
@@ -21,6 +34,8 @@ export interface AiAppAdapter {
   anchor?(): unknown;
   /** Buttons under free-form answers (Copy is always there). */
   textApply: AiApply<string>[];
+  /** Pictures that can be attached to the next turn. */
+  attachSources?: AiAttachSource[];
 }
 
 /** The free-form prompt ("Ask the assistant"): a text answer with the app's Insert / Replace buttons. */

@@ -388,3 +388,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Token | Token | |
 | Connection | Connessione | WebDAV |
 | Autosave | Salvataggio automatico | |
+| Sparkline / Sparklines (Insert group) | Sparkline / Grafici sparkline | Calc (P9-LF) |
+| Line / Column / Win/Loss (sparkline types) | Linee / Istogramma / Positivi/Negativi | Calc |
+| Error Bars / Data Table | Barre di errore / Tabella dati | Calc charts |
+| High-Low Lines / Up/Down Bars | Linee di massimo e minimo / Barre crescenti/decrescenti | Calc charts |
+| Go To Special… | Vai a formato speciale… | Calc |
+| Picture Format / Alt Text | Formato immagine / Testo alternativo | Calc |

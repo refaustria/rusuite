@@ -372,3 +372,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Poster Frame | Posterframe | PowerPoint media |
 | Narration | Gesproken tekst | Set Up Show, Play Narrations |
 | Font Color | Tekstkleur | all apps |
+| Split (View) | Splitsen | Calc (P9-LF) |
+| Go To Special… / Special… | Selecteren speciaal… / Speciaal… | Calc |
+| Picture Format / Alt Text | Afbeeldingsopmaak / Alternatieve tekst | Calc |
+| Mention someone | Iemand vermelden | Calc comments |

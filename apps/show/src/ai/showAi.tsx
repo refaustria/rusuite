@@ -6,9 +6,16 @@
 // deck's layouts; the outline of every slide only with "Include whole document".
 
 import {
-  PLAIN_TEXT_RULE, SLIDES_TOOL, layoutTool, paragraphsOf, parseLayout, parseSlides, plainText,
-  type AiAction, type AiAppAdapter, type AiApply, type DocContext, type LayoutResult, type OutlineSlide,
+  ALT_TEXT_TASK, EXPLAIN_CHART_TASK, PLAIN_TEXT_RULE, SLIDES_TOOL, block, chartDataTable, chartImage, imageFromUrl, layoutTool, paragraphsOf,
+  parseLayout, parseSlides, plainText,
+  type AiAction, type AiAppAdapter, type AiApply, type AiAttachSource, type AiImage, type DocContext, type LayoutResult, type OutlineSlide,
 } from "@rusuite/ui-shared";
+import { renderSlideImages } from "../print/slideImages";
+import { stableDeck } from "../design/deck";
+import { chartScene } from "../charts/render";
+import { resolveShape } from "../charts/data";
+import { emuToPx } from "../geometry";
+import { themePalette } from "../model";
 import { t } from "../i18n";
 import type { ShowStore } from "../state/store";
 import type { ShowCommand } from "../generated/ShowCommand";
@@ -108,6 +115,25 @@ function slideText(slide: Slide): string {
   return [o.title && `Title: ${o.title}`, ...o.body.map((p) => `${"  ".repeat(p.level)}- ${p.text}`), ...others].filter(Boolean).join("\n");
 }
 
+/** Alt text as written by the model: one line, no quotes or "Alt text:" preface. */
+export function cleanAltText(text: string): string {
+  return plainText(text)
+    .replace(/\s*\n+\s*/g, " ")
+    .replace(/^(alt(ernative)?[ -]?text|alternativtext)\s*:\s*/i, "")
+    .replace(/^["“„«]+|["”“»]+$/g, "")
+    .trim();
+}
+
+/** Notes with `text` added as a new paragraph. */
+export const appendNotes = (old: string | null | undefined, text: string) => (old?.trim() ? `${old.replace(/\s+$/, "")}\n${text}` : text);
+
+/** The one selected shape if it is a picture / a chart. */
+function selectedOf(store: ShowStore, kind: "picture" | "chart"): Shape | null {
+  const sel = store.selectedShapes();
+  const s = sel.length === 1 ? sel[0]! : null;
+  return s && s.kind.kind === kind ? s : null;
+}
+
 export function showAiAdapter(store: ShowStore): AiAppAdapter {
   const anchorOf = (turn: { anchor?: unknown }): ShowAnchor | null => (turn.anchor as ShowAnchor | undefined) ?? null;
   const slideOf = (a: ShowAnchor | null) => store.getState().pres?.slides.find((s) => s.id === (a?.slide ?? store.getState().current)) ?? null;
@@ -126,7 +152,7 @@ export function showAiAdapter(store: ShowStore): AiAppAdapter {
     run: async (text, turn) => {
       const a = anchorOf(turn);
       const slide = slideOf(a);
-      const shape = slide?.shapes.find((s) => s.id === a?.shape) ?? targetShape(store, slide);
+      const shape = slide?.shapes.find((s) => s.id === a?.shape && textOf(s)) ?? targetShape(store, slide);
       const old = shape ? textOf(shape) : null;
       if (!shape || !old) throw new Error(t("ai.show.noText"));
       const lines = paragraphsOf(plainText(text)).map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ""));
@@ -139,6 +165,60 @@ export function showAiAdapter(store: ShowStore): AiAppAdapter {
   };
 
   const layouts = () => (store.getState().pres?.layouts ?? []).map((l) => ({ id: l.kind, name: l.name ?? l.kind }));
+
+  // --- pictures (P9-A1) ---
+  const pictureImage = async (): Promise<AiImage> => {
+    const shape = selectedOf(store, "picture");
+    const media = shape && shape.kind.kind === "picture" ? shape.kind.value.media : null;
+    const url = media !== null ? store.media.get(media) : undefined;
+    if (!url) throw new Error(t("ai.show.noPicture"));
+    return imageFromUrl(url, shape?.name || t("ai.show.pictureLabel"));
+  };
+  const slideImage = async (): Promise<AiImage> => {
+    const st = store.getState();
+    const slides = st.pres?.slides ?? [];
+    const i = slides.findIndex((s) => s.id === st.current);
+    if (!st.pres || i < 0) throw new Error(t("ai.show.noSlide"));
+    const [url] = await renderSlideImages(stableDeck(st.pres), [slides[i]!], store.media);
+    if (!url) throw new Error(t("ai.show.noSlideImage"));
+    return imageFromUrl(url, t("ai.show.slideLabel", { n: i + 1 }));
+  };
+  const chartAttachment = async (): Promise<{ images: AiImage[]; text: string }> => {
+    const shape = selectedOf(store, "chart");
+    const pres = store.getState().pres;
+    if (!shape || shape.kind.kind !== "chart" || !pres) throw new Error(t("ai.show.noChart"));
+    const chart = shape.kind.value;
+    const w = Math.max(1, Math.round(emuToPx(shape.transform.w)));
+    const h = Math.max(1, Math.round(emuToPx(shape.transform.h)));
+    const scene = chartScene(chart, w, h, themePalette(stableDeck(pres).theme));
+    const image = chartImage(scene, w, h, shape.name || t("ai.show.chartLabel"));
+    return { images: [image], text: block("chart_data", chartDataTable(resolveShape(chart))) };
+  };
+  const attachSources: AiAttachSource[] = [
+    { id: "picture", label: t("ai.pane.attachPicture"), unavailable: () => (selectedOf(store, "picture") ? null : t("ai.show.noPicture")), load: pictureImage },
+    { id: "slide", label: t("ai.show.attachSlide"), unavailable: () => (currentSlide(store) ? null : t("ai.show.noSlide")), load: slideImage },
+  ];
+  const setAlt: AiApply<string> = {
+    label: t("ai.show.setAlt"),
+    run: async (text, turn) => {
+      const a = anchorOf(turn);
+      const slide = slideOf(a);
+      const shape = slide?.shapes.find((s) => s.id === a?.shape && s.kind.kind === "picture") ?? selectedOf(store, "picture");
+      const alt = cleanAltText(text);
+      if (!shape || !alt) throw new Error(t("ai.show.noPicture"));
+      await store.setAltText(shape.id, alt);
+      return t("ai.show.altSet");
+    },
+  };
+  const addNotes: AiApply<string> = {
+    label: t("ai.show.addNotes"),
+    run: async (text, turn) => {
+      const slide = slideOf(anchorOf(turn));
+      if (!slide) throw new Error(t("ai.show.noSlide"));
+      await store.setNotes(slide.id, appendNotes(slide.notes, paragraphsOf(plainText(text)).join("\n")));
+      return t("ai.show.notesAdded");
+    },
+  };
 
   const outline: AiAction<OutlineSlide[]> = {
     id: "outline",
@@ -226,12 +306,34 @@ export function showAiAdapter(store: ShowStore): AiAppAdapter {
     ],
   };
 
+  const describe: AiAction<string> = {
+    id: "alt",
+    label: t("ai.show.describePicture"),
+    unavailable: () => (selectedOf(store, "picture") ? null : t("ai.show.noPicture")),
+    task: () => ALT_TEXT_TASK,
+    system: PLAIN_TEXT_RULE,
+    attachments: async () => ({ images: [await pictureImage()] }),
+    apply: [setAlt],
+  };
+
+  const explainChart: AiAction<string> = {
+    id: "explainChart",
+    label: t("ai.show.explainChart"),
+    unavailable: () => (selectedOf(store, "chart") ? null : t("ai.show.noChart")),
+    task: () => EXPLAIN_CHART_TASK,
+    attachments: chartAttachment,
+    apply: [addNotes],
+  };
+
   return {
     app: "show",
+    appName: () => "Rusuite Show",
     textApply: [replaceText, setNotes],
+    attachSources,
     anchor: () => {
       const slide = currentSlide(store);
-      return slide ? ({ slide: slide.id, shape: targetShape(store, slide)?.id ?? null } satisfies ShowAnchor) : null;
+      const picked = selectedOf(store, "picture") ?? selectedOf(store, "chart");
+      return slide ? ({ slide: slide.id, shape: picked?.id ?? targetShape(store, slide)?.id ?? null } satisfies ShowAnchor) : null;
     },
     subscribe: (fn) => store.subscribe(fn),
     hasSelection: () => !!currentSlide(store),
@@ -280,7 +382,7 @@ export function showAiAdapter(store: ShowStore): AiAppAdapter {
         ...(document !== undefined ? { document } : {}),
       };
     },
-    actions: () => [outline, notes, rewrite, layout] as AiAction<unknown>[],
+    actions: () => [outline, notes, rewrite, layout, describe, explainChart] as AiAction<unknown>[],
   };
 }
 

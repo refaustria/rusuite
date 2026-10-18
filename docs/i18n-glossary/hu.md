@@ -384,3 +384,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Red (colour) | Piros | Office colour name, not "Vörös" |
 | Chart title / Axis / Legend / Trendline | Diagramcím / Tengely / Jelmagyarázat / Trendvonal | |
 | Column / Bar / Pie / Doughnut / Scatter chart | Oszlop- / Sáv- / Kör- / Perec- / Pontdiagram | |
+| Split (View) | Felosztás | Calc (P9-LF) |
+| Go To Special… / Special… | Irányított kijelölés… / Irányított… | Calc |
+| Picture Format / Alt Text | Képformátum / Alternatív szöveg | Calc |
+| Mention someone | Valaki megemlítése | Calc comments |

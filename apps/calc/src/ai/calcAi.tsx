@@ -7,9 +7,10 @@
 
 import { useState } from "react";
 import {
-  AiError, FORMULA_TOOL, RANGE_TOOL, chartTool, parseChart, parseFormula, parseRange,
-  type AiAction, type AiAppAdapter, type AiApply, type ChartResult, type DocContext, type FormulaResult, type RangeResult,
+  AiError, EXPLAIN_CHART_TASK, FORMULA_TOOL, RANGE_TOOL, block, chartDataTable, chartImage, chartTool, paragraphsOf, parseChart, parseFormula, parseRange, plainText,
+  type AiAction, type AiAppAdapter, type AiApply, type AiImage, type ChartResult, type DocContext, type FormulaResult, type RangeResult,
 } from "@rusuite/ui-shared";
+import type { ChartObject } from "../generated/ChartObject";
 import { t } from "../i18n";
 import type { CalcStore } from "../state/store";
 import type { CalcCommand } from "../generated/CalcCommand";
@@ -29,6 +30,13 @@ export interface CalcAnchor {
   row: number;
   col: number;
   range: Range;
+  /** The selected chart when the request started. */
+  chart?: number;
+}
+
+/** The cell a chart's note goes to: under its top-left corner (absolute charts: the active cell). */
+export function chartNoteCell(obj: ChartObject): { row: number; col: number } | null {
+  return obj.anchor.type === "absolute" ? null : { row: obj.anchor.from.row, col: obj.anchor.from.col };
 }
 
 export const rangeAddress = (r: Range) =>
@@ -168,10 +176,51 @@ export function calcAiAdapter(store: CalcStore): AiAppAdapter {
     },
   };
 
+  // --- Explain this chart (P9-A1): the chart drawn as a PNG plus its data table ---
+  const selectedChart = () => {
+    const sel = store.charts.selected;
+    const obj = store.charts.selectedChart();
+    return sel && obj ? { sheet: sel.sheet, obj } : null;
+  };
+  const chartAttachment = async (): Promise<{ images: AiImage[]; text: string }> => {
+    const c = selectedChart();
+    if (!c) throw new Error(t("ai.calc.noChart"));
+    const data = await store.charts.fetchData(c.sheet, c.obj);
+    const frame = store.charts.frames(c.sheet).find((f) => f.obj.id === c.obj.id);
+    const w = Math.max(1, Math.round(frame?.rect.w ?? 480));
+    const h = Math.max(1, Math.round(frame?.rect.h ?? 288));
+    const scene = store.charts.scene(c.sheet, c.obj, w, h);
+    if (!scene) throw new Error(t("ai.calc.noChart"));
+    const label = c.obj.name || t("ai.calc.chartLabel");
+    return { images: [chartImage(scene, w, h, label)], text: block("chart_data", chartDataTable(data)) };
+  };
+  const insertNote: AiApply<string> = {
+    label: t("ai.calc.insertNote"),
+    run: async (text, turn) => {
+      const a = anchorOf(turn);
+      const sheet = a?.sheet ?? store.getState().activeSheet;
+      const obj = a?.chart !== undefined ? store.charts.get(sheet, a.chart) : undefined;
+      const at = (obj && chartNoteCell(obj)) ?? (a ? { row: a.row, col: a.col } : store.activeAnchor());
+      const note = paragraphsOf(plainText(text)).join("\n");
+      if (!note || !(await store.applyChecked({ type: "setNote", sheet, row: at.row, col: at.col, text: [{ text: note }] }))) throw new Error(t("ai.calc.notApplied"));
+      return t("ai.calc.noteInserted", { cell: cellAddress(at.row, at.col) });
+    },
+  };
+  const explainChart: AiAction<string> = {
+    id: "explainChart",
+    label: t("ai.calc.explainChart"),
+    unavailable: () => (selectedChart() ? null : t("ai.calc.noChart")),
+    task: () => EXPLAIN_CHART_TASK,
+    attachments: chartAttachment,
+    apply: [insertNote],
+  };
+
   const formula: AiAction<FormulaResult & { error: string | null }> = {
     id: "formula",
     label: t("ai.calc.formula"),
     input: { placeholder: t("ai.calc.formulaPlaceholder"), required: true },
+    // Formulas need some thought (references, nesting); at least medium reasoning.
+    effort: "medium",
     task: (what, ctx) =>
       `Write a formula for the active cell (${ctx.facts?.[0] ?? ""}) that does this: ${what}. Use the cells of the context where they fit.`,
     tool: FORMULA_TOOL,
@@ -216,6 +265,7 @@ export function calcAiAdapter(store: CalcStore): AiAppAdapter {
     label: t("ai.calc.transform"),
     needsSelection: true,
     input: { placeholder: t("ai.calc.transformPlaceholder"), required: true },
+    effort: "medium",
     task: (what) =>
       `Transform the selected cells as follows: ${what}. Return the resulting cells (all rows and columns of the result, top-left first). Keep cells you do not change.`,
     tool: RANGE_TOOL,
@@ -279,10 +329,12 @@ export function calcAiAdapter(store: CalcStore): AiAppAdapter {
 
   return {
     app: "calc",
+    appName: () => "Rusuite Calc",
     textApply: [insertText],
     anchor: () => {
       const st = store.getState();
-      return { sheet: st.activeSheet, ...store.activeAnchor(), range: normalize(st.selection) } satisfies CalcAnchor;
+      const chart = selectedChart();
+      return { sheet: st.activeSheet, ...store.activeAnchor(), range: normalize(st.selection), ...(chart ? { chart: chart.obj.id } : {}) } satisfies CalcAnchor;
     },
     subscribe: (fn) => store.subscribe(fn),
     hasSelection: () => {
@@ -339,6 +391,6 @@ export function calcAiAdapter(store: CalcStore): AiAppAdapter {
         ...(document !== undefined ? { document } : {}),
       };
     },
-    actions: () => [formula, explain, transform, chart] as AiAction<unknown>[],
+    actions: () => [formula, explain, transform, chart, explainChart] as AiAction<unknown>[],
   };
 }

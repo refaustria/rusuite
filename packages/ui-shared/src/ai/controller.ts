@@ -6,12 +6,12 @@
 // an action or pressed Test.
 
 import type { ReactNode } from "react";
-import { buildMessages, systemPrompt, type DocContext } from "./prompts";
+import { buildMessages, documentContext, languageRule, systemPrompt, textHash, type DocContext } from "./prompts";
 import { createProvider, type ProviderFactory } from "./providers";
 import { parseAiSettings, type AiSettings, type AiStore } from "./settings";
-import type { AiMessage, AiProvider, AiTool, ModelInfo } from "./types";
-import { AiError } from "./types";
-import { t } from "../i18n/locale";
+import { effectiveEffort, resolveAction } from "./overrides";
+import { AiError, type AiContentPart, type AiEffort, type AiImage, type AiMessage, type AiProvider, type AiTool, type ModelInfo } from "./types";
+import { getLocale, t } from "../i18n/locale";
 
 /** A button under a result (Insert, Replace selection, Insert formula, Apply, Set as speaker notes, …). */
 export interface AiApply<T> {
@@ -37,13 +37,33 @@ export interface AiAction<T = unknown> {
   task(input: string, ctx: DocContext): string;
   /** Extra system instructions (e.g. the plain-text rule). */
   system?: string;
+  /**
+   * Pictures (and text that belongs to them, e.g. a chart's data table) this action sends with its turn – read when
+   * the action runs (the selected picture, the chart).
+   */
+  attachments?: (ctx: DocContext) => Promise<{ images: AiImage[]; text?: string }>;
   /** A structured result: the tool and its parser. */
   tool?: AiTool;
   parse?: (raw: unknown) => T;
+  /**
+   * The least reasoning effort this action wants (e.g. "Formula from description": medium). The setting applies
+   * when it is higher; "Off" in the settings turns reasoning off for every action.
+   */
+  effort?: AiEffort;
   /** The result as shown before applying (structured actions; text results show the text). */
   preview?: (value: T) => ReactNode;
   apply: AiApply<T>[];
 }
+
+/** Tokens of a turn or a session; `cacheRead` / `cacheWrite`: parts of `input` read from / written to the cache. */
+export interface AiUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export const NO_USAGE: AiUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 export type AiTurnStatus = "streaming" | "done" | "error" | "stopped";
 
@@ -55,14 +75,30 @@ export interface AiTurn {
   contextLabel: string;
   /** Streamed text. */
   text: string;
+  /** The streamed reasoning summary (shown collapsed; never part of Insert / Replace). */
+  thinking?: string;
+  /** The reasoning effort sent (absent where the model / provider takes none). */
+  effort?: AiEffort;
+  /** Labels of the pictures sent with this turn. */
+  images?: string[];
   /** The parsed result (structured actions), or the final text. */
   value?: unknown;
   status: AiTurnStatus;
   error?: string;
   /** Status after applying ("Inserted 3 slides"). */
   applied?: string;
-  usage: { input: number; output: number };
+  usage: AiUsage;
   model?: string;
+  /** The model was pinned for this action in Settings › AI › Actions. */
+  modelPinned?: boolean;
+  /** The provider's own wording of a failure (shown in a details expander under the translated message). */
+  errorDetail?: string;
+  /**
+   * The whole document went with this turn: `"sent"` (first time in this conversation, written to the cache),
+   * `"same"` (unchanged since the previous turn – a cache hit is expected), `"changed"` (edited meanwhile: sent
+   * again, a new cache entry).
+   */
+  document?: "sent" | "same" | "changed";
   /** The context the result belongs to (e.g. Write's selection range at request time). */
   anchor?: unknown;
 }
@@ -78,7 +114,9 @@ export interface AssistantState {
   /** "Include whole document" for this document (starts at the settings' default). */
   includeDocument: boolean;
   /** Tokens of this document session. */
-  usage: { input: number; output: number };
+  usage: AiUsage;
+  /** Pictures attached for the next turn ("Attach selected picture", "Attach current slide as image"). */
+  attachments: AiImage[];
 }
 
 export interface AssistantOptions {
@@ -91,7 +129,55 @@ export interface AssistantOptions {
   available?: boolean;
 }
 
+/** Settings › Test: the model list (or why it failed) and the 1-token check of the chosen model. */
+export interface AiTestResult {
+  model: string;
+  models: ModelInfo[] | null;
+  listError: unknown;
+  /** Whether the 1-token request was made (not after a key / connection failure of the list). */
+  checked: boolean;
+  modelError: unknown;
+}
+
+/** The class of a failure for the Test result: key / limit / model / connection / server / other. */
+export function errorClass(e: unknown): "key" | "limit" | "model" | "connection" | "server" | "other" {
+  if (!(e instanceof AiError)) return "other";
+  switch (e.kind) {
+    case "auth":
+    case "noKey":
+      return "key";
+    case "rateLimit":
+    case "overloaded":
+      return "limit";
+    case "notFound":
+    case "invalid":
+    case "refusal":
+    case "noVision":
+      return "model";
+    case "network":
+    case "cors":
+    case "csp":
+      return "connection";
+    case "server":
+    case "badResponse":
+      return "server";
+    default:
+      return "other";
+  }
+}
+
+/** The Test result as one line (localized), with the class of a failure first. */
+export function testResultText(r: AiTestResult): { ok: boolean; text: string } {
+  const fail = (e: unknown, key: string) => ({ ok: false, text: `${t(key, { model: r.model, kind: t(`ai.errClass.${errorClass(e)}`) })} ${errorText(e)}` });
+  if (r.listError && !r.checked) return fail(r.listError, "ai.settings.testFailed");
+  if (r.modelError) return fail(r.modelError, r.listError ? "ai.settings.testFailed" : "ai.settings.testModelFailed");
+  const listed = r.models ? t("ai.settings.testOk", { count: r.models.length }) : t("ai.settings.testNoList");
+  return { ok: true, text: `${listed} ${t("ai.settings.testModelOk", { model: r.model })}` };
+}
+
 let turnSeq = 0;
+
+export { effectiveEffort };
 
 export class Assistant {
   private state: AssistantState;
@@ -99,8 +185,12 @@ export class Assistant {
   private key: string | null = null;
   private keyLoaded = false;
   private abort: AbortController | null = null;
+  /** Fingerprint of the whole document last sent in this conversation (`null`: not sent yet). */
+  private sentDocument: string | null = null;
   private readonly store: AiStore;
   private readonly factory: ProviderFactory;
+  /** The app's actions (set by the panel; Settings › AI › Actions lists them). */
+  actionList: (() => { id: string; label: string }[]) | null = null;
   /** File › Options… of an app that has its own options (shown in the dialog's General page). */
   moreOptions: (() => void) | null = null;
   /** Whether AI actions can run here (desktop apps; the web build only shows a note in the options). */
@@ -119,7 +209,8 @@ export class Assistant {
       turns: [],
       running: false,
       includeDocument: settings.includeDocument,
-      usage: { input: 0, output: 0 },
+      usage: { ...NO_USAGE },
+      attachments: [],
     };
   }
 
@@ -218,9 +309,11 @@ export class Assistant {
   }
 
   /**
-   * Settings › Test with the dialog's (unsaved) values: the provider's model list. `key` empty: the saved key.
+   * Settings › Test with the dialog's (unsaved) values: the provider's model list, then a 1-token request to the
+   * chosen model (does the key work for it?). `key` empty: the saved key. Throws only before any request (no key,
+   * bad URL); request failures are in the result.
    */
-  async test(draft: { provider: AiSettings["provider"]; baseUrl: string; model: string; key: string }): Promise<ModelInfo[]> {
+  async test(draft: { provider: AiSettings["provider"]; baseUrl: string; model: string; key: string }): Promise<AiTestResult> {
     let key = draft.key.trim();
     if (!key && draft.provider === this.state.settings.provider) key = (await this.loadKey()) ?? "";
     if (!key && draft.provider === "anthropic") throw new AiError("noKey", "Enter your API key");
@@ -230,7 +323,23 @@ export class Assistant {
     } catch (e) {
       throw e instanceof AiError ? e : new AiError("invalid", "The base URL is not valid");
     }
-    return p.test(draft.model);
+    const result: AiTestResult = { models: null, listError: null, checked: false, modelError: null, model: draft.model };
+    try {
+      result.models = await p.test(draft.model);
+    } catch (e) {
+      result.listError = e;
+      // A wrong key fails the same way for the model: no second request.
+      if (e instanceof AiError && (e.kind === "auth" || e.kind === "csp" || e.kind === "cors" || e.kind === "network")) return result;
+    }
+    result.checked = true;
+    try {
+      for await (const d of p.complete({ model: draft.model, system: "Reply with OK.", messages: [{ role: "user", content: "Test" }], maxTokens: 1, stream: true })) {
+        if (d.type === "stop" && d.reason === "refusal") throw new AiError("refusal", "The model declined");
+      }
+    } catch (e) {
+      result.modelError = e;
+    }
+    return result;
   }
 
   /** Known models of a provider (for the pickers). */
@@ -274,11 +383,31 @@ export class Assistant {
   /** Another document was opened or a new one started: the conversation belongs to the old one. */
   documentReplaced(): void {
     this.stop();
-    this.set({ turns: [], usage: { input: 0, output: 0 }, includeDocument: this.state.settings.includeDocument });
+    this.sentDocument = null;
+    this.set({ turns: [], usage: { ...NO_USAGE }, includeDocument: this.state.settings.includeDocument, attachments: [] });
+  }
+
+  // --- pictures -----------------------------------------------------------------------
+
+  /** Whether the configured model takes pictures: Claude always; OpenAI-compatible when marked in the settings. */
+  acceptsImages(): boolean {
+    const s = this.state.settings;
+    return s.provider === "anthropic" || s.visionModels.includes(s.models[s.provider]);
+  }
+
+  /** Adds a picture to the next turn (at most 5 pending; the same picture once). */
+  attach(image: AiImage): void {
+    const rest = this.state.attachments.filter((a) => a.data !== image.data);
+    this.set({ attachments: [...rest, image].slice(-5) });
+  }
+
+  detach(index: number): void {
+    this.set({ attachments: this.state.attachments.filter((_, i) => i !== index) });
   }
 
   clearConversation(): void {
     if (this.state.running) return;
+    this.sentDocument = null;
     this.set({ turns: [] });
   }
 
@@ -310,23 +439,49 @@ export class Assistant {
     const id = ++turnSeq;
     const s = this.state.settings;
     const prompt = input.trim() ? (action.input ? `${action.label}: ${input.trim()}` : input.trim()) : action.label;
-    const turn: AiTurn = { id, action, prompt, contextLabel: ctx.selectionLabel, text: "", status: "streaming", usage: { input: 0, output: 0 }, anchor };
+    const turn: AiTurn = { id, action, prompt, contextLabel: ctx.selectionLabel, text: "", status: "streaming", usage: { ...NO_USAGE }, anchor };
     this.set({ turns: [...this.state.turns, turn], running: true });
     const abort = new AbortController();
     this.abort = abort;
     let text = "";
+    let thinking = "";
     let value: unknown;
     let stopReason = "";
-    const usage = { input: 0, output: 0 };
+    const usage: AiUsage = { ...NO_USAGE };
     try {
       if (!s.enabled) throw new AiError("off", "AI is turned off – turn it on in Settings › AI");
       const provider = await this.provider();
       const includeDocument = this.state.includeDocument;
       const messages = buildMessages(ctx, includeDocument, action.task(input.trim(), ctx), this.history(action as AiAction<unknown>));
+      // Pictures: the pending attachments plus the action's own (the selected picture, the chart).
+      const pending = this.state.attachments;
+      const own = action.attachments ? await action.attachments(ctx) : { images: [] };
+      const images = [...pending, ...own.images];
+      if (images.length && !this.acceptsImages()) throw new AiError("noVision", "This model is not marked as accepting pictures");
+      if (images.length || own.text) {
+        const last = messages[messages.length - 1]!;
+        const text = `${own.text ? `${own.text}\n\n` : ""}${last.content as string}`;
+        const parts: AiContentPart[] = [...images.map((image): AiContentPart => ({ type: "image", image })), { type: "text", text }];
+        messages[messages.length - 1] = { role: "user", content: parts };
+        if (pending.length) this.set({ attachments: [] });
+        if (images.length) this.updateTurn(id, { images: images.map((i) => i.label) });
+      }
+      const doc = documentContext(ctx, includeDocument);
+      if (doc !== undefined) {
+        // The provider caches the document block; a changed document is simply a new block (and cache entry).
+        const hash = textHash(doc);
+        const state = this.sentDocument === null ? "sent" : this.sentDocument === hash ? "same" : "changed";
+        this.sentDocument = hash;
+        this.updateTurn(id, { document: state });
+      }
+      const { model, effort, pinned } = resolveAction(s, action.id, action.effort);
+      this.updateTurn(id, { model, ...(effort ? { effort } : {}), ...(pinned ? { modelPinned: true } : {}) });
       let last = 0;
       for await (const d of provider.complete({
-        model: s.models[s.provider],
-        system: systemPrompt(ctx.app, action.system ?? "", action.tool),
+        model,
+        ...(effort ? { effort } : {}),
+        system: systemPrompt(ctx.app, action.system ?? "", action.tool, languageRule(s.replyLanguage, getLocale())),
+        ...(doc !== undefined ? { documentContext: doc } : {}),
         messages,
         maxTokens: s.maxTokens,
         temperature: s.temperature,
@@ -341,11 +496,19 @@ export class Assistant {
             last = Date.now();
             this.updateTurn(id, { text });
           }
+        } else if (d.type === "thinking") {
+          thinking += d.text;
+          if (Date.now() - last > 50) {
+            last = Date.now();
+            this.updateTurn(id, { thinking });
+          }
         } else if (d.type === "toolUse") {
           if (action.tool && d.name === action.tool.name && value === undefined) value = d.input;
         } else if (d.type === "usage") {
           if (d.inputTokens !== undefined) usage.input = d.inputTokens;
           if (d.outputTokens !== undefined) usage.output = d.outputTokens;
+          if (d.cacheReadTokens !== undefined) usage.cacheRead = d.cacheReadTokens;
+          if (d.cacheWriteTokens !== undefined) usage.cacheWrite = d.cacheWriteTokens;
         } else if (d.type === "model") {
           this.updateTurn(id, { model: d.model });
         } else if (d.type === "stop") {
@@ -361,18 +524,19 @@ export class Assistant {
       } else {
         result = text;
       }
-      this.finish(id, { text, value: result, status: "done", usage }, usage);
+      this.finish(id, { text, ...(thinking ? { thinking } : {}), value: result, status: "done", usage }, usage);
     } catch (e) {
       const stopped = e instanceof AiError && e.kind === "aborted";
-      this.finish(id, { text, status: stopped ? "stopped" : "error", ...(stopped ? {} : { error: errorText(e) }), usage }, usage);
+      this.finish(id, { text, ...(thinking ? { thinking } : {}), status: stopped ? "stopped" : "error", ...(stopped ? {} : errorFields(e)), usage }, usage);
     } finally {
       if (this.abort === abort) this.abort = null;
     }
     return this.state.turns.find((t) => t.id === id) ?? turn;
   }
 
-  private finish(id: number, patch: Partial<AiTurn>, usage: { input: number; output: number }): void {
-    const total = { input: this.state.usage.input + usage.input, output: this.state.usage.output + usage.output };
+  private finish(id: number, patch: Partial<AiTurn>, usage: AiUsage): void {
+    const u = this.state.usage;
+    const total: AiUsage = { input: u.input + usage.input, output: u.output + usage.output, cacheRead: u.cacheRead + usage.cacheRead, cacheWrite: u.cacheWrite + usage.cacheWrite };
     this.set({ turns: this.state.turns.map((t) => (t.id === id ? { ...t, ...patch } : t)), running: false, usage: total });
   }
 
@@ -383,21 +547,60 @@ export class Assistant {
     if (!turn || !button || turn.status !== "done") return;
     try {
       const status = await button.run(turn.value, turn);
-      this.updateTurn(turnId, { applied: status || button.label, error: undefined });
+      this.updateTurn(turnId, { applied: status || button.label, error: undefined, errorDetail: undefined });
     } catch (e) {
-      this.updateTurn(turnId, { error: errorText(e) });
+      this.updateTurn(turnId, errorFields(e));
     }
   }
 }
 
-/** A failure as shown to the user (localized by kind, with the provider's own message after it). */
-export function errorText(e: unknown): string {
+/** The `error` / `errorDetail` fields of a turn for a failure. */
+function errorFields(e: unknown): Pick<AiTurn, "error" | "errorDetail"> {
+  const { text, detail } = errorParts(e);
+  return { error: text, errorDetail: detail ?? undefined };
+}
+
+/**
+ * The English sentences of `badResponse` errors thrown by the providers and `schemas.ts` → catalog keys, so that the
+ * panel shows them in the interface language. Anything else stays as the raw text in the details.
+ */
+const BAD_RESPONSE: { pattern: RegExp; key: string; params: string[] }[] = [
+  { pattern: /^The provider sent an unreadable stream$/, key: "ai.err.bad.stream", params: [] },
+  { pattern: /^(.+) sent no answer$/, key: "ai.err.bad.noAnswer", params: ["provider"] },
+  { pattern: /^The model returned an incomplete or invalid structured answer$/, key: "ai.err.bad.incomplete", params: [] },
+  { pattern: /^The model.s answer is not a valid (.+)$/, key: "ai.err.bad.invalid", params: [] },
+  { pattern: /^The answer has (\d+) cells; at most (\d+) are applied$/, key: "ai.err.bad.cells", params: ["count", "max"] },
+  { pattern: /^The answer has (\d+) slides; at most (\d+) are added$/, key: "ai.err.bad.slides", params: ["count", "max"] },
+  { pattern: /^The table has (\d+) cells; at most (\d+) are inserted$/, key: "ai.err.bad.tableCells", params: ["count", "max"] },
+  { pattern: /^The draft has (\d+) blocks; at most (\d+) are inserted$/, key: "ai.err.bad.blocks", params: ["count", "max"] },
+];
+
+/** The localized sentence for a known `badResponse` message, or `null`. */
+export function translateBadResponse(message: string): string | null {
+  for (const { pattern, key, params } of BAD_RESPONSE) {
+    const m = pattern.exec(message);
+    if (m) return t(key, Object.fromEntries(params.map((p, i) => [p, m[i + 1]!])));
+  }
+  return null;
+}
+
+/** A failure as shown to the user: the localized text, and the provider's / English wording apart (details). */
+export function errorParts(e: unknown): { text: string; detail: string | null } {
   if (e instanceof AiError) {
     const head = t(`ai.err.${e.kind}`, { seconds: e.retryAfter ?? 0 });
     const retry = e.kind === "rateLimit" && e.retryAfter !== null ? ` ${t("ai.err.retryIn", { seconds: e.retryAfter })}` : "";
-    const extra = e.kind === "badResponse" ? e.message : e.detail;
-    return `${head}${retry}${extra ? ` (${extra})` : ""}`;
+    if (e.kind === "badResponse") {
+      const known = translateBadResponse(e.message);
+      return { text: known ? `${head} ${known}` : head, detail: e.message };
+    }
+    return { text: `${head}${retry}`, detail: e.detail || null };
   }
-  if (e instanceof Error) return e.message;
-  return String(e);
+  const text = e instanceof Error ? e.message : String(e);
+  return { text, detail: null };
+}
+
+/** A failure on one line (localized by kind, with the raw detail in parentheses after it). */
+export function errorText(e: unknown): string {
+  const { text, detail } = errorParts(e);
+  return `${text}${detail ? ` (${detail})` : ""}`;
 }

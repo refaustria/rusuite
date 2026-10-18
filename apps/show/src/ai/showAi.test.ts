@@ -6,7 +6,7 @@ import { FakeBackend } from "../test/fakeBackend";
 import { designFixture, fixture } from "../test/fixture";
 import { ShowStore } from "../state/store";
 import type { ShowCommand } from "../generated/ShowCommand";
-import { maxId, newSlideShapes, outlineCommands, showAiAdapter } from "./showAi";
+import { appendNotes, cleanAltText, maxId, newSlideShapes, outlineCommands, showAiAdapter } from "./showAi";
 
 describe("Show AI", () => {
   it("the new slide's shapes: layout placeholders, then the enabled header/footer ones", () => {
@@ -50,6 +50,26 @@ describe("Show AI", () => {
     expect(ctx.facts?.[1]).toContain("titleContent");
     expect(ctx.document).toBeUndefined();
     expect((await ai.context(true)).document).toContain("Slide 1:");
-    expect(ai.actions().map((a) => a.id)).toEqual(["outline", "notes", "rewrite", "layout"]);
+    expect(ai.actions().map((a) => a.id)).toEqual(["outline", "notes", "rewrite", "layout", "alt", "explainChart"]);
+  });
+
+  // P9-A1: pictures, the slide as an image, charts.
+  it("picture and chart actions need a selected picture / chart; the slide can always be attached", async () => {
+    const store = new ShowStore(new ShowApi(new FakeBackend(designFixture())));
+    await store.init();
+    const ai = showAiAdapter(store);
+    const byId = (id: string) => ai.actions().find((a) => a.id === id)!;
+    expect(byId("alt").unavailable?.()).toBe("Select a picture first.");
+    expect(byId("explainChart").unavailable?.()).toBe("Select a chart first.");
+    expect(ai.attachSources?.map((a) => [a.id, a.unavailable()])).toEqual([
+      ["picture", "Select a picture first."],
+      ["slide", null],
+    ]);
+  });
+
+  it("alt text and notes helpers", () => {
+    expect(cleanAltText("Alternativtext: „Ein Balkendiagramm“")).toBe("Ein Balkendiagramm");
+    expect(appendNotes(null, "Explained.")).toBe("Explained.");
+    expect(appendNotes("Intro.\n", "Explained.")).toBe("Intro.\nExplained.");
   });
 });

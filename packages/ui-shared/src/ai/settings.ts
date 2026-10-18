@@ -6,7 +6,11 @@
 // AI is off by default; "Forget key" deletes the key.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { AiProviderKind } from "./types";
+import { AI_EFFORTS, type AiEffort, type AiProviderKind } from "./types";
+import { isLocale, type Locale } from "../i18n/locales";
+
+/** "Reply in": the UI language (default), the document's language, or one of the 24 languages. */
+export type ReplyLanguage = "ui" | "document" | Locale;
 import { ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_MODEL } from "./providers/anthropic";
 import { OPENAI_BASE_URL, OPENAI_DEFAULT_MODEL } from "./providers/openai";
 
@@ -24,6 +28,28 @@ export interface AiSettings {
   temperature: number;
   /** "Include whole document" default (off): otherwise only the selection and a short description are sent. */
   includeDocument: boolean;
+  /** Reasoning effort for models with adaptive thinking (actions may ask for more, see `AiAction.effort`). */
+  effort: AiEffort;
+  /**
+   * OpenAI-compatible models the user marked as accepting pictures ("vision"); only these get image blocks (every
+   * current Claude model accepts them).
+   */
+  visionModels: string[];
+  /**
+   * OpenAI-compatible models the user marked as accepting `reasoning_effort` (the Reasoning setting is then sent
+   * for them); other models never get the parameter.
+   */
+  reasoningModels: string[];
+  /** The language the assistant answers in. */
+  replyLanguage: ReplyLanguage;
+  /** Per action and provider: a model and / or reasoning level that replaces the general setting (Settings › AI › Actions). */
+  actionOverrides: Record<AiProviderKind, Record<string, ActionOverride>>;
+}
+
+/** What one action pins; a missing field follows the general setting. */
+export interface ActionOverride {
+  model?: string;
+  effort?: AiEffort;
 }
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -32,9 +58,15 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "anthropic",
   models: { anthropic: ANTHROPIC_DEFAULT_MODEL, openai: OPENAI_DEFAULT_MODEL },
   baseUrls: { anthropic: ANTHROPIC_BASE_URL, openai: OPENAI_BASE_URL },
-  maxTokens: 4096,
+  // Room for the reasoning too (thinking tokens count against max_tokens); only a ceiling – billed is what is used.
+  maxTokens: 16_000,
   temperature: 0.7,
   includeDocument: false,
+  effort: "low",
+  visionModels: [],
+  reasoningModels: [],
+  replyLanguage: "ui",
+  actionOverrides: { anthropic: {}, openai: {} },
 };
 
 export const MAX_TOKENS_LIMIT = 128_000;
@@ -42,6 +74,22 @@ export const MAX_TOKENS_LIMIT = 128_000;
 const clamp = (n: unknown, lo: number, hi: number, dflt: number) =>
   typeof n === "number" && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
 const str = (v: unknown, dflt: string) => (typeof v === "string" && v.trim() ? v.trim() : dflt);
+
+const modelList = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.filter((m): m is string => typeof m === "string" && m.trim() !== "").map((m) => m.trim()))].slice(0, 50) : [];
+
+function parseOverrides(v: unknown): Record<string, ActionOverride> {
+  const out: Record<string, ActionOverride> = {};
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [id, raw] of Object.entries(v).slice(0, 100)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const o = raw as ActionOverride;
+    const model = typeof o.model === "string" ? o.model.trim() : "";
+    const effort = AI_EFFORTS.includes(o.effort as AiEffort) ? (o.effort as AiEffort) : undefined;
+    if (model || effort) out[id] = { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+  }
+  return out;
+}
 
 /** Reads stored settings leniently (unknown fields dropped, broken values → defaults). */
 export function parseAiSettings(json: string | null | unknown): AiSettings {
@@ -65,6 +113,11 @@ export function parseAiSettings(json: string | null | unknown): AiSettings {
     maxTokens: Math.round(clamp(o.maxTokens, 1, MAX_TOKENS_LIMIT, d.maxTokens)),
     temperature: clamp(o.temperature, 0, 2, d.temperature),
     includeDocument: o.includeDocument === true,
+    effort: AI_EFFORTS.includes(o.effort as AiEffort) ? (o.effort as AiEffort) : d.effort,
+    visionModels: modelList(o.visionModels),
+    reasoningModels: modelList(o.reasoningModels),
+    replyLanguage: o.replyLanguage === "document" || isLocale(o.replyLanguage) ? o.replyLanguage : "ui",
+    actionOverrides: { anthropic: parseOverrides(o.actionOverrides?.anthropic), openai: parseOverrides(o.actionOverrides?.openai) },
   };
 }
 

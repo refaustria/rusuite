@@ -21,18 +21,55 @@ export interface AiTool {
   schema: JsonSchema;
 }
 
+/** A picture sent with a turn (base64, already downscaled; see `images.ts`). */
+export interface AiImage {
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64 without the `data:` prefix. */
+  data: string;
+  width: number;
+  height: number;
+  /** What it is, for the panel ("Picture 1", "Slide 3", "Chart 2"). */
+  label: string;
+}
+
+/** One part of a message: text, or a picture (Anthropic image block / OpenAI `image_url`). */
+export type AiContentPart = { type: "text"; text: string } | { type: "image"; image: AiImage };
+
 export interface AiMessage {
   role: "user" | "assistant";
-  content: string;
+  /** Text, or parts (pictures first, then the text) for a turn with attachments. */
+  content: string | AiContentPart[];
 }
+
+/** The text of a message (its text parts joined). */
+export function messageText(m: AiMessage): string {
+  return typeof m.content === "string" ? m.content : m.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
+}
+
+/**
+ * Reasoning ("thinking") effort, Settings › AI › Reasoning: mapped per model to the Messages API's
+ * `thinking` / `output_config.effort` (`providers/anthropic.ts` `reasoningParams`, docs/ai-api-notes.md §4).
+ */
+export type AiEffort = "off" | "low" | "medium" | "high";
+
+export const AI_EFFORTS: readonly AiEffort[] = ["off", "low", "medium", "high"];
 
 export interface AiRequest {
   model: string;
   system: string;
+  /**
+   * The whole document ("Include whole document"), sent apart from the messages so that the provider can cache it:
+   * Anthropic gets it as its own system block marked `cache_control: { type: "ephemeral" }` (follow-up turns of the
+   * conversation read it from the cache); OpenAI-compatible endpoints get it appended to the system message (no
+   * cache marker – OpenAI caches long prefixes by itself, local servers do not).
+   */
+  documentContext?: string;
   messages: AiMessage[];
   maxTokens: number;
   /** Sent only where the model accepts it (Claude 4.7+ and 5.x models reject sampling parameters). */
   temperature?: number;
+  /** Reasoning effort (Anthropic models with adaptive thinking; ignored elsewhere). */
+  effort?: AiEffort;
   /** At most one tool: the action's structured result. */
   tools?: AiTool[];
   stream: true;
@@ -42,9 +79,15 @@ export interface AiRequest {
 /** One piece of a streamed answer. */
 export type Delta =
   | { type: "text"; text: string }
+  /** Streamed reasoning summary (Anthropic `thinking_delta`, `display: "summarized"`): shown apart, never inserted. */
+  | { type: "thinking"; text: string }
   /** A complete tool call (input parsed from the streamed JSON). */
   | { type: "toolUse"; id: string; name: string; input: unknown }
-  | { type: "usage"; inputTokens?: number; outputTokens?: number }
+  /**
+   * Token counts so far. `inputTokens` is the whole input (uncached + cache read + cache write); `cacheReadTokens` /
+   * `cacheWriteTokens` are the parts read from / written to the provider's prompt cache.
+   */
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
   /** `end_turn`, `max_tokens`, `tool_use`, `refusal`, `stop` (OpenAI), … */
   | { type: "stop"; reason: string }
   /** The model that answered (a server-side fallback may name another one). */
@@ -67,7 +110,13 @@ export type AiErrorKind =
   | "noResult"
   | "off"
   | "busy"
-  | "noKey";
+  | "noKey"
+  /** A picture over 5 MB even after scaling down. */
+  | "imageTooLarge"
+  /** A picture that cannot be decoded here (e.g. EMF / WMF) or no canvas. */
+  | "imageUnsupported"
+  /** Pictures for a model not marked as accepting them (OpenAI-compatible, Settings › AI). */
+  | "noVision";
 
 /** A failure with a message for the user (never containing the API key). */
 export class AiError extends Error {
