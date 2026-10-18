@@ -125,6 +125,13 @@ the decks built in code). On Windows or macOS with Microsoft 365:
   suite (Chromium only).
 - [ ] The portal: the Downloads page lists the release's installers with checksums and puts your OS first.
 
+## Snapshot digests of floating-point geometry
+
+Digests of floating-point geometry (the `geometry_equivalence` tests) must be quantised before hashing: every `f64` is
+rounded to the nearest integer EMU. Trigonometric presets (`cloud`, `star5`, `cloudCallout`) give last-bit-different
+results with other libm/FMA implementations, so a digest of the exact bits passes on the dev server and fails on the CI
+runner.
+
 ## CI
 
 The `frontend` job packs the three `dist-web` directories as an artifact; the `e2e` job (needs `frontend`) installs Chromium,

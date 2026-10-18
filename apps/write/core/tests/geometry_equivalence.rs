@@ -45,6 +45,26 @@ fn fnv(s: &str) -> u64 {
     acc
 }
 
+/// Serialises to JSON with every floating-point number rounded to the nearest
+/// integer (EMU), so the digest does not depend on libm/FMA differences
+/// between platforms in the trigonometric presets.
+fn quantise(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Number(n) if n.is_f64() => {
+            *v = serde_json::Value::from(n.as_f64().unwrap().round() as i64);
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(quantise),
+        serde_json::Value::Object(m) => m.values_mut().for_each(quantise),
+        _ => {}
+    }
+}
+
+fn stable_json<T: serde::Serialize>(v: &T) -> String {
+    let mut v = serde_json::to_value(v).unwrap();
+    quantise(&mut v);
+    v.to_string()
+}
+
 #[test]
 fn shape_outlines_are_unchanged() {
     let mut out = String::new();
@@ -76,8 +96,7 @@ fn shape_outlines_are_unchanged() {
                 }));
             }
         }
-        let json =
-            serde_json::to_string(&answers.iter().map(recorded).collect::<Vec<_>>()).unwrap();
+        let json = stable_json(&answers.iter().map(recorded).collect::<Vec<_>>());
         out.push_str(&format!("{prst} {:016x}\n", fnv(&json)));
     }
     insta::assert_snapshot!("shape_outlines", out);
