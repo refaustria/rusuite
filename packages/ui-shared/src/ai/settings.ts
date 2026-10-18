@@ -6,7 +6,7 @@
 // AI is off by default; "Forget key" deletes the key.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { AiProviderKind } from "./types";
+import { AI_EFFORTS, type AiEffort, type AiProviderKind } from "./types";
 import { ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_MODEL } from "./providers/anthropic";
 import { OPENAI_BASE_URL, OPENAI_DEFAULT_MODEL } from "./providers/openai";
 
@@ -24,6 +24,8 @@ export interface AiSettings {
   temperature: number;
   /** "Include whole document" default (off): otherwise only the selection and a short description are sent. */
   includeDocument: boolean;
+  /** Reasoning effort for models with adaptive thinking (actions may ask for more, see `AiAction.effort`). */
+  effort: AiEffort;
 }
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -32,9 +34,11 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "anthropic",
   models: { anthropic: ANTHROPIC_DEFAULT_MODEL, openai: OPENAI_DEFAULT_MODEL },
   baseUrls: { anthropic: ANTHROPIC_BASE_URL, openai: OPENAI_BASE_URL },
-  maxTokens: 4096,
+  // Room for the reasoning too (thinking tokens count against max_tokens); only a ceiling – billed is what is used.
+  maxTokens: 16_000,
   temperature: 0.7,
   includeDocument: false,
+  effort: "low",
 };
 
 export const MAX_TOKENS_LIMIT = 128_000;
@@ -65,6 +69,7 @@ export function parseAiSettings(json: string | null | unknown): AiSettings {
     maxTokens: Math.round(clamp(o.maxTokens, 1, MAX_TOKENS_LIMIT, d.maxTokens)),
     temperature: clamp(o.temperature, 0, 2, d.temperature),
     includeDocument: o.includeDocument === true,
+    effort: AI_EFFORTS.includes(o.effort as AiEffort) ? (o.effort as AiEffort) : d.effort,
   };
 }
 

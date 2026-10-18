@@ -31,6 +31,8 @@ export class AiMockServer {
   readonly tools = new Map<string, unknown>();
   /** Answers for text requests: the first whose pattern matches the user message wins. */
   readonly texts: { match: RegExp; text: string }[] = [];
+  /** The reasoning summary streamed when a request asks for adaptive thinking with a summary. */
+  thinkingText = "Mock reasoning: reading the selection first.";
   /** Prompt-cache entries (the texts of blocks marked `cache_control`), like the API's 5-minute cache. */
   readonly cache = new Set<string>();
   private server: http.Server | null = null;
@@ -90,16 +92,26 @@ export class AiMockServer {
     const model = String(body.model);
     res.writeHead(200, { ...this.cors(), "content-type": "text/event-stream", "cache-control": "no-cache" });
     const out: string[] = [sse("message_start", { type: "message_start", message: { id: "msg_mock", type: "message", role: "assistant", model, content: [], usage: { ...this.usageOf(body), output_tokens: 1 } } })];
+    // Adaptive thinking with `display: "summarized"`: a thinking block (summary deltas + signature) comes first.
+    const thinking = body.thinking as { type?: string; display?: string } | undefined;
+    let index = 0;
+    if (thinking?.type === "adaptive" && thinking.display === "summarized") {
+      out.push(sse("content_block_start", { type: "content_block_start", index, content_block: { type: "thinking", thinking: "", signature: "" } }));
+      for (const piece of this.thinkingText.match(/.{1,12}/gs) ?? []) out.push(sse("content_block_delta", { type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: piece } }));
+      out.push(sse("content_block_delta", { type: "content_block_delta", index, delta: { type: "signature_delta", signature: "EqMockSignature" } }));
+      out.push(sse("content_block_stop", { type: "content_block_stop", index }));
+      index++;
+    }
     if ("text" in a) {
-      out.push(sse("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }));
-      for (const piece of a.text.match(/.{1,8}/gs) ?? []) out.push(sse("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: piece } }));
-      out.push(sse("content_block_stop", { type: "content_block_stop", index: 0 }));
+      out.push(sse("content_block_start", { type: "content_block_start", index, content_block: { type: "text", text: "" } }));
+      for (const piece of a.text.match(/.{1,8}/gs) ?? []) out.push(sse("content_block_delta", { type: "content_block_delta", index, delta: { type: "text_delta", text: piece } }));
+      out.push(sse("content_block_stop", { type: "content_block_stop", index }));
       out.push(sse("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 42 } }));
     } else {
       const json = JSON.stringify(a.input);
-      out.push(sse("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "toolu_mock", name: a.tool, input: {} } }));
-      for (const piece of json.match(/.{1,20}/gs) ?? []) out.push(sse("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: piece } }));
-      out.push(sse("content_block_stop", { type: "content_block_stop", index: 0 }));
+      out.push(sse("content_block_start", { type: "content_block_start", index, content_block: { type: "tool_use", id: "toolu_mock", name: a.tool, input: {} } }));
+      for (const piece of json.match(/.{1,20}/gs) ?? []) out.push(sse("content_block_delta", { type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: piece } }));
+      out.push(sse("content_block_stop", { type: "content_block_stop", index }));
       out.push(sse("message_delta", { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 64 } }));
     }
     out.push(sse("message_stop", { type: "message_stop" }));

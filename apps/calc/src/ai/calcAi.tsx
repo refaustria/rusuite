@@ -172,6 +172,8 @@ export function calcAiAdapter(store: CalcStore): AiAppAdapter {
     id: "formula",
     label: t("ai.calc.formula"),
     input: { placeholder: t("ai.calc.formulaPlaceholder"), required: true },
+    // Formulas need some thought (references, nesting); at least medium reasoning.
+    effort: "medium",
     task: (what, ctx) =>
       `Write a formula for the active cell (${ctx.facts?.[0] ?? ""}) that does this: ${what}. Use the cells of the context where they fit.`,
     tool: FORMULA_TOOL,
@@ -216,6 +218,7 @@ export function calcAiAdapter(store: CalcStore): AiAppAdapter {
     label: t("ai.calc.transform"),
     needsSelection: true,
     input: { placeholder: t("ai.calc.transformPlaceholder"), required: true },
+    effort: "medium",
     task: (what) =>
       `Transform the selected cells as follows: ${what}. Return the resulting cells (all rows and columns of the result, top-left first). Keep cells you do not change.`,
     tool: RANGE_TOOL,

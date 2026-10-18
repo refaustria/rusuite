@@ -3,12 +3,13 @@ import { describe, expect, it } from "vitest";
 import cacheWrite from "./providers/fixtures/anthropic-cache-write.sse?raw";
 import cacheRead from "./providers/fixtures/anthropic-cache-read.sse?raw";
 import openaiCached from "./providers/fixtures/openai-cached.sse?raw";
-import { anthropicBody, anthropicDeltas, anthropicSystem, usageDelta } from "./providers/anthropic";
+import thinkingSse from "./providers/fixtures/anthropic-thinking.sse?raw";
+import { AnthropicProvider, anthropicBody, anthropicDeltas, anthropicSystem, reasoningParams, supportsEffort, usageDelta } from "./providers/anthropic";
 import { openAiBody, openAiDeltas } from "./providers/openai";
-import { sseEvents } from "./providers/http";
-import { Assistant, type AiAction } from "./controller";
+import { resetUnsupportedParams, sseEvents, type FetchLike } from "./providers/http";
+import { Assistant, effectiveEffort, type AiAction } from "./controller";
 import { documentContext, textHash, type DocContext } from "./prompts";
-import { MemoryAiStore } from "./settings";
+import { MemoryAiStore, parseAiSettings } from "./settings";
 import type { AiProvider, AiRequest, Delta } from "./types";
 
 export function stream(text: string): ReadableStream<Uint8Array> {
@@ -172,5 +173,103 @@ describe("prompt caching of the whole document", () => {
     ai.documentReplaced();
     ai.setIncludeDocument(true);
     expect((await ai.run(ask, "q", ctx())).document).toBe("sent");
+  });
+});
+
+describe("reasoning effort", () => {
+  it("5.x models: low / medium / high → adaptive thinking with a summary and output_config.effort", () => {
+    for (const m of ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "claude-opus-4-8"]) {
+      expect(reasoningParams(m, "medium")).toEqual({ thinking: { type: "adaptive", display: "summarized" }, output_config: { effort: "medium" } });
+    }
+    expect(reasoningParams("claude-sonnet-5-5", "high").output_config).toEqual({ effort: "high" });
+  });
+
+  it("off: between_tools on Sonnet 5.5, effort low where thinking cannot be disabled, disabled elsewhere", () => {
+    expect(reasoningParams("claude-sonnet-5-5", "off")).toEqual({ thinking: { type: "between_tools" } });
+    expect(reasoningParams("claude-opus-5-5", "off")).toEqual({ output_config: { effort: "low" } });
+    expect(reasoningParams("claude-fable-5-1", "off")).toEqual({ output_config: { effort: "low" } });
+    expect(reasoningParams("claude-haiku-5-5", "off")).toEqual({ thinking: { type: "disabled" } });
+    expect(reasoningParams("claude-opus-5", "off")).toEqual({ thinking: { type: "disabled" } });
+  });
+
+  it("older and unknown models get no reasoning fields", () => {
+    for (const m of ["claude-haiku-4-5", "claude-sonnet-4-5-20250929", "claude-3-7-sonnet-latest", "my-model"]) {
+      expect(supportsEffort(m)).toBe(false);
+      expect(reasoningParams(m, "high")).toEqual({});
+    }
+    expect(reasoningParams("claude-sonnet-5-5", undefined)).toEqual({});
+  });
+
+  it("the body carries the fields; temperature is dropped while thinking (models that still take one)", () => {
+    const b = anthropicBody(req({ effort: "low" }), true);
+    expect(b.thinking).toEqual({ type: "adaptive", display: "summarized" });
+    expect(b.output_config).toEqual({ effort: "low" });
+    expect(anthropicBody(req({ model: "claude-sonnet-4-6", temperature: 0.4, effort: "high" }), false).temperature).toBeUndefined();
+    expect(anthropicBody(req({ model: "claude-sonnet-4-6", temperature: 0.4, effort: "off" }), false).temperature).toBe(0.4);
+  });
+
+  it("thinking deltas are streamed apart from the answer text (signatures ignored)", async () => {
+    const ds = await collect(anthropicDeltas(sseEvents(stream(thinkingSse))));
+    expect(ds.flatMap((d) => (d.type === "thinking" ? [d.text] : [])).join("")).toBe("The user wants the total of A1:A3. SUM fits.");
+    expect(ds.flatMap((d) => (d.type === "text" ? [d.text] : [])).join("")).toBe("Use =SUM(A1:A3).");
+  });
+
+  it("a model that rejects thinking: retried once without it", async () => {
+    resetUnsupportedParams();
+    const bodies: Record<string, unknown>[] = [];
+    const f: FetchLike = async (_url, init) => {
+      bodies.push(JSON.parse(init.body as string));
+      if (bodies.length === 1)
+        return new Response(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: '"thinking.type.adaptive" is not supported for this model.' } }), { status: 400 });
+      return new Response(stream(thinkingSse), { status: 200 });
+    };
+    const ds = await collect(new AnthropicProvider("k", "https://proxy.example", f).complete(req({ model: "claude-haiku-5-5", effort: "low" })));
+    expect(bodies[0]!.thinking).toBeDefined();
+    expect(bodies[1]!.thinking).toBeUndefined();
+    expect(ds.at(-1)).toEqual({ type: "stop", reason: "end_turn" });
+    resetUnsupportedParams();
+  });
+
+  it("effectiveEffort: the action's minimum raises the setting; Off stays off", () => {
+    expect(effectiveEffort("low", "medium")).toBe("medium");
+    expect(effectiveEffort("high", "medium")).toBe("high");
+    expect(effectiveEffort("off", "medium")).toBe("off");
+    expect(effectiveEffort("medium")).toBe("medium");
+  });
+
+  it("controller: the turn records model and effort; the reasoning summary stays out of the result", async () => {
+    const { ai, requests } = await enabled([
+      { type: "model", model: "claude-sonnet-5-5" },
+      { type: "thinking", text: "Think." },
+      { type: "text", text: "Answer." },
+      { type: "stop", reason: "end_turn" },
+    ]);
+    const turn = await ai.run(ask, "q", ctx());
+    expect(requests[0]!.effort).toBe("low");
+    expect(turn).toMatchObject({ effort: "low", model: "claude-sonnet-5-5", thinking: "Think.", text: "Answer.", value: "Answer." });
+    const formula: AiAction<string> = { ...ask, id: "formula", effort: "medium" };
+    expect((await ai.run(formula, "q", ctx())).effort).toBe("medium");
+    ai.saveSettings({ effort: "off" });
+    expect((await ai.run(formula, "q", ctx())).effort).toBe("off");
+    expect(requests.at(-1)!.effort).toBe("off");
+  });
+
+  it("controller: OpenAI-compatible providers and unknown models get no effort", async () => {
+    const o = await enabled([{ type: "stop", reason: "stop" }], "openai");
+    expect((await o.ai.run(ask, "q", ctx())).effort).toBeUndefined();
+    expect(o.requests[0]!.effort).toBeUndefined();
+    const a = await enabled([{ type: "stop", reason: "end_turn" }]);
+    a.ai.saveSettings({ models: { anthropic: "claude-3-5-haiku-latest", openai: "gpt-5-mini" } });
+    expect((await a.ai.run(ask, "q", ctx())).effort).toBeUndefined();
+  });
+
+  it("settings: the effort persists; unknown values fall back to Low; Max tokens defaults leave room for reasoning", () => {
+    expect(parseAiSettings({ effort: "high" }).effort).toBe("high");
+    expect(parseAiSettings({ effort: "max" }).effort).toBe("low");
+    expect(parseAiSettings(null).maxTokens).toBe(16_000);
+    const store = new MemoryAiStore();
+    const ai = new Assistant({ store });
+    ai.saveSettings({ effort: "medium" });
+    expect(new Assistant({ store }).getState().settings.effort).toBe("medium");
   });
 });

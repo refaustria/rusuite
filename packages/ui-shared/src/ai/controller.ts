@@ -9,8 +9,8 @@ import type { ReactNode } from "react";
 import { buildMessages, documentContext, systemPrompt, textHash, type DocContext } from "./prompts";
 import { createProvider, type ProviderFactory } from "./providers";
 import { parseAiSettings, type AiSettings, type AiStore } from "./settings";
-import type { AiMessage, AiProvider, AiTool, ModelInfo } from "./types";
-import { AiError } from "./types";
+import { supportsEffort } from "./providers/anthropic";
+import { AI_EFFORTS, AiError, type AiEffort, type AiMessage, type AiProvider, type AiTool, type ModelInfo } from "./types";
 import { t } from "../i18n/locale";
 
 /** A button under a result (Insert, Replace selection, Insert formula, Apply, Set as speaker notes, …). */
@@ -40,6 +40,11 @@ export interface AiAction<T = unknown> {
   /** A structured result: the tool and its parser. */
   tool?: AiTool;
   parse?: (raw: unknown) => T;
+  /**
+   * The least reasoning effort this action wants (e.g. "Formula from description": medium). The setting applies
+   * when it is higher; "Off" in the settings turns reasoning off for every action.
+   */
+  effort?: AiEffort;
   /** The result as shown before applying (structured actions; text results show the text). */
   preview?: (value: T) => ReactNode;
   apply: AiApply<T>[];
@@ -65,6 +70,10 @@ export interface AiTurn {
   contextLabel: string;
   /** Streamed text. */
   text: string;
+  /** The streamed reasoning summary (shown collapsed; never part of Insert / Replace). */
+  thinking?: string;
+  /** The reasoning effort sent (absent where the model / provider takes none). */
+  effort?: AiEffort;
   /** The parsed result (structured actions), or the final text. */
   value?: unknown;
   status: AiTurnStatus;
@@ -108,6 +117,12 @@ export interface AssistantOptions {
 }
 
 let turnSeq = 0;
+
+/** The effort of a request: the setting, raised to the action's minimum – unless the setting is "off". */
+export function effectiveEffort(setting: AiEffort, action?: AiEffort): AiEffort {
+  if (setting === "off" || !action) return setting;
+  return AI_EFFORTS.indexOf(action) > AI_EFFORTS.indexOf(setting) ? action : setting;
+}
 
 export class Assistant {
   private state: AssistantState;
@@ -335,6 +350,7 @@ export class Assistant {
     const abort = new AbortController();
     this.abort = abort;
     let text = "";
+    let thinking = "";
     let value: unknown;
     let stopReason = "";
     const usage: AiUsage = { ...NO_USAGE };
@@ -351,9 +367,13 @@ export class Assistant {
         this.sentDocument = hash;
         this.updateTurn(id, { document: state });
       }
+      const model = s.models[s.provider];
+      const effort = s.provider === "anthropic" && supportsEffort(model) ? effectiveEffort(s.effort, action.effort) : undefined;
+      if (effort) this.updateTurn(id, { effort });
       let last = 0;
       for await (const d of provider.complete({
-        model: s.models[s.provider],
+        model,
+        ...(effort ? { effort } : {}),
         system: systemPrompt(ctx.app, action.system ?? "", action.tool),
         ...(doc !== undefined ? { documentContext: doc } : {}),
         messages,
@@ -369,6 +389,12 @@ export class Assistant {
           if (Date.now() - last > 50) {
             last = Date.now();
             this.updateTurn(id, { text });
+          }
+        } else if (d.type === "thinking") {
+          thinking += d.text;
+          if (Date.now() - last > 50) {
+            last = Date.now();
+            this.updateTurn(id, { thinking });
           }
         } else if (d.type === "toolUse") {
           if (action.tool && d.name === action.tool.name && value === undefined) value = d.input;
@@ -392,10 +418,10 @@ export class Assistant {
       } else {
         result = text;
       }
-      this.finish(id, { text, value: result, status: "done", usage }, usage);
+      this.finish(id, { text, ...(thinking ? { thinking } : {}), value: result, status: "done", usage }, usage);
     } catch (e) {
       const stopped = e instanceof AiError && e.kind === "aborted";
-      this.finish(id, { text, status: stopped ? "stopped" : "error", ...(stopped ? {} : { error: errorText(e) }), usage }, usage);
+      this.finish(id, { text, ...(thinking ? { thinking } : {}), status: stopped ? "stopped" : "error", ...(stopped ? {} : { error: errorText(e) }), usage }, usage);
     } finally {
       if (this.abort === abort) this.abort = null;
     }

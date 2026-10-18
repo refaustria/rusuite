@@ -9,7 +9,7 @@ import type { Assistant } from "../ai/controller";
 import { errorText } from "../ai/controller";
 import { providerName, providerOrigin } from "../ai/providers";
 import { MAX_TOKENS_LIMIT, parseAiSettings, type AiSettings } from "../ai/settings";
-import type { AiProviderKind } from "../ai/types";
+import { AI_EFFORTS, type AiEffort, type AiProviderKind } from "../ai/types";
 import { AI_BUTTON, AI_INPUT, AI_PRIMARY, useAssistant } from "../ai/ui/hooks";
 
 const OTHER = "__other__";
@@ -213,6 +213,27 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
           </span>
         </label>
       </div>
+      <label className={row} htmlFor={f("effort")}>
+        {t("ai.settings.reasoning")}
+        <select
+          id={f("effort")}
+          className={AI_INPUT}
+          value={draft.effort}
+          disabled={provider !== "anthropic"}
+          aria-describedby={f("effort-note")}
+          data-testid="ai-effort"
+          onChange={(e) => patch({ effort: e.target.value as AiEffort })}
+        >
+          {AI_EFFORTS.map((level) => (
+            <option key={level} value={level}>
+              {t(`ai.effort.${level}`)}
+            </option>
+          ))}
+        </select>
+        <span id={f("effort-note")} className="text-xs text-ui-muted">
+          {t(provider === "anthropic" ? "ai.settings.reasoningNote" : "ai.settings.reasoningAnthropicOnly")}
+        </span>
+      </label>
       <div className="flex items-start gap-2 text-sm">
         <input id={f("whole")} type="checkbox" className="mt-0.5" checked={draft.includeDocument} aria-describedby={f("whole-note")} onChange={(e) => patch({ includeDocument: e.target.checked })} />
         <span>

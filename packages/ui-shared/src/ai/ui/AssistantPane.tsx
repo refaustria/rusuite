@@ -39,6 +39,15 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
     <li className="flex flex-col gap-1.5 border-b border-ui-border pb-3" data-testid="ai-turn" data-status={turn.status}>
       <p className="text-xs font-semibold">{turn.prompt}</p>
       <p className="text-[11px] text-ui-muted">{turn.contextLabel}</p>
+      {turn.thinking && (
+        // The reasoning summary: collapsed, apart from the answer (Insert / Replace use the answer only).
+        <details className="rounded border border-ui-border px-2 py-1 text-xs text-ui-muted" data-testid="ai-thinking">
+          <summary className={`cursor-pointer select-none ${FOCUS_RING}`}>{t("ai.pane.thinking")}</summary>
+          <div className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words" data-testid="ai-thinking-text">
+            {turn.thinking}
+          </div>
+        </details>
+      )}
       {structured && done && turn.action.preview ? (
         <div className="text-sm" data-testid="ai-preview">
           {turn.action.preview(turn.value)}
@@ -106,6 +115,7 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
             </span>
           ) : null}
           {turn.model ? ` · ${turn.model}` : ""}
+          {turn.effort ? <span data-testid="ai-turn-effort">{` · ${t("ai.pane.effort", { level: t(`ai.effort.${turn.effort}`) })}`}</span> : null}
         </p>
       )}
     </li>

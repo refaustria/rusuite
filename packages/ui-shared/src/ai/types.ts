@@ -46,6 +46,14 @@ export function messageText(m: AiMessage): string {
   return typeof m.content === "string" ? m.content : m.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
 }
 
+/**
+ * Reasoning ("thinking") effort, Settings › AI › Reasoning: mapped per model to the Messages API's
+ * `thinking` / `output_config.effort` (`providers/anthropic.ts` `reasoningParams`, docs/ai-api-notes.md §4).
+ */
+export type AiEffort = "off" | "low" | "medium" | "high";
+
+export const AI_EFFORTS: readonly AiEffort[] = ["off", "low", "medium", "high"];
+
 export interface AiRequest {
   model: string;
   system: string;
@@ -60,6 +68,8 @@ export interface AiRequest {
   maxTokens: number;
   /** Sent only where the model accepts it (Claude 4.7+ and 5.x models reject sampling parameters). */
   temperature?: number;
+  /** Reasoning effort (Anthropic models with adaptive thinking; ignored elsewhere). */
+  effort?: AiEffort;
   /** At most one tool: the action's structured result. */
   tools?: AiTool[];
   stream: true;
@@ -69,6 +79,8 @@ export interface AiRequest {
 /** One piece of a streamed answer. */
 export type Delta =
   | { type: "text"; text: string }
+  /** Streamed reasoning summary (Anthropic `thinking_delta`, `display: "summarized"`): shown apart, never inserted. */
+  | { type: "thinking"; text: string }
   /** A complete tool call (input parsed from the streamed JSON). */
   | { type: "toolUse"; id: string; name: string; input: unknown }
   /**
