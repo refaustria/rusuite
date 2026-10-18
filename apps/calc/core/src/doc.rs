@@ -1712,6 +1712,8 @@ impl CalcDocument {
             | C::RemoveSubtotals { .. }
             | C::SetPageBreaks { .. }
             | C::AddPicture { .. }
+            | C::SetPictureFormat { .. }
+            | C::ReorderPicture { .. }
             | C::SetPictureAnchor { .. }
             | C::RemovePicture { .. }
             | C::RestorePictures { .. } => self.data_cmd(cmd),

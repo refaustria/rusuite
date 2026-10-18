@@ -884,6 +884,12 @@ impl Workbook {
         } else {
             Recalc::default()
         };
+        // Pictures that keep their size or place need their rectangles before the edit.
+        let picture_rects = if self.engine.sheet_name(sheet).is_some() {
+            self.picture_rects_before(sheet)
+        } else {
+            Vec::new()
+        };
         let mut recalc = match op {
             StructuralOp::InsertRows { at, count } => self.engine.insert_rows(sheet, at, count),
             StructuralOp::DeleteRows { at, count } => self.engine.delete_rows(sheet, at, count),
@@ -1040,7 +1046,7 @@ impl Workbook {
         self.shift_annotations(sheet, op.into());
         self.shift_pivots(sheet, op);
         self.shift_page_breaks(sheet, op);
-        self.shift_pictures(sheet, op);
+        self.shift_pictures(sheet, op, &picture_rects);
         self.shift_slicers(sheet, op);
         let tables = self.shift_tables(sheet, op);
         recalc.changed.extend(tables.changed);

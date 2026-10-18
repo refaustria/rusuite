@@ -12,6 +12,8 @@ import { parseRange } from "../charts/refs";
 import { lettersToCol } from "../formula/refs";
 import { buildPrintTable, type PrintCell, type PrintLook, type PrintTable } from "./printTable";
 import type { IconSetKind } from "../generated/IconSetKind";
+import type { Picture } from "../generated/Picture";
+import { colorCss } from "../grid/style";
 import type { NameInfo } from "../generated/NameInfo";
 import { iconGlyph } from "../grid/cf";
 import { cellAddress } from "../grid/address";
@@ -360,11 +362,18 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     const before = <T,>(list: readonly T[], key: (x: T) => number, size: (x: T) => number, at: number) => list.filter((x) => key(x) < at).reduce((a, x) => a + size(x), 0);
     const dy = before(table.rows, (x) => x.row, (x) => x.height, r.r0);
     const dx = before(table.cols, (x) => x.col, (x) => x.width, r.c0);
-    const charts = (await printCharts(store, id, { x: 0, y: 0 }))
+    // Pictures, charts and, with Comments "As displayed on sheet", the visible notes of the range print with it.
+    const annots = await printAnnotations(store, id, o);
+    const inRange = (row: number, col: number) => row >= r.r0 && row <= r.r1 && col >= r.c0 && col <= r.c1;
+    const charts = [...(await printPictures(store, id)), ...(await printCharts(store, id, { x: 0, y: 0 })), ...annots.boxes]
       .filter((c) => rectsIntersect(c, box))
       .map((c) => ({ ...c, x: c.x - x0 + dx, y: c.y - y0 + dy }));
+    const annotations = annots.list.filter((a) => {
+      const m = /^([A-Z]+)(\d+)$/.exec(a.cell);
+      return !m || inRange(Number(m[2]) - 1, lettersToCol(m[1]!) ?? -1);
+    });
     const spec: PrintTitlesSpec = titles ? { rows: indexRange(table.rows, (x) => x.row, titles.rows), cols: indexRange(table.cols, (x) => x.col, titles.cols) } : {};
-    parts.push({ sheetName: nameOf(id), table, charts, breaks: tableBreaks(store, id, table), titles: spec });
+    parts.push({ sheetName: nameOf(id), table, charts, annotations, breaks: tableBreaks(store, id, table), titles: spec });
   };
   const sheetPart = async (id: number) => {
     if (store.isChartSheet(id)) {
@@ -385,7 +394,7 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
       return;
     }
     const used = await loadUsedRange(store, id);
-    const charts = await printCharts(store, id);
+    const charts = [...(await printPictures(store, id)), ...(await printCharts(store, id))];
     // The printed area reaches the charts' bottom-right cells.
     const geo = store.geometry(id);
     let { lastRow, lastCol } = used;
@@ -443,6 +452,32 @@ export async function printAnnotations(store: CalcStore, sheet: number, o: Pick<
     .sort((x, y) => x.row - y.row || x.col - y.col)
     .map((x) => x.a);
   return { boxes: [], list };
+}
+
+/**
+ * The pictures of a sheet as print HTML boxes (sheet px), as on the screen: crop, transparency and border; back to
+ * front like the charts' z-order after them.
+ */
+export async function printPictures(store: CalcStore, sheet: number): Promise<PrintChart[]> {
+  const list = await store.pictures.ensure(sheet);
+  const geo = store.geometry(sheet);
+  return list.flatMap((p) => {
+    const r = anchorRect(p.anchor, geo.col, geo.row);
+    if (r.w < 1 || r.h < 1) return [];
+    return [{ x: r.x, y: r.y, w: Math.round(r.w), h: Math.round(r.h), svg: pictureHtml(p, Math.round(r.w), Math.round(r.h)) }];
+  });
+}
+
+/** One picture's print HTML at `w × h` px: the image cropped by moving and scaling it inside a clipping box. */
+export function pictureHtml(p: Picture, w: number, h: number): string {
+  const c = p.crop ?? { left: 0, top: 0, right: 0, bottom: 0 };
+  const f = (v: number) => Math.max(0, v) / 100000;
+  const fullW = w / Math.max(0.01, 1 - f(c.left) - f(c.right));
+  const fullH = h / Math.max(0.01, 1 - f(c.top) - f(c.bottom));
+  const opacity = 1 - (p.transparency ?? 0) / 100;
+  const border = p.line && p.line.width > 0 ? `;box-shadow:inset 0 0 0 ${Math.max(1, Math.round(p.line.width / 9525))}px ${colorCss(p.line.color) ?? "#000"}` : "";
+  const alt = escapeHtml(p.descr ?? "");
+  return `<div class="rs-calc-pic" style="position:relative;width:${w}px;height:${h}px;overflow:hidden${border}"><img alt="${alt}" src="data:${p.media.contentType};base64,${p.media.data}" style="position:absolute;left:${(-fullW * f(c.left)).toFixed(2)}px;top:${(-fullH * f(c.top)).toFixed(2)}px;width:${fullW.toFixed(2)}px;height:${fullH.toFixed(2)}px;opacity:${opacity}"></div>`;
 }
 
 /** The charts of a sheet as print SVGs, in sheet px (`origin`: subtracted). */

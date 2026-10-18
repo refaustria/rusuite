@@ -23,6 +23,7 @@ import { linksInsertGroup, reviewTab } from "../comments/ReviewRibbon";
 import { pivotAnalyzeTab, pivotDesignTab, pivotInsertGroup } from "../pivot/PivotRibbon";
 import { tableDesignTab, tableInsertButton } from "../tables/TableRibbon";
 import { slicerInsertGroup, slicerTab } from "../slicers/SlicerRibbon";
+import { pictureFormatTab } from "../pictures/PictureRibbon";
 import { sparklineInsertGroup, sparklineTab } from "../sparklines/SparklineRibbon";
 import { dataTabGroups, getDataGroup, pageLayoutTab, pasteMenu, PicturesButton, workbookViewsGroup } from "../datatools/DataRibbon";
 import { NumberGroup } from "./NumberGroup";
@@ -362,8 +363,10 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
     : contextualTabs([tableDesignTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.table.tools"), CONTEXT_COLORS.table);
   // Sparkline while the active cell holds a sparkline (P9-C6).
   const sparkTabs = slicerTabs.length || chartTabs.length ? [] : contextualTabs([sparklineTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.spark.tools"), CONTEXT_COLORS.chart);
-  const contextual = [...slicerTabs, ...chartTabs, ...pivotTabs, ...tableTabs, ...sparkTabs];
-  const contextualTab = tab !== undefined && ["slicer", "chartDesign", "chartFormat", "pivotAnalyze", "pivotDesign", "tableDesign", "sparkline"].includes(tab);
+  // Picture Format while a picture is selected (P9-C7).
+  const pictureTabs = slicerTabs.length || chartTabs.length ? [] : contextualTabs([pictureFormatTab(store, t)].filter((x): x is RibbonTab => x !== null), t("calc.picture.tools"), CONTEXT_COLORS.picture);
+  const contextual = [...slicerTabs, ...chartTabs, ...pictureTabs, ...pivotTabs, ...tableTabs, ...sparkTabs];
+  const contextualTab = tab !== undefined && ["slicer", "chartDesign", "chartFormat", "pictureFormat", "pivotAnalyze", "pivotDesign", "tableDesign", "sparkline"].includes(tab);
   const available = contextual.some((x) => x.id === tab);
   // A new pivot table's tab is requested before its sheet and field list have arrived.
   const pending = tab !== undefined && store.pivots.pendingTab === tab;

@@ -1064,6 +1064,8 @@ export class FakeCalcCore {
       case "addPicture":
       case "setPictureAnchor":
       case "removePicture":
+      case "setPictureFormat":
+      case "reorderPicture":
       case "restorePictures":
         return this.dataCmd(cmd);
       case "flashFill":
@@ -1274,7 +1276,7 @@ export class FakeCalcCore {
     return this.exec({ type: "restoreCols", sheet: cmd.sheet, cols });
   }
 
-  private dataCmd(cmd: Extract<CalcCommand, { type: "removeDuplicates" | "textToColumns" | "setPageBreaks" | "addPicture" | "setPictureAnchor" | "removePicture" | "restorePictures" }>): [CalcPatch, CalcCommand | null] {
+  private dataCmd(cmd: Extract<CalcCommand, { type: "removeDuplicates" | "textToColumns" | "setPageBreaks" | "addPicture" | "setPictureAnchor" | "removePicture" | "restorePictures" | "setPictureFormat" | "reorderPicture" }>): [CalcPatch, CalcCommand | null] {
     const sh = this.sheet(cmd.sheet);
     const pics = (): CalcCommand => ({ type: "restorePictures", sheet: sh.id, pictures: JSON.parse(JSON.stringify(sh.pictures)) as Picture[] });
     const picPatch = () => ({ ...this.emptyPatch(), pictureSheets: [sh.id] });
@@ -1337,6 +1339,30 @@ export class FakeCalcCore {
       case "removePicture": {
         const inv = pics();
         sh.pictures = sh.pictures.filter((x) => x.id !== cmd.id);
+        return [picPatch(), inv];
+      }
+      case "setPictureFormat": {
+        const inv = pics();
+        const p = sh.pictures.find((x) => x.id === cmd.id);
+        if (!p) throw new Fail("invalid_range", "no picture");
+        const f = cmd.format;
+        if (f.name !== undefined) p.name = f.name;
+        if (f.descr !== undefined) p.descr = f.descr;
+        if (f.placement !== undefined) p.editAs = f.placement;
+        if (f.crop !== undefined) p.crop = f.crop;
+        if (f.noLine) delete p.line;
+        else if (f.line !== undefined) p.line = f.line;
+        if (f.transparency !== undefined) p.transparency = f.transparency;
+        return [picPatch(), inv];
+      }
+      case "reorderPicture": {
+        const inv = pics();
+        const i = sh.pictures.findIndex((x) => x.id === cmd.id);
+        if (i < 0) throw new Fail("invalid_range", "no picture");
+        const [p] = sh.pictures.splice(i, 1);
+        const last = sh.pictures.length;
+        const j = cmd.to === "front" ? last : cmd.to === "back" ? 0 : cmd.to === "forward" ? Math.min(i + 1, last) : Math.max(0, i - 1);
+        sh.pictures.splice(j, 0, p!);
         return [picPatch(), inv];
       }
       case "restorePictures": {
@@ -2530,6 +2556,8 @@ export class FakeCalcCore {
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
         case "dependents":
           return { ok: { type: "trace", refs: this.dependents(req.sheet, req.row, req.col) } };
+        case "sheetPictures":
+          return { ok: { type: "pictures", pictures: JSON.parse(JSON.stringify(this.sheet(req.sheet).pictures)) as Picture[] } };
         case "goToSpecial": {
           // A toy for the UI tests: blanks and constants of the used range (or the selection), row-major single cells.
           const s = this.sheet(req.sheet);

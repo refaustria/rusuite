@@ -196,6 +196,85 @@ mirror! {
         pub descr: String,
         pub anchor: crate::wire_chart::ChartAnchor,
         pub media: Media,
+        /// How a two-cell anchor follows row / column edits (absent: move and size).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub edit_as: Option<Placement>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub crop: Option<Crop>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub line: Option<PictureLine>,
+        /// Percent (absent: opaque).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub transparency: Option<u8>,
+    }
+
+    /// Mirror of `model_sheet::Placement` (Format Picture › Properties).
+    #[serde(rename_all = "camelCase")]
+    pub enum Placement {
+        MoveAndSize,
+        Move,
+        Fixed,
+    }
+
+    /// Mirror of `model_sheet::Crop`: thousandths of a percent cut off each side.
+    #[serde(rename_all = "camelCase")]
+    pub struct Crop {
+        #[serde(default)]
+        pub left: i32,
+        #[serde(default)]
+        pub top: i32,
+        #[serde(default)]
+        pub right: i32,
+        #[serde(default)]
+        pub bottom: i32,
+    }
+
+    /// Mirror of `model_sheet::PictureLine`: a solid border, width in EMU.
+    #[serde(rename_all = "camelCase")]
+    pub struct PictureLine {
+        pub color: app_common::wire::Color,
+        #[ts(type = "number")]
+        pub width: i64,
+    }
+
+    /// Mirror of `model_sheet::ZOrder`.
+    #[serde(rename_all = "camelCase")]
+    pub enum ZOrder {
+        Front,
+        Forward,
+        Backward,
+        Back,
+    }
+
+    /// The Format Picture changes of `setPictureFormat` (absent: unchanged).
+    #[serde(rename_all = "camelCase")]
+    pub struct PictureFormat {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub descr: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub placement: Option<Placement>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub crop: Option<Crop>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub line: Option<PictureLine>,
+        /// Picture Border › No Outline.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        pub no_line: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pub transparency: Option<u8>,
     }
 }
 
@@ -271,7 +350,36 @@ mod tests {
             summary_below: false,
             summary_right: true,
         });
+        let mut framed = m::Picture::new(
+            m::ChartAnchor::Absolute {
+                x: 1,
+                y: 2,
+                width: 3,
+                height: 4,
+            },
+            core_model::Media {
+                content_type: "image/png".into(),
+                data: vec![1],
+            },
+        );
+        framed.edit_as = m::Placement::Fixed;
+        framed.crop = m::Crop {
+            left: 1000,
+            top: 0,
+            right: 2000,
+            bottom: -500,
+        };
+        framed.line = Some(m::PictureLine {
+            color: core_model::Color::theme(core_model::ThemeColorSlot::Accent1),
+            width: 12700,
+        });
+        framed.transparency = 30;
+        same_shape::<_, super::Picture>(&framed);
         same_shape::<_, super::Picture>(&m::Picture {
+            edit_as: m::Placement::MoveAndSize,
+            crop: m::Crop::default(),
+            line: None,
+            transparency: 0,
             id: 2,
             name: "Logo".into(),
             descr: "alt".into(),

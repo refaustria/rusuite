@@ -368,6 +368,8 @@ impl CalcDocument {
             | C::AddPicture { sheet, .. }
             | C::SetPictureAnchor { sheet, .. }
             | C::RemovePicture { sheet, .. }
+            | C::SetPictureFormat { sheet, .. }
+            | C::ReorderPicture { sheet, .. }
             | C::SetNote { sheet, .. }
             | C::DeleteNote { sheet, .. }
             | C::ShowHideNote { sheet, .. }

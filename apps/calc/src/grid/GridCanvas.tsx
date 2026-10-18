@@ -44,7 +44,7 @@ import { FlashPreviewLayer } from "../datatools/FlashPreview";
 import { drawIndicators, indicators } from "../comments/model";
 import { drawPivotButtons, drawPlaceholder, type PivotButton } from "../pivot/buttons";
 import { drawOutlineBar, gutterSize, outlineGroups, outlineHitAt, type BarLayout, type OutlineGroup, type OutlineHit } from "../outline/bar";
-import { paintPictures } from "../pictures/controller";
+import { cropFor, paintPictures } from "../pictures/controller";
 import { filterButton as afButton, type FilterButton } from "../sortFilter/filter";
 import type { AxisGeometry } from "./geometry";
 
@@ -238,7 +238,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const used = store.usedExtent(st.activeSheet);
     const info = st.info?.sheets.find((x) => x.id === st.activeSheet);
     const lastRow = Math.max(0, used.lastRow), lastCol = Math.max(0, used.lastCol);
-    return { lines: previewBreaks(data.colGeo, data.rowGeo, lastRow, lastCol, info?.rowBreaks ?? [], info?.colBreaks ?? []), lastRow, lastCol };
+    return { lines: previewBreaks(data.colGeo, data.rowGeo, lastRow, lastCol, info?.rowBreaks ?? [], info?.colBreaks ?? [], store.printOptions), lastRow, lastCol };
   };
 
   /** The outline bars: layout and the visible groups of both axes. */
@@ -432,7 +432,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         const arrows = store.trace.on(state.activeSheet);
         if (arrows.length > 0) paintArrows(cctx, data.colGeo, data.rowGeo, arrows, vp.scrollX, vp.scrollY);
         paintCharts(cctx, frames, vp, chartSel);
-        paintPictures(cctx, store.pictures.frames(state.activeSheet), vp, (p) => store.pictures.image(p), store.pictures.selected?.sheet === state.activeSheet ? store.pictures.selected.id : null);
+        paintPictures(cctx, store.pictures.frames(state.activeSheet), vp, (p) => store.pictures.image(p), store.pictures.selected?.sheet === state.activeSheet ? store.pictures.selected.id : null, store.pictures.cropping);
         if (state.pageBreakPreview) {
           const b = breakLines(data);
           drawBreakPreview(cctx, data.colGeo, data.rowGeo, b.lines, b.lastRow, b.lastCol, vp, (n) => t("calc.view.page", { n }));
@@ -938,26 +938,31 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const x0 = e.clientX;
     const y0 = e.clientY;
     let moved = false;
+    // Picture Format › Crop: the handles cut the image instead of scaling it.
+    const cropping = pics.cropping && !!hit.handle;
     const move = (ev: PointerEvent) => {
       const dx = (ev.clientX - x0) / scale;
       const dy = (ev.clientY - y0) / scale;
       if (!moved && Math.hypot(dx, dy) < 3) return;
       moved = true;
       const snap = ev.altKey ? { col: geo.col, row: geo.row } : undefined;
-      const rect = hit.handle ? resizeRect(start, hit.handle, dx, dy, snap) : moveRect(start, dx, dy, snap);
-      pics.preview = { id: hit.id, rect };
+      const rect = hit.handle ? resizeRect(start, hit.handle, dx, dy, cropping ? undefined : snap) : moveRect(start, dx, dy, snap);
+      pics.preview = cropping ? { id: hit.id, rect, crop: cropFor(start, rect, frame.pic.crop) } : { id: hit.id, rect };
       schedule();
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       const p = pics.preview;
-      if (moved && p) void pics.setRect(p.rect).finally(() => (pics.preview = null));
+      if (moved && p && p.crop) void pics.setCrop(p.rect, p.crop).finally(() => (pics.preview = null));
+      else if (moved && p) void pics.setRect(p.rect).finally(() => (pics.preview = null));
       else pics.preview = null;
       schedule();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   // Pointer events (mobile guardrail): a press on a filter button opens its dropdown; the rest is the mouse path below.
@@ -1438,7 +1443,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       // A selected picture: Esc deselects; Delete removes it (ShortcutLayer); typing does not edit cells.
       if (key === "Escape") {
         e.preventDefault();
-        store.pictures.deselect();
+        // Esc ends cropping first, then deselects (Excel).
+        if (store.pictures.cropping) store.pictures.toggleCrop();
+        else store.pictures.deselect();
         return;
       }
       if (key.length === 1 && !ctrl && !e.altKey) {
@@ -1536,6 +1543,17 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
     if (store.getState().edit) return;
     e.preventDefault();
+    // An image on the clipboard (a screenshot, a copied picture) becomes a picture at the active cell (Excel).
+    const image = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
+    if (image && !store.hasClip()) {
+      void store.pictures.pasteImage(image).then(
+        (ok) => {
+          if (!ok) store.pushError(new Error(t("calc.picture.unsupported")));
+        },
+        (err) => store.pushError(err),
+      );
+      return;
+    }
     const text = e.clipboardData?.getData("text/plain") ?? "";
     if (store.charts.hasClip() && (text === "" || text === store.charts.clipText)) {
       void store.charts.paste();

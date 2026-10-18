@@ -151,3 +151,110 @@ fn threaded_comment_mentions_and_person_ids_roundtrip() {
     assert_eq!(back.persons()[0].user_id, "ann@example.com");
     assert_eq!(back.persons()[0].provider_id, "AD");
 }
+
+#[test]
+fn picture_placement_crop_border_transparency_and_order_roundtrip() {
+    use model_sheet::{CellOffset, ChartAnchor, Crop, Picture, PictureLine, Placement};
+    let mut wb = Workbook::new();
+    let s = SheetId(0);
+    let png = core_model::Media {
+        content_type: "image/png".into(),
+        data: vec![0x89, b'P', b'N', b'G'],
+    };
+    let mut a = Picture::new(
+        ChartAnchor::TwoCell {
+            from: CellOffset {
+                col: 1,
+                row: 1,
+                col_offset: 0,
+                row_offset: 0,
+            },
+            to: CellOffset {
+                col: 3,
+                row: 6,
+                col_offset: 9525,
+                row_offset: 0,
+            },
+        },
+        png.clone(),
+    );
+    a.edit_as = Placement::Fixed;
+    a.descr = "Logo".into();
+    a.crop = Crop {
+        left: 10_000,
+        top: 0,
+        right: 5_000,
+        bottom: 2_500,
+    };
+    a.line = Some(PictureLine {
+        color: core_model::Color::Rgb(core_model::Rgb::new(0xC0, 0, 0)),
+        width: 19050,
+    });
+    a.transparency = 40;
+    let mut b = Picture::new(a.anchor, png);
+    b.edit_as = Placement::Move;
+    wb.add_picture(s, a).unwrap();
+    wb.add_picture(s, b).unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let xml = part(&bytes, "/xl/drawings/drawing1.xml");
+    assert!(
+        xml.contains(r#"<xdr:twoCellAnchor editAs="absolute">"#),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(r#"<xdr:twoCellAnchor editAs="oneCell">"#),
+        "{xml}"
+    );
+    assert!(xml.contains(r#"<a:alphaModFix amt="60000"/>"#), "{xml}");
+    assert!(
+        xml.contains(r#"<a:srcRect l="10000" r="5000" b="2500"/>"#),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(
+            r#"<a:ln w="19050"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill></a:ln>"#
+        ),
+        "{xml}"
+    );
+    let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let (pa, pb) = (&back.pictures(s)[0], &back.pictures(s)[1]);
+    assert_eq!(
+        (
+            pa.edit_as,
+            pa.crop,
+            pa.line,
+            pa.transparency,
+            pa.descr.as_str()
+        ),
+        (
+            Placement::Fixed,
+            wb.pictures(s)[0].crop,
+            wb.pictures(s)[0].line,
+            40,
+            "Logo"
+        )
+    );
+    assert_eq!(pb.placement(), Placement::Move);
+}
+
+#[test]
+fn manual_page_breaks_roundtrip() {
+    let mut wb = Workbook::new();
+    let s = SheetId(0);
+    wb.set_page_breaks(s, model_sheet::Axis::Rows, vec![12, 40])
+        .unwrap();
+    wb.set_page_breaks(s, model_sheet::Axis::Cols, vec![5])
+        .unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let xml = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(
+        xml.contains(
+            r#"<rowBreaks count="2" manualBreakCount="2"><brk id="12" max="16383" man="1"/>"#
+        ),
+        "{xml}"
+    );
+    let back = fmt_xlsx::read(&bytes).unwrap();
+    assert_eq!(back.page_breaks(s, model_sheet::Axis::Rows), &[12, 40]);
+    assert_eq!(back.page_breaks(s, model_sheet::Axis::Cols), &[5]);
+}

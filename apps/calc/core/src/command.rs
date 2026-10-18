@@ -1123,6 +1123,24 @@ pub enum CalcCommand {
         sheet: u32,
         id: u32,
     },
+    /// Picture Format: alt text, name, Properties (move and size with
+    /// cells / move but don't size / don't move or size – the anchor
+    /// becomes a two-cell anchor with `editAs`), crop, border,
+    /// transparency.
+    SetPictureFormat {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "crate::wire_tables::PictureFormat")]
+        format: PictureFormat,
+    },
+    /// Bring Forward ▾ / Send Backward ▾: the picture's place in the
+    /// z-order of its sheet.
+    ReorderPicture {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "crate::wire_tables::ZOrder")]
+        to: model_sheet::ZOrder,
+    },
     /// Review › Protect Sheet…: protects the sheet with `options` (their
     /// password fields are ignored) and `password` (absent or empty: no
     /// password), hashed as Excel does (SHA-512, 100000 spins) with
@@ -1688,6 +1706,27 @@ pub enum PasteMode {
     ValuesOnly,
     /// Formats only; destination contents are kept.
     FormatsOnly,
+}
+
+/// The changes of [`CalcCommand::SetPictureFormat`] (absent: unchanged).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureFormat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<model_sheet::Placement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<model_sheet::Crop>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<model_sheet::PictureLine>,
+    /// Picture Border › No Outline.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_line: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transparency: Option<u8>,
 }
 
 /// How [`CalcCommand::FillRange`] extends each line of the source.

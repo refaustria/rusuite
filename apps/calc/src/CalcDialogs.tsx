@@ -416,6 +416,22 @@ export function CalcDialogs({ store }: { store: CalcStore }) {
       return <GoToDialog store={store} />;
     case "goToSpecial":
       return <GoToSpecialDialog store={store} />;
+    case "pictureAltText": {
+      const pic = store.pictures.active();
+      return (
+        <PromptDialog
+          open
+          title={t("calc.picture.altText")}
+          label={t("calc.picture.altTextLabel")}
+          initial={pic?.descr ?? ""}
+          onClose={close}
+          onSubmit={(v) => {
+            void store.pictures.format({ descr: v });
+            close();
+          }}
+        />
+      );
+    }
     case "insertFunction":
       return <InsertFunctionDialog store={store} category={dialog.category} />;
     case "link":

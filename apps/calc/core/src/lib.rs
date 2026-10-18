@@ -56,8 +56,8 @@ pub use audit::{ErrorIssue, ErrorRule, EvalStep, Evaluation, WatchCell, WatchIte
 pub use calc_tools::{CalcModeWire, CalcOptions, CalcState};
 pub use command::{
     BorderEdits, CalcCommand, ClipCell, DeleteShift, EdgeEdit, FillMode, FlashCell, InsertShift,
-    PasteMode, PasteOperation, PasteParts, PasteSpecial, RangeFormat, Rect, SheetRect,
-    SheetViewPatch, SlicerPatch, StyleRename, SubtotalFunction,
+    PasteMode, PasteOperation, PasteParts, PasteSpecial, PictureFormat, RangeFormat, Rect,
+    SheetRect, SheetViewPatch, SlicerPatch, StyleRename, SubtotalFunction,
 };
 pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody, SheetScroll};
 pub use display::{display_value, UNDISPLAYABLE};

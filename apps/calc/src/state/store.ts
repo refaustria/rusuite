@@ -4,6 +4,7 @@
 // versioned rather than copied, which a tiny custom store expresses
 // directly and without a new runtime dependency.
 
+import { DEFAULT_CALC_PRINT, type CalcPrintOptions } from "../print/layout";
 import { useSyncExternalStore } from "react";
 import type { CellStylePatch, Color } from "@rusuite/ui-shared";
 import { CalcApiError, type CalcApi, type PatchEnvelope } from "../backend/calcApi";
@@ -264,6 +265,7 @@ export type CalcDialog =
   /** Go To (Ctrl+G / F5). */
   | { kind: "goTo" }
   | { kind: "goToSpecial" }
+  | { kind: "pictureAltText" }
   /** Insert Function (Shift+F3), optionally preselecting a category. */
   | { kind: "insertFunction"; category?: string }
   /** Insert › Link (Ctrl+K): insert or edit the selection's hyperlink. */
@@ -1866,6 +1868,8 @@ export class CalcStore {
   splitHere: (() => SheetViewPatch | null) | null = null;
   /** The next pane change keeps the scroll position (a splitter dragged by hand). */
   keepScrollOnce = false;
+  /** File › Print's current settings (the app's): Page Break Preview paginates with them. */
+  printOptions: CalcPrintOptions = DEFAULT_CALC_PRINT;
 
   /**
    * AutoSum (Alt+=): starts `=FN(` in the active cell with the numbers

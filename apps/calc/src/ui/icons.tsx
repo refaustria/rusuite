@@ -58,6 +58,47 @@ export const splitIcon = (size = 22) =>
     </>
   ));
 
+/** Picture Format › Crop: the two crop angles. */
+export const cropIcon = (size = 16) => svg(size, <path d="M5.5 2.5v12h12M2.5 5.5h12v12" />);
+
+/** Picture Format › Transparency: a checkered square behind a half-filled one. */
+export const transparencyIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="2.5" width="10" height="10" />
+      <path d="M2.5 7.5h10M7.5 2.5v10" strokeWidth="0.8" />
+      <rect x="7.5" y="7.5" width="10" height="10" fill="currentColor" fillOpacity="0.35" />
+    </>
+  ));
+
+/** Picture Border: a frame with a pen line. */
+export const pictureBorderIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <rect x="3" y="3" width="14" height="11" strokeWidth="2.2" />
+      <path d="M3 17.5h14" strokeWidth="2.5" />
+    </>
+  ));
+
+/** Alt Text: a picture with a text line. */
+export const altTextIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="3" width="15" height="10" />
+      <path d="M4.5 11l3.5-4 3 3 2-2 2.5 3M4 16.5h12" />
+    </>
+  ));
+
+/** Picture Properties: a picture anchored to cells. */
+export const propertiesIcon = (size = 22) =>
+  svg(size, (
+    <>
+      <rect x="2.5" y="2.5" width="15" height="15" />
+      <path d="M2.5 7.5h15M2.5 12.5h15M7.5 2.5v15M12.5 2.5v15" strokeWidth="0.8" />
+      <rect x="5" y="5" width="8" height="6" fill="currentColor" fillOpacity="0.3" />
+    </>
+  ));
+
 /** Go To Special: an arrow to a highlighted cell. */
 export const goToSpecialIcon = (size = 16) =>
   svg(size, (
