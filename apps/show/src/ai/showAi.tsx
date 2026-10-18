@@ -327,6 +327,7 @@ export function showAiAdapter(store: ShowStore): AiAppAdapter {
 
   return {
     app: "show",
+    appName: () => "Rusuite Show",
     textApply: [replaceText, setNotes],
     attachSources,
     anchor: () => {

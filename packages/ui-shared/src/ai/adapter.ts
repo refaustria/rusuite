@@ -18,6 +18,8 @@ import { PLAIN_TEXT_RULE } from "./prompts";
 
 export interface AiAppAdapter {
   app: AiApp;
+  /** "Rusuite Write" (the title of an exported conversation). */
+  appName?(): string;
   /** The action chips (re-read on every render: labels follow the UI language). */
   actions(): AiAction<any>[]; // eslint-disable-line @typescript-eslint/no-explicit-any
   /** The context for a request; `includeDocument`: with the whole document. */

@@ -329,6 +329,7 @@ export function calcAiAdapter(store: CalcStore): AiAppAdapter {
 
   return {
     app: "calc",
+    appName: () => "Rusuite Calc",
     textApply: [insertText],
     anchor: () => {
       const st = store.getState();

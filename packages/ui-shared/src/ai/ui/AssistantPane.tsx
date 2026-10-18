@@ -13,6 +13,7 @@ import type { AiAction, AiTurn, Assistant } from "../controller";
 import type { AiAppAdapter } from "../adapter";
 import { askAction, type AiAttachSource } from "../adapter";
 import { errorText } from "../controller";
+import { conversationMarkdown, exportFileName, saveTextFile } from "../export";
 import { CONTEXT_LIMITS, estimateTokens } from "../prompts";
 import { AI_BUTTON, AI_CHIP, AI_PRIMARY, useAssistant, useProviderName } from "./hooks";
 
@@ -67,9 +68,18 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
       )}
       {turn.status === "stopped" && <p className="text-xs text-ui-muted">{t("ai.pane.stopped")}</p>}
       {turn.error && (
-        <p role="alert" className="text-xs text-red-700 dark:text-red-400" data-testid="ai-error">
+        <div role="alert" className="text-xs text-red-700 dark:text-red-400" data-testid="ai-error">
           {turn.error}
-        </p>
+          {turn.errorDetail && (
+            // The provider's own (English) wording, apart from the translated message.
+            <details className="mt-0.5 text-ui-muted" data-testid="ai-error-details">
+              <summary className={`cursor-pointer select-none ${FOCUS_RING}`}>{t("ai.pane.errorDetails")}</summary>
+              <div className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap break-words" data-testid="ai-error-detail-text">
+                {turn.errorDetail}
+              </div>
+            </details>
+          )}
+        </div>
       )}
       {turn.applied && (
         <p role="status" className="text-xs text-green-700 dark:text-green-400" data-testid="ai-applied">
@@ -111,6 +121,12 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
           {t(`ai.pane.doc.${turn.document}`)}
         </p>
       )}
+      {turn.model && (
+        <p className="text-[11px] text-ui-muted" data-testid="ai-turn-model" data-pinned={turn.modelPinned ? "true" : "false"}>
+          {t(turn.modelPinned ? "ai.pane.turnModelPinned" : "ai.pane.turnModel", { model: turn.model })}
+          {turn.effort ? <span data-testid="ai-turn-effort">{` · ${t("ai.pane.effort", { level: t(`ai.effort.${turn.effort}`) })}`}</span> : null}
+        </p>
+      )}
       {(turn.usage.input > 0 || turn.usage.output > 0) && (
         <p className="text-[11px] text-ui-muted" data-testid="ai-turn-usage">
           {t("ai.pane.turnUsage", { input: formatNumber(turn.usage.input), output: formatNumber(turn.usage.output) })}
@@ -120,8 +136,6 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
               {t("ai.pane.cacheUsage", { read: formatNumber(turn.usage.cacheRead), write: formatNumber(turn.usage.cacheWrite) })}
             </span>
           ) : null}
-          {turn.model ? ` · ${turn.model}` : ""}
-          {turn.effort ? <span data-testid="ai-turn-effort">{` · ${t("ai.pane.effort", { level: t(`ai.effort.${turn.effort}`) })}`}</span> : null}
         </p>
       )}
     </li>
@@ -227,6 +241,15 @@ function Pane({ ai, adapter }: { ai: Assistant; adapter: AiAppAdapter }) {
   const list = useRef<HTMLOListElement>(null);
   const actions = adapter.actions() as AiAction<unknown>[];
   const ask = useMemo(() => askAction(t("ai.pane.ask"), adapter.textApply) as AiAction<unknown>, [t, adapter]);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  useEffect(() => {
+    // Settings › AI › Actions lists these (the ask action first).
+    ai.actionList = () => [{ id: ask.id, label: ask.label }, ...adapter.actions().map((a) => ({ id: a.id, label: a.label }))];
+    return () => {
+      ai.actionList = null;
+    };
+  }, [ai, adapter, ask]);
+  useEffect(() => setExportNote(null), [turns]);
 
   useEffect(() => {
     if (open) prompt.current?.focus();
@@ -440,6 +463,37 @@ function Pane({ ai, adapter }: { ai: Assistant; adapter: AiAppAdapter }) {
             </button>
           )}
         </p>
+        {turns.length > 0 && !running && (
+          <div className="flex flex-wrap items-center gap-1 text-[11px] text-ui-muted" data-testid="ai-export">
+            <button
+              type="button"
+              className={`rounded px-1 hover:bg-ui-hover ${FOCUS_RING}`}
+              data-testid="ai-export-save"
+              onClick={() => {
+                const md = conversationMarkdown(turns, { app: adapter.appName?.(), provider });
+                void saveTextFile(exportFileName(), md).then((ok) => setExportNote(ok ? t("ai.pane.exportSaved") : null));
+              }}
+            >
+              {t("ai.pane.exportSave")}
+            </button>
+            <button
+              type="button"
+              className={`rounded px-1 hover:bg-ui-hover ${FOCUS_RING}`}
+              data-testid="ai-export-copy"
+              onClick={() => {
+                const md = conversationMarkdown(turns, { app: adapter.appName?.(), provider });
+                void navigator.clipboard?.writeText(md).then(() => setExportNote(t("ai.pane.exportCopied")), () => setExportNote(null));
+              }}
+            >
+              {t("ai.pane.exportCopy")}
+            </button>
+            {exportNote && (
+              <span role="status" data-testid="ai-export-note">
+                {exportNote}
+              </span>
+            )}
+          </div>
+        )}
       </form>
     </aside>
   );

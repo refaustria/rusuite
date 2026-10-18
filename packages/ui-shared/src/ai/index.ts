@@ -6,6 +6,8 @@ export * from "./schemas";
 export * from "./controller";
 export * from "./adapter";
 export * from "./images";
+export * from "./export";
+export * from "./overrides";
 export * from "./providers";
 export { AssistantPane, useAssistantShortcut } from "./ui/AssistantPane";
 export { AiStatus } from "./ui/AiStatus";

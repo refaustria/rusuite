@@ -1159,6 +1159,21 @@ selection summary, Insert / Replace buttons).
 - **Ribbon**: the Home tab's AI group collapses last (it was first; in Show's German Home tab at 1400 px it collapsed
   into a "KI ▾" button although that saved 9 px).
 
+### AI assistant polish (P9-A2)
+- **Options › AI › Actions**: a table (action, model, reasoning) with one row per chip of the app plus the free prompt
+  ("Ask"). "Default (<model>)" / "Default" follow the general settings; a pinned model or level applies to that action
+  only (e.g. a fast model for Fix grammar, a strong one for Draft from prompt). Overrides are kept per provider. The
+  action's own minimum (Formula from description: Medium) still applies; Off stays off.
+- **Panel**: every turn shows a "Model: <id>" line with the reasoning level ("(set for this action)" when pinned). Under
+  the token line, **Save conversation…** (a Markdown file `ai-conversation-<date>.md`: turns, model, reasoning, tokens,
+  "[Picture sent: …]" placeholders; web: download, desktop: the save dialog where the shell has one) and **Copy
+  conversation**. The export never changes the document's file.
+- **OpenAI-compatible**: "This model accepts reasoning_effort" (per model, like the vision flag) sends the Reasoning
+  setting as `reasoning_effort`; the Reasoning list is enabled for marked models.
+- **Errors**: `badResponse` messages (unreadable stream, no answer, incomplete structured answer, a result that is too
+  large) are catalog sentences; the provider's / English wording sits in a collapsed **Details** under the error.
+- **Ribbon**: the AI group is last to collapse in Write and Calc too.
+
 ## Save and Save As on the desktop (P7-7)
 
 The desktop shell remembers the document's file (`DocPath` in `apps/*/src-tauri/src/lib.rs`): Open (dialog or recent file)

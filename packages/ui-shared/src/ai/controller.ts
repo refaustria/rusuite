@@ -9,8 +9,8 @@ import type { ReactNode } from "react";
 import { buildMessages, documentContext, languageRule, systemPrompt, textHash, type DocContext } from "./prompts";
 import { createProvider, type ProviderFactory } from "./providers";
 import { parseAiSettings, type AiSettings, type AiStore } from "./settings";
-import { supportsEffort } from "./providers/anthropic";
-import { AI_EFFORTS, AiError, type AiContentPart, type AiEffort, type AiImage, type AiMessage, type AiProvider, type AiTool, type ModelInfo } from "./types";
+import { effectiveEffort, resolveAction } from "./overrides";
+import { AiError, type AiContentPart, type AiEffort, type AiImage, type AiMessage, type AiProvider, type AiTool, type ModelInfo } from "./types";
 import { getLocale, t } from "../i18n/locale";
 
 /** A button under a result (Insert, Replace selection, Insert formula, Apply, Set as speaker notes, …). */
@@ -89,6 +89,10 @@ export interface AiTurn {
   applied?: string;
   usage: AiUsage;
   model?: string;
+  /** The model was pinned for this action in Settings › AI › Actions. */
+  modelPinned?: boolean;
+  /** The provider's own wording of a failure (shown in a details expander under the translated message). */
+  errorDetail?: string;
   /**
    * The whole document went with this turn: `"sent"` (first time in this conversation, written to the cache),
    * `"same"` (unchanged since the previous turn – a cache hit is expected), `"changed"` (edited meanwhile: sent
@@ -173,11 +177,7 @@ export function testResultText(r: AiTestResult): { ok: boolean; text: string } {
 
 let turnSeq = 0;
 
-/** The effort of a request: the setting, raised to the action's minimum – unless the setting is "off". */
-export function effectiveEffort(setting: AiEffort, action?: AiEffort): AiEffort {
-  if (setting === "off" || !action) return setting;
-  return AI_EFFORTS.indexOf(action) > AI_EFFORTS.indexOf(setting) ? action : setting;
-}
+export { effectiveEffort };
 
 export class Assistant {
   private state: AssistantState;
@@ -189,6 +189,8 @@ export class Assistant {
   private sentDocument: string | null = null;
   private readonly store: AiStore;
   private readonly factory: ProviderFactory;
+  /** The app's actions (set by the panel; Settings › AI › Actions lists them). */
+  actionList: (() => { id: string; label: string }[]) | null = null;
   /** File › Options… of an app that has its own options (shown in the dialog's General page). */
   moreOptions: (() => void) | null = null;
   /** Whether AI actions can run here (desktop apps; the web build only shows a note in the options). */
@@ -472,9 +474,8 @@ export class Assistant {
         this.sentDocument = hash;
         this.updateTurn(id, { document: state });
       }
-      const model = s.models[s.provider];
-      const effort = s.provider === "anthropic" && supportsEffort(model) ? effectiveEffort(s.effort, action.effort) : undefined;
-      if (effort) this.updateTurn(id, { effort });
+      const { model, effort, pinned } = resolveAction(s, action.id, action.effort);
+      this.updateTurn(id, { model, ...(effort ? { effort } : {}), ...(pinned ? { modelPinned: true } : {}) });
       let last = 0;
       for await (const d of provider.complete({
         model,
@@ -526,7 +527,7 @@ export class Assistant {
       this.finish(id, { text, ...(thinking ? { thinking } : {}), value: result, status: "done", usage }, usage);
     } catch (e) {
       const stopped = e instanceof AiError && e.kind === "aborted";
-      this.finish(id, { text, ...(thinking ? { thinking } : {}), status: stopped ? "stopped" : "error", ...(stopped ? {} : { error: errorText(e) }), usage }, usage);
+      this.finish(id, { text, ...(thinking ? { thinking } : {}), status: stopped ? "stopped" : "error", ...(stopped ? {} : errorFields(e)), usage }, usage);
     } finally {
       if (this.abort === abort) this.abort = null;
     }
@@ -546,21 +547,60 @@ export class Assistant {
     if (!turn || !button || turn.status !== "done") return;
     try {
       const status = await button.run(turn.value, turn);
-      this.updateTurn(turnId, { applied: status || button.label, error: undefined });
+      this.updateTurn(turnId, { applied: status || button.label, error: undefined, errorDetail: undefined });
     } catch (e) {
-      this.updateTurn(turnId, { error: errorText(e) });
+      this.updateTurn(turnId, errorFields(e));
     }
   }
 }
 
-/** A failure as shown to the user (localized by kind, with the provider's own message after it). */
-export function errorText(e: unknown): string {
+/** The `error` / `errorDetail` fields of a turn for a failure. */
+function errorFields(e: unknown): Pick<AiTurn, "error" | "errorDetail"> {
+  const { text, detail } = errorParts(e);
+  return { error: text, errorDetail: detail ?? undefined };
+}
+
+/**
+ * The English sentences of `badResponse` errors thrown by the providers and `schemas.ts` → catalog keys, so that the
+ * panel shows them in the interface language. Anything else stays as the raw text in the details.
+ */
+const BAD_RESPONSE: { pattern: RegExp; key: string; params: string[] }[] = [
+  { pattern: /^The provider sent an unreadable stream$/, key: "ai.err.bad.stream", params: [] },
+  { pattern: /^(.+) sent no answer$/, key: "ai.err.bad.noAnswer", params: ["provider"] },
+  { pattern: /^The model returned an incomplete or invalid structured answer$/, key: "ai.err.bad.incomplete", params: [] },
+  { pattern: /^The model.s answer is not a valid (.+)$/, key: "ai.err.bad.invalid", params: [] },
+  { pattern: /^The answer has (\d+) cells; at most (\d+) are applied$/, key: "ai.err.bad.cells", params: ["count", "max"] },
+  { pattern: /^The answer has (\d+) slides; at most (\d+) are added$/, key: "ai.err.bad.slides", params: ["count", "max"] },
+  { pattern: /^The table has (\d+) cells; at most (\d+) are inserted$/, key: "ai.err.bad.tableCells", params: ["count", "max"] },
+  { pattern: /^The draft has (\d+) blocks; at most (\d+) are inserted$/, key: "ai.err.bad.blocks", params: ["count", "max"] },
+];
+
+/** The localized sentence for a known `badResponse` message, or `null`. */
+export function translateBadResponse(message: string): string | null {
+  for (const { pattern, key, params } of BAD_RESPONSE) {
+    const m = pattern.exec(message);
+    if (m) return t(key, Object.fromEntries(params.map((p, i) => [p, m[i + 1]!])));
+  }
+  return null;
+}
+
+/** A failure as shown to the user: the localized text, and the provider's / English wording apart (details). */
+export function errorParts(e: unknown): { text: string; detail: string | null } {
   if (e instanceof AiError) {
     const head = t(`ai.err.${e.kind}`, { seconds: e.retryAfter ?? 0 });
     const retry = e.kind === "rateLimit" && e.retryAfter !== null ? ` ${t("ai.err.retryIn", { seconds: e.retryAfter })}` : "";
-    const extra = e.kind === "badResponse" ? e.message : e.detail;
-    return `${head}${retry}${extra ? ` (${extra})` : ""}`;
+    if (e.kind === "badResponse") {
+      const known = translateBadResponse(e.message);
+      return { text: known ? `${head} ${known}` : head, detail: e.message };
+    }
+    return { text: `${head}${retry}`, detail: e.detail || null };
   }
-  if (e instanceof Error) return e.message;
-  return String(e);
+  const text = e instanceof Error ? e.message : String(e);
+  return { text, detail: null };
+}
+
+/** A failure on one line (localized by kind, with the raw detail in parentheses after it). */
+export function errorText(e: unknown): string {
+  const { text, detail } = errorParts(e);
+  return `${text}${detail ? ` (${detail})` : ""}`;
 }

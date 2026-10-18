@@ -162,6 +162,7 @@ export function writeAiAdapter(editor: Editor, ctl: SyncController): AiAppAdapte
 
   return {
     app: "write",
+    appName: () => "Rusuite Write",
     textApply: [insert, replace],
     anchor: () => {
       const r = selectionRange(editor);

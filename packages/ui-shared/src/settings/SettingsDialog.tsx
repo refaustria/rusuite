@@ -56,7 +56,7 @@ export function SettingsDialog({ ai }: { ai: Assistant }) {
           {tab("language", t("settings.language"))}
           {more && tab("general", t("settings.general"))}
         </div>
-        <div role="tabpanel" className="min-w-0">
+        <div role="tabpanel" className="max-h-[calc(100vh-9rem)] min-w-0 overflow-y-auto pr-1">
           {page === "language" ? (
             <LanguageList />
           ) : page === "ai" || !more ? (

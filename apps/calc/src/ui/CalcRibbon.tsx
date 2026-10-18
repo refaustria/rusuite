@@ -298,7 +298,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
           </>
         ),
       },
-      { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
+      aiRibbonGroup(session.ai),
     ],
   };
 
