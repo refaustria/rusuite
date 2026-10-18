@@ -6,10 +6,12 @@ import { useEffect, useId, useState } from "react";
 import { FOCUS_RING } from "../Popover";
 import { useT } from "../i18n/react";
 import type { Assistant } from "../ai/controller";
-import { errorText } from "../ai/controller";
+import { errorText, testResultText } from "../ai/controller";
 import { providerName, providerOrigin } from "../ai/providers";
-import { MAX_TOKENS_LIMIT, parseAiSettings, type AiSettings } from "../ai/settings";
-import type { AiProviderKind } from "../ai/types";
+import { MAX_TOKENS_LIMIT, parseAiSettings, type AiSettings, type ReplyLanguage } from "../ai/settings";
+import { LOCALES, localeInfo } from "../i18n/locales";
+import { getLocale } from "../i18n/locale";
+import { AI_EFFORTS, type AiEffort, type AiProviderKind } from "../ai/types";
 import { AI_BUTTON, AI_INPUT, AI_PRIMARY, useAssistant } from "../ai/ui/hooks";
 
 const OTHER = "__other__";
@@ -59,8 +61,7 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
     setBusy(true);
     setResult(null);
     try {
-      const models = await ai.test({ provider, baseUrl: draft.baseUrls[provider], model, key });
-      setResult({ ok: true, text: t("ai.settings.testOk", { count: models.length }) });
+      setResult(testResultText(await ai.test({ provider, baseUrl: draft.baseUrls[provider], model, key })));
     } catch (e) {
       setResult({ ok: false, text: errorText(e) });
     } finally {
@@ -182,6 +183,27 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
           )}
         </div>
       </div>
+      {provider === "openai" && (
+        <div className="flex items-start gap-2 text-sm">
+          <input
+            id={f("vision")}
+            type="checkbox"
+            className="mt-0.5"
+            checked={draft.visionModels.includes(model)}
+            aria-describedby={f("vision-note")}
+            data-testid="ai-vision"
+            onChange={(e) =>
+              patch({ visionModels: e.target.checked ? [...draft.visionModels.filter((m) => m !== model), model] : draft.visionModels.filter((m) => m !== model) })
+            }
+          />
+          <span>
+            <label htmlFor={f("vision")}>{t("ai.settings.vision")}</label>
+            <span id={f("vision-note")} className="block text-xs text-ui-muted">
+              {t("ai.settings.visionNote")}
+            </span>
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <label className={row} htmlFor={f("max")}>
           {t("ai.settings.maxTokens")}
@@ -213,6 +235,49 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
           </span>
         </label>
       </div>
+      <label className={row} htmlFor={f("effort")}>
+        {t("ai.settings.reasoning")}
+        <select
+          id={f("effort")}
+          className={AI_INPUT}
+          value={draft.effort}
+          disabled={provider !== "anthropic"}
+          aria-describedby={f("effort-note")}
+          data-testid="ai-effort"
+          onChange={(e) => patch({ effort: e.target.value as AiEffort })}
+        >
+          {AI_EFFORTS.map((level) => (
+            <option key={level} value={level}>
+              {t(`ai.effort.${level}`)}
+            </option>
+          ))}
+        </select>
+        <span id={f("effort-note")} className="text-xs text-ui-muted">
+          {t(provider === "anthropic" ? "ai.settings.reasoningNote" : "ai.settings.reasoningAnthropicOnly")}
+        </span>
+      </label>
+      <label className={row} htmlFor={f("reply")}>
+        {t("ai.settings.replyIn")}
+        <select
+          id={f("reply")}
+          className={AI_INPUT}
+          value={draft.replyLanguage}
+          aria-describedby={f("reply-note")}
+          data-testid="ai-reply-language"
+          onChange={(e) => patch({ replyLanguage: e.target.value as ReplyLanguage })}
+        >
+          <option value="ui">{t("ai.settings.replyUi", { language: localeInfo(getLocale()).label })}</option>
+          <option value="document">{t("ai.settings.replyDocument")}</option>
+          {LOCALES.map((l) => (
+            <option key={l.id} value={l.id} lang={l.id}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+        <span id={f("reply-note")} className="text-xs text-ui-muted">
+          {t("ai.settings.replyNote")}
+        </span>
+      </label>
       <div className="flex items-start gap-2 text-sm">
         <input id={f("whole")} type="checkbox" className="mt-0.5" checked={draft.includeDocument} aria-describedby={f("whole-note")} onChange={(e) => patch({ includeDocument: e.target.checked })} />
         <span>

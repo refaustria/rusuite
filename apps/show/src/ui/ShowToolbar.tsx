@@ -485,7 +485,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         label: t("group.editing"),
         items: <RibbonMenuButton label={t("show.select")} icon={DI.select} showLabel disabled={!hasSlide} menu={selectMenu} />,
       },
-      { ...aiRibbonGroup(session.ai), collapsePriority: 2 },
+      aiRibbonGroup(session.ai),
     ],
   };
 

@@ -167,8 +167,8 @@ describe("Assistant", () => {
       { type: "stop", reason: "end_turn" },
     ]);
     const turn = await ai.run(textAction, "", ctx());
-    expect(turn).toMatchObject({ status: "done", text: "The report.", value: "The report.", usage: { input: 10, output: 4 } });
-    expect(ai.getState().usage).toEqual({ input: 10, output: 4 });
+    expect(turn).toMatchObject({ status: "done", text: "The report.", value: "The report.", usage: { input: 10, output: 4, cacheRead: 0, cacheWrite: 0 } });
+    expect(ai.getState().usage).toEqual({ input: 10, output: 4, cacheRead: 0, cacheWrite: 0 });
     expect(keys).toEqual(["sk-1"]);
     expect(requests[0]!.messages[0]!.content).toContain("Teh report.");
     expect(requests[0]!.messages[0]!.content).not.toContain("More text");
@@ -177,14 +177,15 @@ describe("Assistant", () => {
     expect(ai.getState().turns[0]!.applied).toBe("done");
     ai.documentReplaced();
     expect(ai.getState().turns).toEqual([]);
-    expect(ai.getState().usage).toEqual({ input: 0, output: 0 });
+    expect(ai.getState().usage).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
   });
 
   it("include whole document: per document session, starting at the settings' default", async () => {
     const { ai, requests } = await enabledAssistant([{ type: "stop", reason: "end_turn" }]);
     ai.setIncludeDocument(true);
     await ai.run(textAction, "", ctx());
-    expect(requests[0]!.messages[0]!.content).toContain("<full_document>");
+    expect(requests[0]!.documentContext).toContain("<full_document>");
+    expect(requests[0]!.messages[0]!.content).not.toContain("<full_document>");
     ai.documentReplaced();
     expect(ai.getState().includeDocument).toBe(false);
   });

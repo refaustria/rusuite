@@ -86,6 +86,47 @@ describe("AssistantPane", () => {
   });
 });
 
+describe("AssistantPane round 2 (P9-A1)", () => {
+  it("the reasoning summary is a collapsed expander apart from the answer; cache and effort in the usage line", async () => {
+    const { ai, applied } = setup({
+      enabled: true,
+      key: "sk",
+      answer: [
+        { type: "model", model: "claude-sonnet-5-5" },
+        { type: "thinking", text: "Checking the spelling." },
+        { type: "text", text: "Fixed text." },
+        { type: "usage", inputTokens: 2100, outputTokens: 3, cacheReadTokens: 2048, cacheWriteTokens: 0 },
+        { type: "stop", reason: "end_turn" },
+      ],
+    });
+    act(() => ai.openPanel());
+    const chip = await screen.findByRole("button", { name: "Fix grammar" });
+    await waitFor(() => expect((chip as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(chip);
+    const details = (await screen.findByTestId("ai-thinking")) as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")!.textContent).toBe("Thinking…");
+    expect(screen.getByTestId("ai-thinking-text").textContent).toBe("Checking the spelling.");
+    expect(screen.getByTestId("ai-answer").textContent).toBe("Fixed text.");
+    expect(screen.getByTestId("ai-turn-cache").textContent).toBe(" · 2,048 from cache · 0 written to cache");
+    expect(screen.getByTestId("ai-turn-effort").textContent).toBe(" · reasoning: Low");
+    expect(screen.getByTestId("ai-usage").textContent).toContain("(2,048 from cache)");
+    fireEvent.click(screen.getByRole("button", { name: "Replace selection" }));
+    await waitFor(() => expect(applied).toEqual(["Fixed text."]));
+  });
+
+  it("pending pictures are listed with a remove button", async () => {
+    const { ai } = setup({ enabled: true, key: "sk" });
+    act(() => ai.openPanel());
+    act(() => ai.attach({ mediaType: "image/png", data: "iVBORw0KGgo=", width: 640, height: 480, label: "Slide 2" }));
+    const list = await screen.findByTestId("ai-pending-pictures");
+    expect(list.textContent).toContain("Slide 2");
+    expect(list.textContent).toContain("640×480");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Slide 2" }));
+    await waitFor(() => expect(screen.queryByTestId("ai-pending-pictures")).toBeNull());
+  });
+});
+
 describe("Settings › AI", () => {
   it("enable, key (masked), Test with the typed key, Save; Forget key", async () => {
     const { ai, store, tested } = setup();
@@ -97,7 +138,7 @@ describe("Settings › AI", () => {
     expect(key.type).toBe("password");
     fireEvent.change(key, { target: { value: "sk-new" } });
     fireEvent.click(screen.getByRole("button", { name: "Test" }));
-    expect((await screen.findByTestId("ai-test-result")).textContent).toBe("Connected. The provider lists 2 models.");
+    expect((await screen.findByTestId("ai-test-result")).textContent).toBe("Connected. The provider lists 2 models. claude-sonnet-5-5 answered.");
     expect(tested).toContain("sk-new");
     expect(store.keys.size).toBe(0); // not saved before Save
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
