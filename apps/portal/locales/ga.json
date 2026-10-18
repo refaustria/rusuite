@@ -103,6 +103,13 @@
   "portal.os.share": "é a roinnt – tabhair do dhaoine eile é, le hathruithe nó gan iad",
   "portal.os.code": "Tá an cód ar <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Fuair tú fadhb? Úsáid roghchlár ? Cabhair san aip (Tuairiscigh fadhb…) nó oscail <a href=\"https://github.com/refaustria/rusuite/issues\">saincheist ar GitHub</a>.",
+  "portal.new.h": "Nua i 3.141",
+  "portal.new.intro": "An rud a thugann an leagan reatha – tá na sonraí sna <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">nótaí eisiúna</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Cosaint bileoige, Slicers, Línte Spréach, Líonadh Splancach, grúpáil i PivotTables, LAMBDA agus na feidhmeanna eagair nua, chomh maith le go leor eilimintí nua cairte.",
+  "portal.new.item2": "<strong>Write</strong> – Gailearaithe uimhrithe Word, boscaí téacs nasctha, cruthanna grúpáilte, teimpléid, uirlisí nua tábla agus nótaí tráchta le formáidiú agus @-lua.",
+  "portal.new.item3": "<strong>Show</strong> – Stíleanna tábla PowerPoint, líníocht shaorchruth, go leor beochan agus aistrithe nua, bearradh meán agus radharc an chur i láthair le peann.",
+  "portal.new.item4": "<strong>Teangacha</strong> – Gach ceann de 24 teanga oifigiúla an AE.",
+  "portal.new.item5": "<strong>Cúntóir AI</strong> – Íomhánna mar ionchur, comhthéacs níos tapúla don doiciméad iomlán agus rogha d’iarracht réasúnaíochta (aipeanna deisce).",
   "portal.soon.h": "Ag teacht go luath",
   "portal.soon.intro": "An méid atá beartaithe leis na heisiúintí atá le teacht – gan dátaí, agus is féidir le pleananna athrú:",
   "portal.soon.item1": "<strong>Soghluaiste</strong> – tá aipeanna Android agus iOS do Calc, Write agus Show beartaithe.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – tá boscaí téacs nasctha, cruthanna grúpáilte agus teimpléid beartaithe.",
   "portal.soon.item6": "<strong>Show</strong> – tá tuilleadh stíleanna tábla, líníocht saorlámhaigh agus bearradh meán beartaithe.",
   "portal.soon.item7": "<strong>Teangacha</strong> – tá tuilleadh teangacha comhéadain beartaithe.",
+  "portal.soon.item8": "<strong>Aipeanna sínithe</strong> – Tá leaganacha deisce sínithe beartaithe, ionas nach dtabharfaidh Windows ná macOS rabhadh a thuilleadh roimh an gcéad tosú.",
   "portal.soon.close": "Múnlaíonn do chuid aiseolais an t-ord: inis dúinn cad atá uait trí roghchlár ? Cabhair san aip (Tuairiscigh fadhb…).",
   "portal.soon.link": "Cad atá ag teacht go luath"
 }

@@ -103,6 +103,13 @@
   "portal.os.share": "dijeliti ga – proslijedi ga dalje, s izmjenama ili bez njih",
   "portal.os.code": "Kod se nalazi na <a href=\"https://github.com/refaustria/rusuite\">GitHubu</a>.",
   "portal.os.report": "Imaš problem? Koristi izbornik ? Pomoć u aplikaciji (Prijavi problem…) ili otvori <a href=\"https://github.com/refaustria/rusuite/issues\">problem na GitHubu</a>.",
+  "portal.new.h": "Novo u 3.141",
+  "portal.new.intro": "Što donosi aktualna verzija – pojedinosti pronađi u <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">bilješkama o izdanju</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Zaštita lista, rezači, minigrafikoni, Brzo popunjavanje, grupiranje u zaokretnim tablicama, LAMBDA i nove funkcije polja te mnogi novi elementi grafikona.",
+  "portal.new.item2": "<strong>Write</strong> – Wordove galerije numeriranja, povezani tekstni okviri, grupirani oblici, predlošci, novi alati za tablice te komentari s oblikovanjem i @-spominjanjima.",
+  "portal.new.item3": "<strong>Show</strong> – PowerPointovi stilovi tablice, slobodno crtanje, mnogo novih animacija i prijelaza, skraćivanje medija i prikaz izlagača s olovkom.",
+  "portal.new.item4": "<strong>Jezici</strong> – Svih 24 službena jezika EU-a.",
+  "portal.new.item5": "<strong>AI asistent</strong> – Slike kao ulaz, brži kontekst cijelog dokumenta i izbor razine zaključivanja (aplikacije za stolna računala).",
   "portal.soon.h": "Uskoro",
   "portal.soon.intro": "Što planiramo donijeti u sljedećim izdanjima – bez datuma, a planovi se mogu promijeniti:",
   "portal.soon.item1": "<strong>Mobilni uređaji</strong> – planiraju se Android i iOS aplikacije za Calc, Write i Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – planiraju se povezani tekstni okviri, grupirani oblici i predlošci.",
   "portal.soon.item6": "<strong>Show</strong> – planiraju se dodatni stilovi tablica, slobodno crtanje i skraćivanje medija.",
   "portal.soon.item7": "<strong>Jezici</strong> – planiraju se dodatni jezici sučelja.",
+  "portal.soon.item8": "<strong>Potpisane aplikacije</strong> – Planiraju se potpisane verzije za stolna računala kako Windows i macOS više ne bi upozoravali prije prvog pokretanja.",
   "portal.soon.close": "Tvoje povratne informacije određuju redoslijed: reci nam što trebaš putem izbornika ? Pomoć u aplikaciji (Prijavi problem…).",
   "portal.soon.link": "Što dolazi uskoro"
 }

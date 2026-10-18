@@ -103,6 +103,13 @@
   "portal.os.share": "partilhá-lo – passa-o a outros, com ou sem alterações",
   "portal.os.code": "O código está no <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Encontraste um problema? Usa o menu ? Ajuda na aplicação (Comunicar um problema…) ou abre uma <a href=\"https://github.com/refaustria/rusuite/issues\">issue no GitHub</a>.",
+  "portal.new.h": "Novidades da 3.141",
+  "portal.new.intro": "O que traz a versão atual – encontras os detalhes nas <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">notas de versão</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Proteção de folhas, segmentações de dados, gráficos Sparkline, Preenchimento Relâmpago, agrupamento em tabelas dinâmicas, LAMBDA e as novas funções de matriz, bem como muitos elementos de gráfico novos.",
+  "portal.new.item2": "<strong>Write</strong> – As galerias de numeração do Word, caixas de texto ligadas, formas agrupadas, modelos, novas ferramentas de tabela e comentários com formatação e menções com @.",
+  "portal.new.item3": "<strong>Show</strong> – Os estilos de tabela do PowerPoint, desenho à mão livre, muitas animações e transições novas, aparar multimédia e uma vista do apresentador com caneta.",
+  "portal.new.item4": "<strong>Idiomas</strong> – Todos os 24 idiomas oficiais da UE.",
+  "portal.new.item5": "<strong>Assistente de IA</strong> – Imagens como entrada, contexto de documento inteiro mais rápido e escolha do esforço de raciocínio (aplicações para computador).",
   "portal.soon.h": "Em breve",
   "portal.soon.intro": "O que as próximas versões deverão trazer – sem datas, e os planos podem mudar:",
   "portal.soon.item1": "<strong>Móvel</strong> – estão previstas aplicações Android e iOS para o Calc, o Write e o Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – estão previstos caixas de texto ligadas, formas agrupadas e modelos.",
   "portal.soon.item6": "<strong>Show</strong> – estão previstos mais estilos de tabela, desenho à mão livre e aparar multimédia.",
   "portal.soon.item7": "<strong>Idiomas</strong> – estão previstos mais idiomas da interface.",
+  "portal.soon.item8": "<strong>Aplicações assinadas</strong> – Estão previstas versões para computador assinadas, para que o Windows e o macOS deixem de avisar antes do primeiro arranque.",
   "portal.soon.close": "O teu feedback define a ordem: diz-nos o que precisas através do menu ? Ajuda na aplicação (Comunicar um problema…).",
   "portal.soon.link": "O que vem aí"
 }

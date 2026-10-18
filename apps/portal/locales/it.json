@@ -103,6 +103,13 @@
   "portal.os.share": "condividerla – passala ad altri, con o senza modifiche",
   "portal.os.code": "Il codice si trova su <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Hai trovato un problema? Usa il menu ? Guida nell'app (Segnala un problema…) oppure apri una <a href=\"https://github.com/refaustria/rusuite/issues\">issue su GitHub</a>.",
+  "portal.new.h": "Novità della 3.141",
+  "portal.new.intro": "Cosa porta la versione attuale – i dettagli sono nelle <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">note di rilascio</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Protezione del foglio, filtri dati, grafici sparkline, Riempimento veloce, raggruppamento nelle tabelle pivot, LAMBDA e le nuove funzioni matrice, oltre a molti nuovi elementi del grafico.",
+  "portal.new.item2": "<strong>Write</strong> – Le raccolte di numerazione di Word, caselle di testo collegate, forme raggruppate, modelli, nuovi strumenti per le tabelle e commenti con formattazione e menzioni @.",
+  "portal.new.item3": "<strong>Show</strong> – Gli stili tabella di PowerPoint, disegno a mano libera, molte nuove animazioni e transizioni, taglio dei contenuti multimediali e visualizzazione relatore con penna.",
+  "portal.new.item4": "<strong>Lingue</strong> – Tutte le 24 lingue ufficiali dell'UE.",
+  "portal.new.item5": "<strong>Assistente IA</strong> – Immagini come input, contesto dell'intero documento più veloce e livello di ragionamento a scelta (app desktop).",
   "portal.soon.h": "In arrivo",
   "portal.soon.intro": "Cosa è previsto per le prossime versioni – senza date, e i piani possono cambiare:",
   "portal.soon.item1": "<strong>Mobile</strong> – sono previste app Android e iOS per Calc, Write e Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – sono previsti caselle di testo collegate, forme raggruppate e modelli.",
   "portal.soon.item6": "<strong>Show</strong> – sono previsti più stili di tabella, disegno a mano libera e ritaglio dei file multimediali.",
   "portal.soon.item7": "<strong>Lingue</strong> – sono previste altre lingue dell'interfaccia.",
+  "portal.soon.item8": "<strong>App firmate</strong> – Sono previste versioni desktop firmate, così Windows e macOS non avvisano più prima del primo avvio.",
   "portal.soon.close": "Il tuo feedback determina l'ordine: dicci di cosa hai bisogno tramite il menu ? Guida nell'app (Segnala un problema…).",
   "portal.soon.link": "Cosa è in arrivo"
 }

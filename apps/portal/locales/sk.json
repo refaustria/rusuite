@@ -103,6 +103,13 @@
   "portal.os.share": "zdieľať – odovzdať ďalej, s úpravami alebo bez nich",
   "portal.os.code": "Kód nájdeš na <a href=\"https://github.com/refaustria/rusuite\">GitHube</a>.",
   "portal.os.report": "Máš problém? Použi v aplikácii ponuku ? Pomocník (Nahlásiť problém…) alebo otvor <a href=\"https://github.com/refaustria/rusuite/issues\">problém na GitHube</a>.",
+  "portal.new.h": "Novinky vo verzii 3.141",
+  "portal.new.intro": "Čo prináša aktuálna verzia – podrobnosti nájdeš v <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">poznámkach k vydaniu</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Zabezpečenie hárka, prierezy, miniatúrne grafy, Bleskové dopĺňanie, zoskupovanie v kontingenčných tabuľkách, LAMBDA a nové maticové funkcie, ako aj veľa nových prvkov grafov.",
+  "portal.new.item2": "<strong>Write</strong> – Galérie číslovania z Wordu, prepojené textové polia, zoskupené tvary, šablóny, nové nástroje pre tabuľky a komentáre s formátovaním a zmienkami cez @.",
+  "portal.new.item3": "<strong>Show</strong> – Štýly tabuľky z PowerPointu, voľné kreslenie, veľa nových animácií a prechodov, orezávanie médií a zobrazenie prezentujúceho s perom.",
+  "portal.new.item4": "<strong>Jazyky</strong> – Všetkých 24 úradných jazykov EÚ.",
+  "portal.new.item5": "<strong>Asistent AI</strong> – Obrázky ako vstup, rýchlejší kontext celého dokumentu a voliteľná úroveň uvažovania (desktopové aplikácie).",
   "portal.soon.h": "Čoskoro",
   "portal.soon.intro": "Čo plánujú ďalšie vydania – bez termínov, plány sa môžu zmeniť:",
   "portal.soon.item1": "<strong>Mobil</strong> – plánujú sa aplikácie Calc, Write a Show pre Android a iOS.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – plánujú sa prepojené textové polia, zoskupené tvary a šablóny.",
   "portal.soon.item6": "<strong>Show</strong> – plánujú sa ďalšie štýly tabuliek, voľné kreslenie a orezávanie médií.",
   "portal.soon.item7": "<strong>Jazyky</strong> – plánujú sa ďalšie jazyky rozhrania.",
+  "portal.soon.item8": "<strong>Podpísané aplikácie</strong> – Plánujú sa podpísané desktopové verzie, aby Windows a macOS pred prvým spustením už nevarovali.",
   "portal.soon.close": "Tvoja spätná väzba určuje poradie: povedz nám, čo potrebuješ, cez ponuku ? Pomocník v aplikácii (Nahlásiť problém…).",
   "portal.soon.link": "Čo príde čoskoro"
 }

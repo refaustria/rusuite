@@ -103,6 +103,13 @@
   "portal.os.share": "le partager – transmets-le, avec ou sans modifications",
   "portal.os.code": "Le code est hébergé sur <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Tu as trouvé un problème ? Utilise le menu Aide ? de l’application (Signaler un problème…) ou ouvre un <a href=\"https://github.com/refaustria/rusuite/issues\">ticket sur GitHub</a>.",
+  "portal.new.h": "Nouveautés de la version 3.141",
+  "portal.new.intro": "Ce qu’apporte la version actuelle – tu trouveras les détails dans les <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">notes de version</a> :",
+  "portal.new.item1": "<strong>Calc</strong> – Protection de feuille, segments, graphiques sparkline, Remplissage instantané, regroupement dans les tableaux croisés dynamiques, LAMBDA et les nouvelles fonctions matricielles, ainsi que de nombreux nouveaux éléments de graphique.",
+  "portal.new.item2": "<strong>Write</strong> – Les galeries de numérotation de Word, des zones de texte liées, des formes groupées, des modèles, de nouveaux outils de tableau et des commentaires avec mise en forme et mentions @.",
+  "portal.new.item3": "<strong>Show</strong> – Les styles de tableau de PowerPoint, le dessin à main levée, de nombreuses nouvelles animations et transitions, le découpage des médias et un mode Présentateur avec stylo.",
+  "portal.new.item4": "<strong>Langues</strong> – Les 24 langues officielles de l’UE.",
+  "portal.new.item5": "<strong>Assistant IA</strong> – Images en entrée, contexte de document entier plus rapide et choix du niveau de raisonnement (applications de bureau).",
   "portal.soon.h": "Bientôt disponible",
   "portal.soon.intro": "Ce que les prochaines versions doivent apporter – sans dates, et les plans peuvent changer :",
   "portal.soon.item1": "<strong>Mobile</strong> – des applications Android et iOS pour Calc, Write et Show sont prévues.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – les zones de texte liées, les formes groupées et les modèles sont prévus.",
   "portal.soon.item6": "<strong>Show</strong> – d’autres styles de tableau, le dessin à main levée et le découpage multimédia sont prévus.",
   "portal.soon.item7": "<strong>Langues</strong> – d’autres langues d’interface sont prévues.",
+  "portal.soon.item8": "<strong>Applications signées</strong> – des versions de bureau signées, pour que Windows et macOS n’avertissent plus avant le premier lancement, sont prévues.",
   "portal.soon.close": "Tes retours déterminent l’ordre : dis-nous ce dont tu as besoin via le menu Aide ? de l’application (Signaler un problème…).",
   "portal.soon.link": "Ce qui arrive bientôt"
 }
