@@ -91,9 +91,20 @@ function Turn({ ai, turn }: { ai: Assistant; turn: AiTurn }) {
           )}
         </div>
       )}
+      {turn.document && (
+        <p className="text-[11px] text-ui-muted" data-testid="ai-turn-document" data-document={turn.document}>
+          {t(`ai.pane.doc.${turn.document}`)}
+        </p>
+      )}
       {(turn.usage.input > 0 || turn.usage.output > 0) && (
-        <p className="text-[11px] text-ui-muted">
+        <p className="text-[11px] text-ui-muted" data-testid="ai-turn-usage">
           {t("ai.pane.turnUsage", { input: formatNumber(turn.usage.input), output: formatNumber(turn.usage.output) })}
+          {turn.usage.cacheRead > 0 || turn.usage.cacheWrite > 0 ? (
+            <span data-testid="ai-turn-cache">
+              {" · "}
+              {t("ai.pane.cacheUsage", { read: formatNumber(turn.usage.cacheRead), write: formatNumber(turn.usage.cacheWrite) })}
+            </span>
+          ) : null}
           {turn.model ? ` · ${turn.model}` : ""}
         </p>
       )}
@@ -335,7 +346,10 @@ function Pane({ ai, adapter }: { ai: Assistant; adapter: AiAppAdapter }) {
           )}
         </div>
         <p className="flex items-center gap-2 text-[11px] text-ui-muted" data-testid="ai-usage">
-          <span className="flex-1">{t("ai.pane.usage", { input: formatNumber(usage.input), output: formatNumber(usage.output) })}</span>
+          <span className="flex-1">
+            {t("ai.pane.usage", { input: formatNumber(usage.input), output: formatNumber(usage.output) })}
+            {usage.cacheRead > 0 ? ` (${t("ai.pane.usageCached", { read: formatNumber(usage.cacheRead) })})` : ""}
+          </span>
           {turns.length > 0 && !running && (
             <button type="button" className={`rounded px-1 hover:bg-ui-hover ${FOCUS_RING}`} onClick={() => ai.clearConversation()}>
               {t("ai.pane.clear")}

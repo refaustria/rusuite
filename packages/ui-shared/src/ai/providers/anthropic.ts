@@ -4,7 +4,7 @@
 // Structured results use tool use: one strict tool, `tool_choice: auto` (the 5.5 models reject forced tool choice)
 // and an instruction to call it; the client validates the input again (`schemas.ts`).
 
-import type { AiProvider, AiRequest, AiTool, Delta, ModelInfo } from "../types";
+import type { AiMessage, AiProvider, AiRequest, AiTool, Delta, ModelInfo } from "../types";
 import { AiError } from "../types";
 import { aiFetch, errorFromResponse, markUnsupported, parseToolJson, rejectedParam, sseEvents, unsupportedParams, type FetchLike } from "./http";
 
@@ -31,12 +31,37 @@ export function supportsFallback(model: string): boolean {
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
+/** A message's content: a string, or image blocks (base64) followed by the text blocks. */
+export function anthropicContent(m: AiMessage): string | Record<string, unknown>[] {
+  if (typeof m.content === "string") return m.content;
+  return m.content.map((p) =>
+    p.type === "image"
+      ? { type: "image", source: { type: "base64", media_type: p.image.mediaType, data: p.image.data } }
+      : { type: "text", text: p.text },
+  );
+}
+
+/**
+ * The system prompt: a plain string, or – with the whole document – two text blocks, the document first and marked
+ * `cache_control: { type: "ephemeral" }` (5-minute cache, refreshed on every hit), then the instructions. The
+ * document comes first so that actions with other instructions still share its cached prefix (tools come before
+ * the system prompt, so structured actions only share it among themselves). Below the model's minimum (512 tokens
+ * on the 5.x models) the API silently caches nothing.
+ */
+export function anthropicSystem(req: AiRequest): string | Record<string, unknown>[] {
+  if (!req.documentContext) return req.system;
+  return [
+    { type: "text", text: req.documentContext, cache_control: { type: "ephemeral" } },
+    { type: "text", text: req.system },
+  ];
+}
+
 export function anthropicBody(req: AiRequest, official: boolean, skip: ReadonlySet<string> = new Set()): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     max_tokens: req.maxTokens,
-    system: req.system,
-    messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+    system: anthropicSystem(req),
+    messages: req.messages.map((m) => ({ role: m.role, content: anthropicContent(m) })),
     stream: true,
   };
   if (req.temperature !== undefined && acceptsTemperature(req.model)) body.temperature = req.temperature;
@@ -47,6 +72,27 @@ export function anthropicBody(req: AiRequest, official: boolean, skip: ReadonlyS
   if (official && supportsFallback(req.model)) body.fallbacks = "default";
   for (const p of skip) delete body[p];
   return body;
+}
+
+/**
+ * A Messages API `usage` object → a usage delta. `message_start` carries the input side (`input_tokens` = the
+ * uncached part, `cache_read_input_tokens`, `cache_creation_input_tokens`); `message_delta` the cumulative
+ * `output_tokens` (and, on newer API versions, the input fields again – then they replace the earlier ones).
+ */
+export function usageDelta(u: Record<string, unknown>, start: boolean): Delta {
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const plain = n(u.input_tokens);
+  const read = n(u.cache_read_input_tokens);
+  const write = n(u.cache_creation_input_tokens);
+  const out: Delta & { type: "usage" } = { type: "usage" };
+  if (start || plain !== undefined || read !== undefined || write !== undefined) {
+    if (start || plain !== undefined) out.inputTokens = (plain ?? 0) + (read ?? 0) + (write ?? 0);
+    if (start || read !== undefined) out.cacheReadTokens = read ?? 0;
+    if (start || write !== undefined) out.cacheWriteTokens = write ?? 0;
+  }
+  const o = n(u.output_tokens);
+  if (o !== undefined || start) out.outputTokens = o ?? 0;
+  return out;
 }
 
 interface Block {
@@ -72,9 +118,7 @@ export async function* anthropicDeltas(events: AsyncIterable<{ event: string; da
       case "message_start": {
         const m = d.message ?? {};
         if (typeof m.model === "string") yield { type: "model", model: m.model };
-        const u = m.usage ?? {};
-        const input = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-        yield { type: "usage", inputTokens: input, outputTokens: u.output_tokens ?? 0 };
+        yield usageDelta(m.usage ?? {}, true);
         break;
       }
       case "content_block_start": {
@@ -99,7 +143,7 @@ export async function* anthropicDeltas(events: AsyncIterable<{ event: string; da
       }
       case "message_delta": {
         if (d.delta?.stop_reason) stop = d.delta.stop_reason;
-        if (d.usage && typeof d.usage.output_tokens === "number") yield { type: "usage", outputTokens: d.usage.output_tokens };
+        if (d.usage && typeof d.usage === "object") yield usageDelta(d.usage, false);
         break;
       }
       case "message_stop":

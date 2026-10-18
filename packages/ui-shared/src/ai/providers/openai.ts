@@ -3,7 +3,7 @@
 // JSON-schema response format (`response_format: { type: "json_schema" }`), which these servers support; the answer
 // text is then parsed as the action's result. The key is optional (local servers usually need none).
 
-import type { AiProvider, AiRequest, Delta, ModelInfo } from "../types";
+import type { AiMessage, AiProvider, AiRequest, Delta, ModelInfo } from "../types";
 import { AiError } from "../types";
 import { aiFetch, errorFromResponse, markUnsupported, parseToolJson, rejectedParam, sseEvents, unsupportedParams, type FetchLike } from "./http";
 
@@ -29,10 +29,26 @@ export function normalizeOpenAiBase(url: string): string {
 /** OpenAI's reasoning models take no `temperature`. */
 const reasoningModel = (model: string) => /^(o\d|gpt-5)/.test(model);
 
+/** A message's content: a string, or `image_url` parts (data URLs) followed by the text parts. */
+export function openAiContent(m: AiMessage): string | Record<string, unknown>[] {
+  if (typeof m.content === "string") return m.content;
+  return m.content.map((p) =>
+    p.type === "image" ? { type: "image_url", image_url: { url: `data:${p.image.mediaType};base64,${p.image.data}` } } : { type: "text", text: p.text },
+  );
+}
+
+/**
+ * The system message: the whole document when it is sent (first, so that identical prefixes repeat), then the
+ * instructions. No cache marker – the chat
+ * completions API has none (OpenAI caches long identical prefixes automatically and reports them as
+ * `usage.prompt_tokens_details.cached_tokens`; local servers generally do not cache across requests).
+ */
+export const openAiSystem = (req: AiRequest): string => (req.documentContext ? `${req.documentContext}\n\n${req.system}` : req.system);
+
 export function openAiBody(req: AiRequest, official: boolean, skip: ReadonlySet<string> = new Set()): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
-    messages: [{ role: "system", content: req.system }, ...req.messages.map((m) => ({ role: m.role, content: m.content }))],
+    messages: [{ role: "system", content: openAiSystem(req) }, ...req.messages.map((m) => ({ role: m.role, content: openAiContent(m) }))],
     stream: true,
     stream_options: { include_usage: true },
   };
@@ -53,7 +69,7 @@ export async function* openAiDeltas(events: AsyncIterable<{ event: string; data:
     const data = ev.data.trim();
     if (!data) continue;
     if (data === "[DONE]") break;
-    let d: { model?: string; error?: { message?: string } | string; usage?: { prompt_tokens?: number; completion_tokens?: number } | null; choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[] };
+    let d: { model?: string; error?: { message?: string } | string; usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } | null } | null; choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[] };
     try {
       d = JSON.parse(data);
     } catch {
@@ -72,7 +88,10 @@ export async function* openAiDeltas(events: AsyncIterable<{ event: string; data:
       }
       if (c.finish_reason) stop = c.finish_reason;
     }
-    if (d.usage) yield { type: "usage", inputTokens: d.usage.prompt_tokens, outputTokens: d.usage.completion_tokens };
+    if (d.usage) {
+      const cached = d.usage.prompt_tokens_details?.cached_tokens;
+      yield { type: "usage", inputTokens: d.usage.prompt_tokens, outputTokens: d.usage.completion_tokens, ...(typeof cached === "number" ? { cacheReadTokens: cached } : {}) };
+    }
   }
   if (!stop) throw new AiError("network", "The answer ended early (connection closed)");
   if (tool && stop !== "length") yield { type: "toolUse", id: "json", name: tool, input: parseToolJson(json) };

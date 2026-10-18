@@ -166,9 +166,14 @@ test.describe("AI assistant", () => {
     await pane.getByRole("button", { name: "Summarize document" }).click();
     await pane.getByRole("button", { name: "Include the document and run" }).click();
     await expect(lastTurn(page).getByTestId("ai-answer")).toHaveText("A short summary.");
-    const user = (mock.calls.at(-1)!.body!.messages as { content: string }[])[0]!.content;
-    expect(user).toContain("<full_document>");
-    expect(user).toContain("Second paragraph about the plan.");
+    // The whole document is its own system block, marked for the prompt cache (P9-A1), not part of the message.
+    const sent = mock.calls.at(-1)!.body!;
+    const user = (sent.messages as { content: string }[])[0]!.content;
+    expect(user).not.toContain("<full_document>");
+    const system = sent.system as { type: string; text: string; cache_control?: unknown }[];
+    expect(system[0]!.text).toContain("<full_document>");
+    expect(system[0]!.text).toContain("Second paragraph about the plan.");
+    expect(system[0]!.cache_control).toEqual({ type: "ephemeral" });
     await expect(pane.getByTestId("ai-include-document")).toBeChecked();
     errors.expectNone();
   });

@@ -29,6 +29,6 @@ export function providerOrigin(settings: AiSettings): string {
   }
 }
 
-export { AnthropicProvider, ANTHROPIC_MODELS, ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_MODEL, acceptsTemperature, anthropicBody, anthropicDeltas } from "./anthropic";
-export { OpenAiCompatibleProvider, OPENAI_MODELS, OPENAI_BASE_URL, OPENAI_DEFAULT_MODEL, normalizeOpenAiBase, openAiBody, openAiDeltas } from "./openai";
+export { AnthropicProvider, ANTHROPIC_MODELS, ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_MODEL, acceptsTemperature, anthropicBody, anthropicContent, anthropicDeltas, anthropicSystem, usageDelta } from "./anthropic";
+export { OpenAiCompatibleProvider, OPENAI_MODELS, OPENAI_BASE_URL, OPENAI_DEFAULT_MODEL, normalizeOpenAiBase, openAiBody, openAiContent, openAiDeltas, openAiSystem } from "./openai";
 export { sseEvents, retryAfterSeconds, noteAiCspViolation, type FetchLike } from "./http";

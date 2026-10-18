@@ -21,14 +21,41 @@ export interface AiTool {
   schema: JsonSchema;
 }
 
+/** A picture sent with a turn (base64, already downscaled; see `images.ts`). */
+export interface AiImage {
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64 without the `data:` prefix. */
+  data: string;
+  width: number;
+  height: number;
+  /** What it is, for the panel ("Picture 1", "Slide 3", "Chart 2"). */
+  label: string;
+}
+
+/** One part of a message: text, or a picture (Anthropic image block / OpenAI `image_url`). */
+export type AiContentPart = { type: "text"; text: string } | { type: "image"; image: AiImage };
+
 export interface AiMessage {
   role: "user" | "assistant";
-  content: string;
+  /** Text, or parts (pictures first, then the text) for a turn with attachments. */
+  content: string | AiContentPart[];
+}
+
+/** The text of a message (its text parts joined). */
+export function messageText(m: AiMessage): string {
+  return typeof m.content === "string" ? m.content : m.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n\n");
 }
 
 export interface AiRequest {
   model: string;
   system: string;
+  /**
+   * The whole document ("Include whole document"), sent apart from the messages so that the provider can cache it:
+   * Anthropic gets it as its own system block marked `cache_control: { type: "ephemeral" }` (follow-up turns of the
+   * conversation read it from the cache); OpenAI-compatible endpoints get it appended to the system message (no
+   * cache marker – OpenAI caches long prefixes by itself, local servers do not).
+   */
+  documentContext?: string;
   messages: AiMessage[];
   maxTokens: number;
   /** Sent only where the model accepts it (Claude 4.7+ and 5.x models reject sampling parameters). */
@@ -44,7 +71,11 @@ export type Delta =
   | { type: "text"; text: string }
   /** A complete tool call (input parsed from the streamed JSON). */
   | { type: "toolUse"; id: string; name: string; input: unknown }
-  | { type: "usage"; inputTokens?: number; outputTokens?: number }
+  /**
+   * Token counts so far. `inputTokens` is the whole input (uncached + cache read + cache write); `cacheReadTokens` /
+   * `cacheWriteTokens` are the parts read from / written to the provider's prompt cache.
+   */
+  | { type: "usage"; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
   /** `end_turn`, `max_tokens`, `tool_use`, `refusal`, `stop` (OpenAI), … */
   | { type: "stop"; reason: string }
   /** The model that answered (a server-side fallback may name another one). */

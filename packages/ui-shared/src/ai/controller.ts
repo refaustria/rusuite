@@ -6,7 +6,7 @@
 // an action or pressed Test.
 
 import type { ReactNode } from "react";
-import { buildMessages, systemPrompt, type DocContext } from "./prompts";
+import { buildMessages, documentContext, systemPrompt, textHash, type DocContext } from "./prompts";
 import { createProvider, type ProviderFactory } from "./providers";
 import { parseAiSettings, type AiSettings, type AiStore } from "./settings";
 import type { AiMessage, AiProvider, AiTool, ModelInfo } from "./types";
@@ -45,6 +45,16 @@ export interface AiAction<T = unknown> {
   apply: AiApply<T>[];
 }
 
+/** Tokens of a turn or a session; `cacheRead` / `cacheWrite`: parts of `input` read from / written to the cache. */
+export interface AiUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export const NO_USAGE: AiUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
 export type AiTurnStatus = "streaming" | "done" | "error" | "stopped";
 
 export interface AiTurn {
@@ -61,8 +71,14 @@ export interface AiTurn {
   error?: string;
   /** Status after applying ("Inserted 3 slides"). */
   applied?: string;
-  usage: { input: number; output: number };
+  usage: AiUsage;
   model?: string;
+  /**
+   * The whole document went with this turn: `"sent"` (first time in this conversation, written to the cache),
+   * `"same"` (unchanged since the previous turn – a cache hit is expected), `"changed"` (edited meanwhile: sent
+   * again, a new cache entry).
+   */
+  document?: "sent" | "same" | "changed";
   /** The context the result belongs to (e.g. Write's selection range at request time). */
   anchor?: unknown;
 }
@@ -78,7 +94,7 @@ export interface AssistantState {
   /** "Include whole document" for this document (starts at the settings' default). */
   includeDocument: boolean;
   /** Tokens of this document session. */
-  usage: { input: number; output: number };
+  usage: AiUsage;
 }
 
 export interface AssistantOptions {
@@ -99,6 +115,8 @@ export class Assistant {
   private key: string | null = null;
   private keyLoaded = false;
   private abort: AbortController | null = null;
+  /** Fingerprint of the whole document last sent in this conversation (`null`: not sent yet). */
+  private sentDocument: string | null = null;
   private readonly store: AiStore;
   private readonly factory: ProviderFactory;
   /** File › Options… of an app that has its own options (shown in the dialog's General page). */
@@ -119,7 +137,7 @@ export class Assistant {
       turns: [],
       running: false,
       includeDocument: settings.includeDocument,
-      usage: { input: 0, output: 0 },
+      usage: { ...NO_USAGE },
     };
   }
 
@@ -274,11 +292,13 @@ export class Assistant {
   /** Another document was opened or a new one started: the conversation belongs to the old one. */
   documentReplaced(): void {
     this.stop();
-    this.set({ turns: [], usage: { input: 0, output: 0 }, includeDocument: this.state.settings.includeDocument });
+    this.sentDocument = null;
+    this.set({ turns: [], usage: { ...NO_USAGE }, includeDocument: this.state.settings.includeDocument });
   }
 
   clearConversation(): void {
     if (this.state.running) return;
+    this.sentDocument = null;
     this.set({ turns: [] });
   }
 
@@ -310,23 +330,32 @@ export class Assistant {
     const id = ++turnSeq;
     const s = this.state.settings;
     const prompt = input.trim() ? (action.input ? `${action.label}: ${input.trim()}` : input.trim()) : action.label;
-    const turn: AiTurn = { id, action, prompt, contextLabel: ctx.selectionLabel, text: "", status: "streaming", usage: { input: 0, output: 0 }, anchor };
+    const turn: AiTurn = { id, action, prompt, contextLabel: ctx.selectionLabel, text: "", status: "streaming", usage: { ...NO_USAGE }, anchor };
     this.set({ turns: [...this.state.turns, turn], running: true });
     const abort = new AbortController();
     this.abort = abort;
     let text = "";
     let value: unknown;
     let stopReason = "";
-    const usage = { input: 0, output: 0 };
+    const usage: AiUsage = { ...NO_USAGE };
     try {
       if (!s.enabled) throw new AiError("off", "AI is turned off – turn it on in Settings › AI");
       const provider = await this.provider();
       const includeDocument = this.state.includeDocument;
       const messages = buildMessages(ctx, includeDocument, action.task(input.trim(), ctx), this.history(action as AiAction<unknown>));
+      const doc = documentContext(ctx, includeDocument);
+      if (doc !== undefined) {
+        // The provider caches the document block; a changed document is simply a new block (and cache entry).
+        const hash = textHash(doc);
+        const state = this.sentDocument === null ? "sent" : this.sentDocument === hash ? "same" : "changed";
+        this.sentDocument = hash;
+        this.updateTurn(id, { document: state });
+      }
       let last = 0;
       for await (const d of provider.complete({
         model: s.models[s.provider],
         system: systemPrompt(ctx.app, action.system ?? "", action.tool),
+        ...(doc !== undefined ? { documentContext: doc } : {}),
         messages,
         maxTokens: s.maxTokens,
         temperature: s.temperature,
@@ -346,6 +375,8 @@ export class Assistant {
         } else if (d.type === "usage") {
           if (d.inputTokens !== undefined) usage.input = d.inputTokens;
           if (d.outputTokens !== undefined) usage.output = d.outputTokens;
+          if (d.cacheReadTokens !== undefined) usage.cacheRead = d.cacheReadTokens;
+          if (d.cacheWriteTokens !== undefined) usage.cacheWrite = d.cacheWriteTokens;
         } else if (d.type === "model") {
           this.updateTurn(id, { model: d.model });
         } else if (d.type === "stop") {
@@ -371,8 +402,9 @@ export class Assistant {
     return this.state.turns.find((t) => t.id === id) ?? turn;
   }
 
-  private finish(id: number, patch: Partial<AiTurn>, usage: { input: number; output: number }): void {
-    const total = { input: this.state.usage.input + usage.input, output: this.state.usage.output + usage.output };
+  private finish(id: number, patch: Partial<AiTurn>, usage: AiUsage): void {
+    const u = this.state.usage;
+    const total: AiUsage = { input: u.input + usage.input, output: u.output + usage.output, cacheRead: u.cacheRead + usage.cacheRead, cacheWrite: u.cacheWrite + usage.cacheWrite };
     this.set({ turns: this.state.turns.map((t) => (t.id === id ? { ...t, ...patch } : t)), running: false, usage: total });
   }
 
