@@ -368,3 +368,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Text to Columns | Texto en columnas | Calc |
 | Placeholder (slide) | Marcador de posición | Show |
 | Spill (dynamic array) | Desbordamiento | Calc |
+| Sparkline / Sparklines | Minigráfico / Minigráficos | Calc (P9-LF) |
+| Line / Column / Win/Loss (sparkline types) | Línea / Columna / Ganancia o pérdida | Calc |
+| Error Bars / Data Table | Barras de error / Tabla de datos | Calc charts |
+| High-Low Lines / Up/Down Bars | Líneas de máximos y mínimos / Barras ascendentes/descendentes | Calc charts |
+| Go To Special… | Ir a Especial… | Calc |
+| Picture Format / Alt Text | Formato de imagen / Texto alternativo | Calc |
