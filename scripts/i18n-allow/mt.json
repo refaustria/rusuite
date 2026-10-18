@@ -1,0 +1,8 @@
+{
+  "register": {},
+  "untranslated": {
+    "apps/write/src/locales:write.bevel.artDeco": "Art Deco is the style's name in every language",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "number-format samples (I, II, III, …) are the same in every language",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number-format samples (i, ii, iii, …) are the same in every language"
+  }
+}
