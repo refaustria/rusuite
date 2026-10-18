@@ -4,7 +4,7 @@
 // range on the grid (Excel's RefEdit, using the grid selection).
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Dialog } from "@rusuite/ui-shared";
+import { Dialog, LivePreview, PresetIcon, applyPreset, canon, groupOf, type ChartGroup, type ChartPreset } from "@rusuite/ui-shared";
 import type { Chart } from "../generated/Chart";
 import type { ChartKind } from "../generated/ChartKind";
 import type { DataRef } from "../generated/DataRef";
@@ -15,8 +15,7 @@ import { normalize } from "../grid/Selection";
 import { useT } from "../i18n";
 import { useCalc, visibleSheets, type CalcDialog, type CalcStore } from "../state/store";
 import { emptyChart } from "./controller";
-import { LivePreview, PresetIcon } from "./previews";
-import { TYPE_GROUPS, applyPreset, canon, groupOf, presetById, presetOf, presetsOf, type ChartGroup, type ChartPreset } from "./presets";
+import { TYPE_GROUPS, presetById, presetOf, presetsOf } from "./presets";
 import { chartDataRange, dataRefText, nameText, parseDataRef, parseName, parseRange, rangeFormula, switchRowCol } from "./refs";
 
 const BTN = "h-7 rounded border border-ui-border bg-ui-bg px-3 text-sm hover:bg-ui-hover disabled:opacity-40";

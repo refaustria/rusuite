@@ -20,6 +20,8 @@ describe("charts on slides", () => {
     const o = chartOptions({ dark1: "000000", accent1: "FF0000" });
     expect(o.area).toEqual({ fill: null, border: null });
     expect(o.textColor).toBe("#595959");
+    // PowerPoint's charts are Excel's: the same axis bounds and label rotation as Calc (P9-X2).
+    expect(o).toMatchObject({ excelScale: true, autoRotateLabels: true });
     const dark = chartOptions({ dark1: "FFFFFF" });
     expect(dark.textColor).toBe("#FFFFFF");
     const scene = layoutChart(shape.chart, { series: [] }, 200, 100, o);

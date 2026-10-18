@@ -1,8 +1,9 @@
 // Charts on slides drawn by the shared renderer (docs/charts.md): the
 // layout options for Show (the presentation's theme colours, text in the
-// theme's tx1 +35 % like PowerPoint, a transparent chart area) and a scene
-// cache per chart object and size, shared by the editor, thumbnails,
-// presenter, audience window and print.
+// theme's tx1 +35 % like PowerPoint, a transparent chart area, and – since
+// P9-X2 – Excel's axis bounds and label rotation, as PowerPoint draws its
+// charts with Excel's engine) and a scene cache per chart object and size,
+// shared by the editor, thumbnails, presenter, audience window and print.
 
 import { layoutChart, resolveColor, type ChartLabels, type ChartLayoutOptions, type ChartScene, type ChartTheme, type ThemePalette } from "@rusuite/ui-shared";
 import type { ChartShape } from "../generated/ChartShape";
@@ -33,6 +34,8 @@ export function chartOptions(palette: ThemePalette, extra: ChartLayoutOptions = 
     textColor: resolveColor({ kind: "theme", value: { slot: "dark1", tint: 0.35 } }, theme, "#595959"),
     area: { fill: null, border: null },
     labels: chartLabels(),
+    excelScale: true,
+    autoRotateLabels: true,
     ...extra,
   };
 }

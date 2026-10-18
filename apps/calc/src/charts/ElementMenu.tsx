@@ -2,13 +2,13 @@
 // Axis Titles, Chart Title, Data Labels, Gridlines, Legend, Trendline);
 // a flyout opens on click, Enter, → or hover; ← / Esc closes it.
 
+import { applyElement, elementState, labelPositions, type ElementOp } from "@rusuite/ui-shared";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Chart } from "../generated/Chart";
 import { useT } from "../i18n";
 import type { CalcStore } from "../state/store";
 import { horizontalBars } from "./elements";
 import { applyDataTable, applyErrorBars, applyLineExtras, canHaveDataTable, canHaveLineExtras, errorBarChoice, type ErrorBarChoice } from "./extras";
-import { applyElement, elementState, labelPositions, type ElementOp } from "./presets";
 
 type Sub = "axes" | "axisTitles" | "title" | "labels" | "table" | "errors" | "grid" | "legend" | "lines" | "trend" | "upDown";
 

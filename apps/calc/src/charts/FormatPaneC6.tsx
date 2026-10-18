@@ -4,7 +4,7 @@
 // From Cells, leader lines, a single point's label), the data table, up/down
 // bars and high-low lines. Every change is one undoable command.
 
-import { ColorPicker, type Color } from "@rusuite/ui-shared";
+import { ColorPicker, type Color, parseNumberField } from "@rusuite/ui-shared";
 import type { AreaFill } from "../generated/AreaFill";
 import type { Chart } from "../generated/Chart";
 import type { ErrorBars } from "../generated/ErrorBars";
@@ -13,7 +13,6 @@ import type { ShapeFormat } from "../generated/ShapeFormat";
 import { useT } from "../i18n";
 import { Check, Commit, FIELD, Row, Section } from "./FormatPane";
 import { gradientFill, patchSeriesLabels, setErrorBars, setPointLabel, setTextFormat, textFormatOf, type TextTarget } from "./extras";
-import { parseNumberField } from "./format";
 import { dataRefText, parseDataRef } from "./refs";
 
 type Edit = (fn: (c: Chart) => Chart) => void;

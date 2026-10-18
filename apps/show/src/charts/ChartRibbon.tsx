@@ -5,15 +5,10 @@
 // Type; Format: Format pane, shape fill/outline of a series.
 
 import type { ReactNode } from "react";
-import { ColorPicker, RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type Color, type RibbonMenuItem, type RibbonTab, type TFunction } from "@rusuite/ui-shared";
+import { ColorPicker, RIBBON_SELECT, RibbonButton, RibbonGallery, RibbonMenuButton, RibbonStack, type Color, type RibbonMenuItem, type RibbonTab, type TFunction, addElementIcon, changeTypeIcon, colorsIcon, formatPaneIcon, quickLayoutIcon, recommendedIcon, resetStyleIcon, selectDataIcon, stylesIcon, switchIcon, LivePreview, CHART_STYLES, QUICK_LAYOUTS, applyChartStyle, applyColors, applyElement, applyQuickLayout, colorsOf, elementState, labelPositions, resolveSwatches, type ElementOp, resetSeriesFormat, setSeriesFill, setSeriesLine } from "@rusuite/ui-shared";
 import type { ShowState, ShowStore } from "../state/store";
 import { resolveShape } from "./data";
-import { addElementIcon, changeTypeIcon, colorsIcon, formatPaneIcon, quickLayoutIcon, recommendedIcon, resetStyleIcon, selectDataIcon, stylesIcon, switchIcon } from "./icons";
-import { LivePreview } from "./previews";
-import {
-  CHART_STYLES, COLOR_VARIANTS, QUICK_LAYOUTS, applyChartStyle, applyColors, applyElement, applyQuickLayout, colorsOf, elementState, labelPositions, resolveSwatches, type ElementOp,
-} from "./presets";
-import { resetSeriesFormat, setSeriesFill, setSeriesLine } from "./format";
+import { COLOR_VARIANTS } from "./presets";
 import type { Chart } from "./types";
 
 /** Insert › Chart (opens the Insert Chart dialog). */

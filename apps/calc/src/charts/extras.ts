@@ -14,7 +14,7 @@ import type { Series } from "../generated/Series";
 import type { ShapeFormat } from "../generated/ShapeFormat";
 import type { TextFormat } from "../generated/TextFormat";
 import type { TextSource } from "../generated/TextSource";
-import { applyChartStyle as sharedChartStyle } from "../../../../packages/ui-shared/src/chart/ui/presets";
+import { applyChartStyle as sharedChartStyle } from "@rusuite/ui-shared";
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 const isLine = (c: Chart) => c.kind.type === "line" || (c.kind.type === "combo" && c.series.some((s) => s.kind?.type === "line"));

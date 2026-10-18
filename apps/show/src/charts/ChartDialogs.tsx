@@ -4,14 +4,13 @@
 // series in columns, categories in rows, add / remove either).
 
 import { useMemo, useState } from "react";
-import { Dialog, ChartPreview } from "@rusuite/ui-shared";
+import { Dialog, ChartPreview, PresetIcon, applyPreset, groupOf, type ChartGroup, type ChartPreset } from "@rusuite/ui-shared";
 import type { ChartData } from "../generated/ChartData";
 import { useT } from "../i18n";
 import { useShow, type ShowStore } from "../state/store";
 import { themePalette } from "../model";
 import { addCategoryRow, addSeriesColumn, dataToGrid, gridToData, removeColumn, removeRow, resolveChart, sameData, transposeData } from "./data";
-import { PresetIcon } from "./previews";
-import { TYPE_GROUPS, applyPreset, groupOf, presetOf, presetsOf, type ChartGroup, type ChartPreset } from "./presets";
+import { TYPE_GROUPS, presetOf, presetsOf } from "./presets";
 import { chartOptions } from "./render";
 import type { Chart } from "./types";
 
