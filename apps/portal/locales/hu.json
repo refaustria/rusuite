@@ -103,6 +103,13 @@
   "portal.os.share": "megoszthatod – add tovább, változtatással vagy anélkül",
   "portal.os.code": "A kód a <a href=\"https://github.com/refaustria/rusuite\">GitHubon</a> található.",
   "portal.os.report": "Problémát találtál? Használd az alkalmazás ? Súgó menüjét (Probléma jelentése…), vagy nyiss egy <a href=\"https://github.com/refaustria/rusuite/issues\">hibajegyet a GitHubon</a>.",
+  "portal.new.h": "Újdonságok a 3.141-ben",
+  "portal.new.intro": "Ezt hozza az aktuális verzió – a részleteket a <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">kiadási megjegyzésekben</a> találod:",
+  "portal.new.item1": "<strong>Calc</strong> – Munkalapvédelem, szeletelők, értékgörbék, Gyorskitöltés, csoportosítás kimutatásokban, LAMBDA és az új tömbfüggvények, valamint sok új diagramelem.",
+  "portal.new.item2": "<strong>Write</strong> – A Word számozási galériái, összekapcsolt szövegdobozok, csoportosított alakzatok, sablonok, új táblázateszközök, valamint formázott megjegyzések és @-említések.",
+  "portal.new.item3": "<strong>Show</strong> – A PowerPoint táblázatstílusai, szabadkézi rajzolás, sok új animáció és átmenet, médiavágás és előadói nézet tollal.",
+  "portal.new.item4": "<strong>Nyelvek</strong> – Az EU mind a 24 hivatalos nyelve.",
+  "portal.new.item5": "<strong>AI-asszisztens</strong> – Képek bemenetként, gyorsabb teljesdokumentum-környezet és választható érvelési szint (asztali alkalmazások).",
   "portal.soon.h": "Hamarosan",
   "portal.soon.intro": "Amit a következő kiadások tervezetten hoznak – dátumok nélkül, és a tervek változhatnak:",
   "portal.soon.item1": "<strong>Mobil</strong> – Android- és iOS-alkalmazások tervezettek a Calchoz, a Write-hoz és a Show-hoz.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – Összekapcsolt szövegdobozok, csoportosított alakzatok és sablonok tervezettek.",
   "portal.soon.item6": "<strong>Show</strong> – További táblázatstílusok, szabadkézi rajzolás és médiavágás tervezett.",
   "portal.soon.item7": "<strong>Nyelvek</strong> – További felületi nyelvek tervezettek.",
+  "portal.soon.item8": "<strong>Aláírt alkalmazások</strong> – Aláírt asztali verziók tervezettek, hogy a Windows és a macOS az első indítás előtt már ne figyelmeztessen.",
   "portal.soon.close": "A visszajelzéseid alakítják a sorrendet: told meg nekünk, mire van szükséged, az alkalmazás ? Súgó menüjén keresztül (Probléma jelentése…).",
   "portal.soon.link": "Mi jön hamarosan"
 }

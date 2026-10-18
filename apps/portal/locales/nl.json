@@ -103,6 +103,13 @@
   "portal.os.share": "delen – geef het door, met of zonder wijzigingen",
   "portal.os.code": "De code staat op <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Een probleem gevonden? Gebruik het menu ? Help in de app (Een probleem melden…) of open een <a href=\"https://github.com/refaustria/rusuite/issues\">issue op GitHub</a>.",
+  "portal.new.h": "Nieuw in 3.141",
+  "portal.new.intro": "Wat de huidige versie brengt – de details vind je in de <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">releasenotes</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Bladbeveiliging, slicers, sparklines, Flitsvulling, groeperen in draaitabellen, LAMBDA en de nieuwe matrixfuncties, plus veel nieuwe grafiekelementen.",
+  "portal.new.item2": "<strong>Write</strong> – De nummeringsgalerijen van Word, gekoppelde tekstvakken, gegroepeerde vormen, sjablonen, nieuwe tabelhulpmiddelen en opmerkingen met opmaak en @-vermeldingen.",
+  "portal.new.item3": "<strong>Show</strong> – De tabelstijlen van PowerPoint, vrije vormen tekenen, veel nieuwe animaties en overgangen, media bijsnijden en een presentatieweergave met pen.",
+  "portal.new.item4": "<strong>Talen</strong> – Alle 24 officiële EU-talen.",
+  "portal.new.item5": "<strong>AI-assistent</strong> – Afbeeldingen als invoer, snellere context van het hele document en een keuze uit redeneerinspanning (desktop-apps).",
   "portal.soon.h": "Binnenkort",
   "portal.soon.intro": "Wat de komende releases moeten brengen – zonder data, en plannen kunnen wijzigen:",
   "portal.soon.item1": "<strong>Mobiel</strong> – Android- en iOS-apps voor Calc, Write en Show zijn gepland.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – Gekoppelde tekstvakken, gegroepeerde vormen en sjablonen zijn gepland.",
   "portal.soon.item6": "<strong>Show</strong> – Meer tabelstijlen, tekenen uit de losse hand en bijsnijden van media zijn gepland.",
   "portal.soon.item7": "<strong>Talen</strong> – Meer interfacetalen zijn gepland.",
+  "portal.soon.item8": "<strong>Ondertekende apps</strong> – Ondertekende desktopversies, zodat Windows en macOS niet meer waarschuwen vóór de eerste start, zijn gepland.",
   "portal.soon.close": "Jouw feedback bepaalt de volgorde: vertel ons wat je nodig hebt via het menu ? Help in de app (Een probleem melden…).",
   "portal.soon.link": "Wat er binnenkort komt"
 }

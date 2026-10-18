@@ -103,6 +103,13 @@
   "portal.os.share": "sdílet – předávat dál, s úpravami i bez nich",
   "portal.os.code": "Kód je na <a href=\"https://github.com/refaustria/rusuite\">GitHubu</a>.",
   "portal.os.report": "Něco nefunguje? Použij v aplikaci nabídku Nápověda ? (Nahlásit problém…) nebo založ <a href=\"https://github.com/refaustria/rusuite/issues\">problém na GitHubu</a>.",
+  "portal.new.h": "Novinky ve verzi 3.141",
+  "portal.new.intro": "Co přináší aktuální verze – podrobnosti najdeš v <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">poznámkách k vydání</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Zamknutí listu, průřezy, minigrafy, Rychlé vyplnění, seskupování v kontingenčních tabulkách, LAMBDA a nové maticové funkce a mnoho nových prvků grafů.",
+  "portal.new.item2": "<strong>Write</strong> – Galerie číslování z Wordu, propojená textová pole, seskupené tvary, šablony, nové nástroje pro tabulky a komentáře s formátováním a zmínkami přes @.",
+  "portal.new.item3": "<strong>Show</strong> – Styly tabulky z PowerPointu, kreslení od ruky, mnoho nových animací a přechodů, oříznutí médií a zobrazení řečníka s perem.",
+  "portal.new.item4": "<strong>Jazyky</strong> – Všech 24 úředních jazyků EU.",
+  "portal.new.item5": "<strong>Asistent AI</strong> – Obrázky jako vstup, rychlejší kontext celého dokumentu a volitelná úroveň uvažování (desktopové aplikace).",
   "portal.soon.h": "Již brzy",
   "portal.soon.intro": "Co mají přinést další vydání – bez termínů, plány se mohou změnit:",
   "portal.soon.item1": "<strong>Mobily</strong> – plánují se aplikace pro Android a iOS pro Calc, Write a Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – plánují se propojená textová pole, seskupené tvary a šablony.",
   "portal.soon.item6": "<strong>Show</strong> – plánují se další styly tabulek, kreslení od ruky a ořezávání médií.",
   "portal.soon.item7": "<strong>Jazyky</strong> – plánují se další jazyky rozhraní.",
+  "portal.soon.item8": "<strong>Podepsané aplikace</strong> – Plánují se podepsané desktopové verze, aby Windows a macOS před prvním spuštěním už nevarovaly.",
   "portal.soon.close": "Tvá zpětná vazba určuje pořadí: napiš nám, co potřebuješ, v nabídce Nápověda ? v aplikaci (Nahlásit problém…).",
   "portal.soon.link": "Co se chystá"
 }

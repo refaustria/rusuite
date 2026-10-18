@@ -103,6 +103,13 @@
   "portal.os.share": "ja dalytis – perduok kitiems, su pakeitimais ar be jų",
   "portal.os.code": "Kodas laikomas <a href=\"https://github.com/refaustria/rusuite\">„GitHub“</a>.",
   "portal.os.report": "Radai problemą? Naudok meniu Žinynas ? programoje (Pranešti apie problemą…) arba atidaryk <a href=\"https://github.com/refaustria/rusuite/issues\">problemą (issue) „GitHub“</a>.",
+  "portal.new.h": "Kas naujo 3.141",
+  "portal.new.intro": "Ką atneša dabartinė versija – išsamią informaciją rasi <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">laidos pastabose</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Lapo apsauga, duomenų filtrai, miniatiūrinės diagramos, Akimirksniu užpildymas, grupavimas suvestinėse, LAMBDA ir naujos masyvų funkcijos bei daug naujų diagramų elementų.",
+  "portal.new.item2": "<strong>Write</strong> – „Word“ numeravimo galerijos, susieti teksto laukai, sugrupuotos figūros, šablonai, nauji lentelių įrankiai ir komentarai su formatavimu bei @ paminėjimais.",
+  "portal.new.item3": "<strong>Show</strong> – „PowerPoint“ lentelių stiliai, laisvo piešimo režimas, daug naujų animacijų ir perėjimų, medijos apkarpymas ir pranešėjo rodinys su rašikliu.",
+  "portal.new.item4": "<strong>Kalbos</strong> – Visos 24 oficialios ES kalbos.",
+  "portal.new.item5": "<strong>DI padėjėjas</strong> – Vaizdai kaip įvestis, spartesnis viso dokumento konteksto naudojimas ir pasirenkamas samprotavimo lygis (darbalaukio programos).",
   "portal.soon.h": "Netrukus",
   "portal.soon.intro": "Ką planuojama atnešti kitiems leidimams – be datų, o planai gali keistis:",
   "portal.soon.item1": "<strong>Mobilieji</strong> – planuojamos „Android“ ir „iOS“ programos Calc, Write ir Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – planuojami susieti teksto laukai, sugrupuotos figūros ir šablonai.",
   "portal.soon.item6": "<strong>Show</strong> – planuojama daugiau lentelių stilių, laisvos formos piešimas ir medijos apkarpymas.",
   "portal.soon.item7": "<strong>Kalbos</strong> – planuojama daugiau sąsajos kalbų.",
+  "portal.soon.item8": "<strong>Pasirašytos programos</strong> – Planuojamos pasirašytos darbalaukio versijos, kad „Windows“ ir „macOS“ prieš pirmąjį paleidimą nebeįspėtų.",
   "portal.soon.close": "Tavo atsiliepimai lemia eiliškumą: pasakyk, ko tau reikia, per meniu Žinynas ? programoje (Pranešti apie problemą…).",
   "portal.soon.link": "Ką atneš netrukus"
 }

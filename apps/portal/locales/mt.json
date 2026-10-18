@@ -103,6 +103,13 @@
   "portal.os.share": "taqsmu – għaddih lil ħaddieħor, bi bidliet jew mingħajrhom",
   "portal.os.code": "Il-kodiċi jinsab fuq <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Sibt problema? Uża l-menu ? Għajnuna fl-app (Irrapporta problema…) jew iftaħ <a href=\"https://github.com/refaustria/rusuite/issues\">issue fuq GitHub</a>.",
+  "portal.new.h": "Il-ġdid fil-3.141",
+  "portal.new.intro": "Dak li jġib il-verżjoni attwali – id-dettalji jinsabu fin-<a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">noti tal-ħruġ</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Protezzjoni tal-folja, slicers, sparklines, Mili Flash, il-ggruppar fil-PivotTables, LAMBDA u l-funzjonijiet l-ġodda tal-arrays, u ħafna elementi ġodda tal-grafiku.",
+  "portal.new.item2": "<strong>Write</strong> – Il-galleriji tan-numerazzjoni ta' Word, kaxxi tat-test marbuta, forom iggruppati, mudelli, għodod ġodda tat-tabelli u kummenti bil-formattjar u @-semmijiet.",
+  "portal.new.item3": "<strong>Show</strong> – L-istili tat-tabella ta' PowerPoint, tpinġija b'forma libera, ħafna animazzjonijiet u tranżizzjonijiet ġodda, qtugħ tal-media u veduta tal-preżentatur bil-pinna.",
+  "portal.new.item4": "<strong>Lingwi</strong> – It-24 lingwa uffiċjali kollha tal-UE.",
+  "portal.new.item5": "<strong>Assistent tal-AI</strong> – Immaġini bħala dħul, kuntest iktar mgħaġġel tad-dokument kollu u għażla tal-isforz tar-raġunament (apps tad-desktop).",
   "portal.soon.h": "Dalwaqt",
   "portal.soon.intro": "X'qed jiġi ppjanat li jiġibu r-rilaxxi li jmiss – mingħajr dati, u l-pjanijiet jistgħu jinbidlu:",
   "portal.soon.item1": "<strong>Mobile</strong> – huma ppjanati apps għal Android u iOS għal Calc, Write u Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – huma ppjanati kaxxi tat-test imqabbdin, forom miġbura u mudelli.",
   "portal.soon.item6": "<strong>Show</strong> – huma ppjanati aktar stili tat-tabella, tpinġija libera u qtugħ tal-midja.",
   "portal.soon.item7": "<strong>Lingwi</strong> – huma ppjanati aktar lingwi tal-interface.",
+  "portal.soon.item8": "<strong>Apps iffirmati</strong> – Huma ppjanati verżjonijiet tad-desktop iffirmati, biex Windows u macOS ma jwissux aktar qabel l-ewwel tnedija.",
   "portal.soon.close": "Il-feedback tiegħek jiffurmja l-ordni: għidilna x'għandek bżonn permezz tal-menu ? Għajnuna fl-app (Irrapporta problema…).",
   "portal.soon.link": "X'inhu dalwaqt"
 }

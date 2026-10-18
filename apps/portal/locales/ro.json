@@ -103,6 +103,13 @@
   "portal.os.share": "să-l distribui – dă-l mai departe, cu sau fără modificări",
   "portal.os.code": "Codul se află pe <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Ai găsit o problemă? Folosește meniul ? Ajutor din aplicație (Raportează o problemă…) sau deschide un <a href=\"https://github.com/refaustria/rusuite/issues\">issue pe GitHub</a>.",
+  "portal.new.h": "Noutăți în 3.141",
+  "portal.new.intro": "Ce aduce versiunea curentă – detaliile le găsești în <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">notele de lansare</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Protejare foaie, feliatoare, minigrafice, Umplere rapidă, grupare în PivotTable, LAMBDA și noile funcții matrice, precum și multe elemente noi de diagramă.",
+  "portal.new.item2": "<strong>Write</strong> – Galeriile de numerotare din Word, casete de text legate, forme grupate, șabloane, instrumente noi pentru tabele și comentarii cu formatare și mențiuni cu @.",
+  "portal.new.item3": "<strong>Show</strong> – Stilurile de tabel din PowerPoint, desenare cu mâna liberă, multe animații și tranziții noi, tăierea fișierelor media și o vizualizare prezentator cu stilou.",
+  "portal.new.item4": "<strong>Limbi</strong> – Toate cele 24 de limbi oficiale ale UE.",
+  "portal.new.item5": "<strong>Asistent AI</strong> – Imagini ca intrare, context mai rapid pentru întregul document și alegerea efortului de raționament (aplicații desktop).",
   "portal.soon.h": "În curând",
   "portal.soon.intro": "Ce aduc următoarele versiuni, conform planului – fără date, iar planurile se pot schimba:",
   "portal.soon.item1": "<strong>Mobil</strong> – sunt planificate aplicații Android și iOS pentru Calc, Write și Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – sunt planificate casete de text legate, forme grupate și șabloane.",
   "portal.soon.item6": "<strong>Show</strong> – sunt planificate mai multe stiluri de tabel, desen liber și tăierea fișierelor media.",
   "portal.soon.item7": "<strong>Limbi</strong> – sunt planificate mai multe limbi pentru interfață.",
+  "portal.soon.item8": "<strong>Aplicații semnate</strong> – Sunt planificate versiuni desktop semnate, astfel încât Windows și macOS să nu mai avertizeze înainte de prima pornire.",
   "portal.soon.close": "Părerea ta stabilește ordinea: spune-ne de ce ai nevoie prin meniul ? Ajutor din aplicație (Raportează o problemă…).",
   "portal.soon.link": "Ce urmează în curând"
 }
