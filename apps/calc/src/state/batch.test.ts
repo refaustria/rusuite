@@ -185,6 +185,41 @@ describe("wrap text", () => {
   });
 });
 
+describe("row auto-height after edits (P9-C7)", () => {
+  it("a wider column refits the rows of its wrapped cells in the same undo step", async () => {
+    const { store, core } = await ready();
+    await put(store, 0, 0, "ab ".repeat(6).trim());
+    store.select(cellSelection(0, 0));
+    await store.toggleWrap();
+    core.log.length = 0;
+    await store.setColWidth(0, 120);
+    const cmd = applied(core.log).slice(-1)[0]!;
+    expect(cmd.type).toBe("compound");
+    const parts = cmd.type === "compound" ? cmd.commands : [];
+    expect(parts[0]).toMatchObject({ type: "setColWidth", col: 0 });
+    expect(parts.find((c) => c.type === "setRowHeight")).toMatchObject({ row: 0 });
+  });
+
+  it("a larger font size grows the row; merged cells never grow theirs", async () => {
+    const { store, core } = await ready();
+    await put(store, 0, 0, "Title");
+    store.select(cellSelection(0, 0));
+    core.log.length = 0;
+    await store.applyStyle({ font: { size: 2000 } });
+    const cmd = applied(core.log).slice(-1)[0]!;
+    expect(cmd.type).toBe("compound");
+    const h = cmd.type === "compound" ? cmd.commands.find((c) => c.type === "setRowHeight") : undefined;
+    expect(h).toMatchObject({ row: 0 });
+    expect((h as { height: number }).height).toBeGreaterThan(20);
+    await put(store, 3, 0, "Merged");
+    await store.apply({ type: "mergeCells", sheet: 0, r0: 3, c0: 0, r1: 3, c1: 1 });
+    store.select(cellSelection(3, 0));
+    core.log.length = 0;
+    await store.applyStyle({ font: { size: 2000 } });
+    expect(applied(core.log).slice(-1)[0]).toMatchObject({ type: "applyStyle" });
+  });
+});
+
 describe("find and replace", () => {
   async function doc() {
     const r = await ready(new FakeCalcCore(["Sheet1", "Sheet2"]));

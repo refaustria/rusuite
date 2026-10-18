@@ -162,7 +162,9 @@ fn built() -> Workbook {
                 author: Person::new("Bob", ""),
                 date: "2026-10-16T10:00:00.00".into(),
                 text: "The 2026 list.".into(),
+                mentions: Vec::new(),
             }],
+            mentions: Vec::new(),
         },
     )
     .unwrap();

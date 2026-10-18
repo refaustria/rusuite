@@ -44,7 +44,7 @@ async function setup(table = TABLE) {
   grid.focus();
   for (const [r, row] of table.entries()) {
     for (const [c, text] of row.entries()) {
-      fireEvent.mouseDown(grid, at(r, c));
+      fireEvent.pointerDown(grid, at(r, c));
       fireEvent.keyDown(grid, { key: text[0]! });
       const ed = screen.getByTestId("cell-editor") as HTMLTextAreaElement;
       fireEvent.change(ed, { target: { value: text } });
@@ -58,11 +58,11 @@ async function setup(table = TABLE) {
 }
 
 const select = (grid: HTMLElement, r0: number, c0: number, r1 = r0, c1 = c0) => {
-  fireEvent.mouseDown(grid, at(r0, c0));
-  fireEvent.mouseUp(window);
+  fireEvent.pointerDown(grid, at(r0, c0));
+  fireEvent.pointerUp(window);
   if (r1 !== r0 || c1 !== c0) {
-    fireEvent.mouseDown(grid, { ...at(r1, c1), shiftKey: true });
-    fireEvent.mouseUp(window);
+    fireEvent.pointerDown(grid, { ...at(r1, c1), shiftKey: true });
+    fireEvent.pointerUp(window);
   }
 };
 

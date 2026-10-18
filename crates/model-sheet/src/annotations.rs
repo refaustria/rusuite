@@ -132,6 +132,13 @@ pub struct Person {
     /// Shown in the avatar; empty = derived from the name.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub initials: String,
+    /// The `personList` entry's `userId` (an account id, an e-mail
+    /// address or the name; empty = the name), kept for roundtrips.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub user_id: String,
+    /// The `providerId` (`AD`, `PeoplePicker`, `None`; empty = `None`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider_id: String,
 }
 
 impl Person {
@@ -140,6 +147,8 @@ impl Person {
             id: String::new(),
             name: name.to_owned(),
             initials: initials.to_owned(),
+            user_id: String::new(),
+            provider_id: String::new(),
         }
     }
 
@@ -181,6 +190,64 @@ pub fn initials_of(name: &str) -> String {
     }
 }
 
+/// An @mention in a threaded comment's text (`threadedComment/mentions`):
+/// the characters `start..start + length` (UTF-16 units, as Excel counts)
+/// name the person with GUID `person_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mention {
+    pub person_id: String,
+    /// GUID of the mention (`mentionId`).
+    pub id: String,
+    pub start: u32,
+    pub length: u32,
+}
+
+/// The @mentions of `text`: every `@Name` of a person in `persons`
+/// (longest name first, so `@Ann Lee` wins over `@Ann`); mentions of
+/// `previous` at the same place keep their ids.
+pub fn find_mentions(text: &str, persons: &[Person], previous: &[Mention]) -> Vec<Mention> {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let mut sorted: Vec<&Person> = persons.iter().filter(|p| !p.name.is_empty()).collect();
+    sorted.sort_by_key(|p| std::cmp::Reverse(p.name.encode_utf16().count()));
+    let mut out: Vec<Mention> = Vec::new();
+    let mut i = 0;
+    while i < units.len() {
+        if units[i] != u16::from(b'@') {
+            i += 1;
+            continue;
+        }
+        let found = sorted.iter().find(|p| {
+            let name: Vec<u16> = p.name.encode_utf16().collect();
+            let end = i + 1 + name.len();
+            end <= units.len()
+                && units[i + 1..end] == name[..]
+                // The name ends at a word boundary.
+                && !units.get(end).is_some_and(|&u| char::from_u32(u32::from(u)).is_some_and(char::is_alphanumeric))
+        });
+        let Some(p) = found else {
+            i += 1;
+            continue;
+        };
+        let length = (p.name.encode_utf16().count() + 1) as u32;
+        let start = i as u32;
+        let person_id = p.guid();
+        let id = previous
+            .iter()
+            .find(|m| m.start == start && m.person_id == person_id)
+            .map(|m| m.id.clone())
+            .unwrap_or_else(|| guid(&format!("mention:{person_id}:{start}:{text}")));
+        out.push(Mention {
+            person_id,
+            id,
+            start,
+            length,
+        });
+        i += length as usize;
+    }
+    out
+}
+
 /// A reply in a [`Thread`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -190,6 +257,9 @@ pub struct Reply {
     /// ISO 8601 (`2026-10-16T09:30:00.00`), as written by the UI.
     pub date: String,
     pub text: String,
+    /// The @mentions in `text`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<Mention>,
 }
 
 /// A threaded comment: the first comment plus its replies.
@@ -207,6 +277,9 @@ pub struct Thread {
     pub resolved: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub replies: Vec<Reply>,
+    /// The @mentions in `text`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<Mention>,
 }
 
 /// Where a [`Hyperlink`] leads.
@@ -844,7 +917,9 @@ mod tests {
                 author: Person::new("Bob", "B"),
                 date: "2026-10-16T10:00:00.00".into(),
                 text: "because".into(),
+                mentions: Vec::new(),
             }],
+            mentions: Vec::new(),
         }
     }
 
@@ -1086,5 +1161,32 @@ mod tests {
         assert_eq!(g, guid("x"));
         assert_ne!(g, guid("y"));
         assert_ne!(wb.fresh_comment_id("a"), "");
+    }
+}
+
+#[cfg(test)]
+mod mention_tests {
+    use super::*;
+
+    #[test]
+    fn mentions_are_found_by_name_longest_first_and_keep_their_ids() {
+        let people = vec![
+            Person::new("Ann", ""),
+            Person::new("Ann Lee", ""),
+            Person::new("Bob", ""),
+        ];
+        let m = find_mentions("Hi @Ann Lee and @Bob, not @Bobby or mail@Ann", &people, &[]);
+        assert_eq!(
+            m.iter().map(|m| (m.start, m.length)).collect::<Vec<_>>(),
+            vec![(3, 8), (16, 4), (40, 4)]
+        );
+        assert_eq!(m[0].person_id, people[1].guid());
+        // UTF-16 offsets (Excel's): an emoji before the mention counts two.
+        let e = find_mentions("😀 @Bob", &people, &[]);
+        assert_eq!((e[0].start, e[0].length), (3, 4));
+        // Same place, same person: the id stays.
+        let again = find_mentions("Hi @Ann Lee and @Bob!", &people, &m);
+        assert_eq!(again[0].id, m[0].id);
+        assert!(find_mentions("no at sign", &people, &[]).is_empty());
     }
 }

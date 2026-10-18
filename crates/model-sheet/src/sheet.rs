@@ -96,14 +96,44 @@ pub const MIN_ZOOM: u16 = 10;
 pub const MAX_ZOOM: u16 = 400;
 
 /// How a sheet is shown. `Default` = nothing frozen, 100 %, gridlines and
-/// row/column headings on.
+/// row/column headings on, scrolled to A1.
+///
+/// Frozen panes keep rows `top_row..top_row + frozen_rows` and columns
+/// `left_col..left_col + frozen_cols` in place (Excel freezes at the
+/// scroll position: the rows above `top_row` cannot be scrolled to until
+/// the panes are unfrozen); the scrolling pane starts at `pane_row` /
+/// `pane_col`. Without frozen panes, `top_row` / `left_col` is where the
+/// sheet is scrolled to, and `split_x` / `split_y` split the window into
+/// independently scrolling panes (`pane_row` / `pane_col` = the first row
+/// / column of the bottom / right pane).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SheetView {
-    /// Rows `0..frozen_rows` stay visible when scrolling (0 = none).
+    /// How many rows stay visible when scrolling, from `top_row` (0 = none).
     pub frozen_rows: u32,
-    /// Columns `0..frozen_cols` stay visible when scrolling (0 = none).
+    /// How many columns stay visible when scrolling, from `left_col` (0 = none).
     pub frozen_cols: u32,
+    /// `sheetView/@topLeftCell`: the first row of the top(-left) pane.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub top_row: u32,
+    /// `sheetView/@topLeftCell`: the first column of the (top-)left pane.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub left_col: u32,
+    /// `pane/@topLeftCell`: the first row of the bottom pane (0 = right
+    /// after the frozen rows, or the split's top row).
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub pane_row: u32,
+    /// `pane/@topLeftCell`: the first column of the right pane.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub pane_col: u32,
+    /// Split panes (View › Split, `pane state="split"`): the vertical
+    /// splitter's distance from the cell area's left edge, twips (1/20 pt;
+    /// 0 = none). Ignored while panes are frozen.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub split_x: u32,
+    /// The horizontal splitter's distance from the cell area's top, twips.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub split_y: u32,
     /// Percent, [`MIN_ZOOM`]..=[`MAX_ZOOM`].
     pub zoom: u16,
     pub show_gridlines: bool,
@@ -116,6 +146,12 @@ impl Default for SheetView {
         SheetView {
             frozen_rows: 0,
             frozen_cols: 0,
+            top_row: 0,
+            left_col: 0,
+            pane_row: 0,
+            pane_col: 0,
+            split_x: 0,
+            split_y: 0,
             zoom: 100,
             show_gridlines: true,
             show_headings: true,
@@ -123,9 +159,72 @@ impl Default for SheetView {
     }
 }
 
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
+
 impl SheetView {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// The view with consistent pane fields: a split only without frozen
+    /// panes, the scrolling pane's first line after the frozen ones, and
+    /// no pane line on an axis without a frozen area or a splitter.
+    pub fn normalized(self) -> SheetView {
+        let mut v = self;
+        if v.is_frozen() {
+            v.split_x = 0;
+            v.split_y = 0;
+        }
+        v.pane_row = if v.frozen_rows > 0 {
+            v.pane_row.max(v.top_row + v.frozen_rows)
+        } else if v.split_y > 0 {
+            v.pane_row
+        } else {
+            0
+        };
+        v.pane_col = if v.frozen_cols > 0 {
+            v.pane_col.max(v.left_col + v.frozen_cols)
+        } else if v.split_x > 0 {
+            v.pane_col
+        } else {
+            0
+        };
+        v
+    }
+
+    /// Whether panes are frozen.
+    pub fn is_frozen(&self) -> bool {
+        self.frozen_rows > 0 || self.frozen_cols > 0
+    }
+
+    /// Whether the window is split (and not frozen).
+    pub fn is_split(&self) -> bool {
+        !self.is_frozen() && (self.split_x > 0 || self.split_y > 0)
+    }
+
+    /// The first row of the scrolling (bottom) pane: `pane_row`, at least
+    /// the row after the frozen ones.
+    pub fn scroll_row(&self) -> u32 {
+        if self.frozen_rows > 0 {
+            self.pane_row.max(self.top_row + self.frozen_rows)
+        } else if self.split_y > 0 {
+            self.pane_row
+        } else {
+            self.top_row
+        }
+    }
+
+    /// The first column of the scrolling (right) pane.
+    pub fn scroll_col(&self) -> u32 {
+        if self.frozen_cols > 0 {
+            self.pane_col.max(self.left_col + self.frozen_cols)
+        } else if self.split_x > 0 {
+            self.pane_col
+        } else {
+            self.left_col
+        }
     }
 }
 

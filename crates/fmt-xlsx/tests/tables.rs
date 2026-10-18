@@ -298,6 +298,10 @@ fn pictures_roundtrip() {
                 to: at(3, 6),
             },
             media: media.clone(),
+            edit_as: model_sheet::Placement::MoveAndSize,
+            crop: model_sheet::Crop::default(),
+            line: None,
+            transparency: 0,
         },
     )
     .unwrap();
@@ -313,6 +317,10 @@ fn pictures_roundtrip() {
                 height: 476_250,
             },
             media,
+            edit_as: model_sheet::Placement::MoveAndSize,
+            crop: model_sheet::Crop::default(),
+            line: None,
+            transparency: 0,
         },
     )
     .unwrap();

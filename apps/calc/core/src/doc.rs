@@ -248,6 +248,26 @@ impl CalcDocument {
 
     /// Writes the document as `.xlsx`, with the file-level data it was
     /// opened with (if any).
+    /// Records where a sheet is scrolled to (`saveXlsx`): the scroll
+    /// position of an unfrozen sheet, the scrolling pane's first cell with
+    /// frozen panes, both panes' first cells of a split. View state: no
+    /// undo step, not a change of the document.
+    pub fn set_scroll(&mut self, sc: crate::dispatch::SheetScroll) -> Result<()> {
+        let s = self.sheet(sc.sheet)?;
+        let mut v = self.workbook.sheet_view(s);
+        if v.is_frozen() {
+            v.pane_row = sc.pane_row;
+            v.pane_col = sc.pane_col;
+        } else {
+            v.top_row = sc.top_row;
+            v.left_col = sc.left_col;
+            v.pane_row = sc.pane_row;
+            v.pane_col = sc.pane_col;
+        }
+        self.workbook.set_sheet_view(s, v)?;
+        Ok(())
+    }
+
     pub fn save_xlsx(&self) -> Result<Vec<u8>> {
         let default_ctx = fmt_xlsx::XlsxContext::default();
         let ctx = self.xlsx_context.as_ref().unwrap_or(&default_ctx);
@@ -1280,16 +1300,27 @@ impl CalcDocument {
                     }),
                 })
             }
-            &C::SetFreeze { sheet, rows, cols } => {
+            &C::SetFreeze {
+                sheet,
+                rows,
+                cols,
+                top_row,
+                left_col,
+            } => {
                 let s = self.sheet(sheet)?;
                 let old = self.workbook.sheet_view(s);
-                self.workbook.set_frozen(s, rows, cols)?;
+                self.workbook.set_frozen_at(
+                    s,
+                    rows,
+                    cols,
+                    top_row.unwrap_or(0),
+                    left_col.unwrap_or(0),
+                )?;
                 Ok(Applied {
                     patch: self.sheets_only_patch(),
-                    inverse: Some(C::SetFreeze {
+                    inverse: Some(C::SetSheetView {
                         sheet,
-                        rows: old.frozen_rows,
-                        cols: old.frozen_cols,
+                        patch: SheetViewPatch::full(old),
                     }),
                 })
             }
@@ -1681,6 +1712,8 @@ impl CalcDocument {
             | C::RemoveSubtotals { .. }
             | C::SetPageBreaks { .. }
             | C::AddPicture { .. }
+            | C::SetPictureFormat { .. }
+            | C::ReorderPicture { .. }
             | C::SetPictureAnchor { .. }
             | C::RemovePicture { .. }
             | C::RestorePictures { .. } => self.data_cmd(cmd),
@@ -2230,6 +2263,59 @@ impl CalcDocument {
         dst: Rect,
         mode: FillMode,
     ) -> Result<CalcApplied> {
+        let writes = self.fill_writes(sheet, src, dst, mode)?;
+        self.write_cells(writes.into_iter().map(|(w, _)| w).collect())
+    }
+
+    /// The fill handle's tip while dragging (Excel): the text the cell
+    /// farthest from the source would show after the fill — a series value
+    /// in the source's number format, a copied constant as displayed;
+    /// `None` for a copied formula or an empty cell.
+    pub fn fill_preview(
+        &self,
+        sheet: u32,
+        src: Rect,
+        dst: Rect,
+        mode: FillMode,
+    ) -> Result<Option<String>> {
+        let writes = self.fill_writes(sheet, src, dst, mode)?;
+        let before = dst.r1 < src.r0 || dst.c1 < src.c0;
+        let last = if before {
+            writes.first()
+        } else {
+            writes.last()
+        };
+        let Some((w, from)) = last else {
+            return Ok(None);
+        };
+        let value = match &w.content {
+            Some(WriteContent::Value(v)) => v.clone(),
+            // A copied constant shows as its source does; a copied formula has no tip (Excel).
+            Some(WriteContent::Input(i)) if !i.is_empty() && !i.starts_with('=') => {
+                match self.workbook.content(*from) {
+                    CellContent::Value(v) => v.clone(),
+                    _ => return Ok(None),
+                }
+            }
+            _ => return Ok(None),
+        };
+        let code = w
+            .style
+            .and_then(|id| self.workbook.styles().get(id).number_format.clone());
+        let formatted = model_sheet::numfmt::format_cell(&value, code.as_deref()).text;
+        // Alignment padding (`_)`) and fill characters mean nothing in a tip.
+        let text = formatted.trim();
+        Ok((!text.is_empty()).then(|| text.to_owned()))
+    }
+
+    /// The cell writes of a fill (see [`CalcCommand::FillRange`]).
+    fn fill_writes(
+        &self,
+        sheet: u32,
+        src: Rect,
+        dst: Rect,
+        mode: FillMode,
+    ) -> Result<Vec<(Write, CellCoord)>> {
         let s = self.sheet(sheet)?;
         self.range(sheet, src.r0, src.c0, src.r1, src.c1)?;
         self.range(sheet, dst.r0, dst.c0, dst.r1, dst.c1)?;
@@ -2288,14 +2374,17 @@ impl CalcDocument {
                         WriteContent::Input(shift_input(&input, dr, dc))
                     }
                 };
-                writes.push(Write {
-                    at: at(line, pos),
-                    content: Some(content),
-                    style: Some(wb.style_id(from)),
-                });
+                writes.push((
+                    Write {
+                        at: at(line, pos),
+                        content: Some(content),
+                        style: Some(wb.style_id(from)),
+                    },
+                    from,
+                ));
             }
         }
-        self.write_cells(writes)
+        Ok(writes)
     }
 
     /// The inverse of a change of the AutoFilter / sort state of `s`.

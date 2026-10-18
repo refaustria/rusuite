@@ -5,13 +5,28 @@
  */
 export type SheetView = { 
 /**
- * Rows `0..frozenRows` stay visible when scrolling (0 = none).
+ * How many rows stay visible when scrolling, from `topRow` (0 = none).
  */
 frozenRows: number, 
 /**
- * Columns `0..frozenCols` stay visible when scrolling (0 = none).
+ * How many columns stay visible when scrolling, from `leftCol` (0 = none).
  */
 frozenCols: number, 
+/**
+ * The first row of the top(-left) pane (`sheetView/@topLeftCell`):
+ * the frozen area starts there; without frozen panes the scroll position.
+ */
+topRow?: number, leftCol?: number, 
+/**
+ * The first row / column of the scrolling (bottom-right) pane
+ * (`pane/@topLeftCell`).
+ */
+paneRow?: number, paneCol?: number, 
+/**
+ * View › Split: splitter positions in twips (1/20 pt) from the cell
+ * area's left / top edge (0 = none; ignored while frozen).
+ */
+splitX?: number, splitY?: number, 
 /**
  * Percent, 10..=400 (default 100).
  */

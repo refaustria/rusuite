@@ -8,4 +8,8 @@ export type SheetViewPatch = { frozenRows?: number, frozenCols?: number,
 /**
  * Percent, 10..=400.
  */
-zoom?: number, showGridlines?: boolean, showHeadings?: boolean, };
+zoom?: number, showGridlines?: boolean, showHeadings?: boolean, topRow?: number, leftCol?: number, paneRow?: number, paneCol?: number, 
+/**
+ * View › Split: splitters in twips (0 removes one).
+ */
+splitX?: number, splitY?: number, };

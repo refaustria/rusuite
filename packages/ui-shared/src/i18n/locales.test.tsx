@@ -1,6 +1,6 @@
 // P9-L0: the 24-language registry, browser matching, plural categories, lazy catalogs with the English fallback,
 // localized key names and the pickers.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   LOCALES, LOCALE_STORAGE_KEY, LanguageList, LanguageSelect, addCatalogs, availableLocales, catalogLoaders, createI18n, formatCombo,
@@ -8,7 +8,17 @@ import {
   pluralForm, setLocale, switchLocale, t, I18nProvider,
 } from "../index";
 
+// P9-L11: Maltese is translated now, so the "language without catalogs" of these tests is declared through the
+// test-only hook of locale.ts (`globalThis.__rusuiteNoCatalog`, docs/i18n.md "Fallback tests"): a registered language
+// whose catalogs are treated as absent. The hook is reset after each test.
+const CATALOGLESS = "mt";
+const hook = globalThis as { __rusuiteNoCatalog?: string[] };
+beforeEach(() => {
+  hook.__rusuiteNoCatalog = [CATALOGLESS];
+});
+
 afterEach(() => {
+  delete hook.__rusuiteNoCatalog;
   cleanup();
   act(() => setLocale("en"));
   localStorage.clear();
@@ -118,12 +128,15 @@ describe("lazy catalogs", () => {
     expect(Object.keys(catalogLoaders({ "./locales/fr.json": load, "./locales/xx.json": load, "./locales/notes.json": load }))).toEqual(["fr"]);
   });
 
-  it("English and German are there; languages without catalogs are not", () => {
+  it("English and German are there; a language declared catalog-less is not", () => {
     expect(hasCatalog("en")).toBe(true);
     expect(hasCatalog("de")).toBe(true);
-    expect(hasCatalog("mt")).toBe(false);
+    expect(hasCatalog(CATALOGLESS)).toBe(false);
     expect(availableLocales()).toEqual(expect.arrayContaining(["de", "en"]));
-    expect(availableLocales()).not.toContain("mt");
+    expect(availableLocales()).not.toContain(CATALOGLESS);
+    delete hook.__rusuiteNoCatalog; // without the hook Maltese has its catalogs (P9-L11)
+    expect(hasCatalog("mt")).toBe(true);
+    expect(availableLocales()).toContain("mt");
   });
 
   it("loads a language when it is chosen, once, then switches", async () => {

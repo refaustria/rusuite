@@ -53,6 +53,13 @@ export function wrapLines(text: string, maxWidth: number, font: string, measure:
   return out;
 }
 
+/** The significant digits a displayed number keeps (`0.00012` → 2, `1.23E-05` → 3, `120` → 3). */
+export function significantDigits(text: string): number {
+  const mant = text.replace(/^-/, "").split("E")[0]!.replace(".", "");
+  const digits = mant.replace(/^0+/, "");
+  return Math.max(1, digits.length);
+}
+
 /** Excel's scientific General form of `n` with at most `digits` decimals: `1.2E+12`, `-5E-07`. */
 export function scientific(n: number, digits: number): string {
   const [mant, exp] = n.toExponential(digits).split("e") as [string, string];
@@ -71,20 +78,29 @@ export function fitNumber(display: string, width: number, font: string, measure:
   if (measure(display, font) <= width) return display;
   const m = /^(-?\d+)\.(\d+)$/.exec(display);
   const n = Number(display);
+  let decimal: string | null = null;
   if (m) {
     for (let d = m[2].length - 1; d >= 0; d--) {
       const t = n.toFixed(d);
       // A General number does not round away all its digits (0.00001234 → 1.2E-05, not 0).
       if (general && Number(t) === 0 && n !== 0) break;
-      if (measure(t, font) <= width) return t;
+      if (measure(t, font) <= width) {
+        decimal = t;
+        break;
+      }
     }
+    if (decimal !== null && !general) return decimal;
   }
   if (general && display.trim() !== "" && Number.isFinite(n) && n !== 0) {
     for (let d = 14; d >= 0; d--) {
       const t = scientific(n, d);
-      if (measure(t, font) <= width) return t;
+      if (measure(t, font) <= width) {
+        // General shows whichever form keeps more significant digits (Excel): 3.141593, but 1.23E-05 for 0.0000123456.
+        return decimal !== null && significantDigits(decimal) >= significantDigits(t) ? decimal : t;
+      }
     }
   }
+  if (decimal !== null) return decimal;
   const hash = Math.max(1, measure("#", font));
   return "#".repeat(Math.max(1, Math.floor(width / hash)));
 }

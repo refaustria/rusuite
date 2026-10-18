@@ -3,4 +3,8 @@
 /**
  * Mirror of `model_sheet::Person`: a comment author.
  */
-export type Person = { id?: string, name: string, initials?: string, };
+export type Person = { id?: string, name: string, initials?: string, 
+/**
+ * The file's `userId` / `providerId` (kept for roundtrips).
+ */
+userId?: string, providerId?: string, };

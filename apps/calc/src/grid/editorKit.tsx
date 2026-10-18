@@ -28,13 +28,16 @@ export function useEditorBinding(store: CalcStore, origin: EditState["origin"], 
     const el = ref.current;
     if (!el || owner !== origin || start === undefined || end === undefined || el.ownerDocument.activeElement !== el) return;
     if (el.selectionStart !== start || el.selectionEnd !== end) el.setSelectionRange(start, end);
-  }, [ref, origin, owner, text, start, end]);
+    store.caretPending = false;
+  }, [store, ref, origin, owner, text, start, end]);
 }
 
 /** Reports the field's caret to the store (select / key up / mouse up). */
 export function syncCaret(store: CalcStore) {
   return (e: SyntheticEvent<Field>) => {
     const el = e.currentTarget;
+    // A selection event between a caret move by the store and its display carries the old caret.
+    if (store.caretPending && e.type === "select") return;
     if (el.selectionStart !== null && el.selectionEnd !== null) store.setEditCaret(el.selectionStart, el.selectionEnd);
   };
 }

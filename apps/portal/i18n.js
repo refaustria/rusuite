@@ -18,7 +18,9 @@
     ["pl", "Polski"], ["pt", "Português"], ["ro", "Română"], ["sk", "Slovenčina"], ["sl", "Slovenščina"], ["sv", "Svenska"],
   ];
   /** Languages with a portal catalog in `locales/` (pnpm i18n:check keeps this in sync with the files). */
-  const CATALOGS = ["bg", "cs", "da", "de", "el", "en", "es", "fi", "fr", "hr", "hu", "it", "lt", "nl", "pl", "pt", "ro", "sk", "sl", "sv"];
+  const CATALOGS = ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "it", "lt", "lv", "mt", "nl", "pl", "pt", "ro", "sk", "sl", "sv"];
+  /** Test-only (docs/i18n.md "Fallback tests"): `window.__rusuiteNoCatalog = ["mt"]` declares a language catalog-less. */
+  const hasCatalog = (id) => CATALOGS.includes(id) && !(Array.isArray(window.__rusuiteNoCatalog) && window.__rusuiteNoCatalog.includes(id));
   const IDS = LOCALES.map(([id]) => id);
   const stored = () => {
     try {
@@ -81,7 +83,7 @@
       const o = document.createElement("option");
       o.value = id;
       o.lang = id;
-      o.textContent = CATALOGS.includes(id) ? name : t("portal.languagePending", { name });
+      o.textContent = hasCatalog(id) ? name : t("portal.languagePending", { name });
       return o;
     };
     const cur = LOCALES.find(([id]) => id === locale);
@@ -91,7 +93,7 @@
   };
 
   async function apply(locale) {
-    const shown = CATALOGS.includes(locale) ? locale : "en";
+    const shown = hasCatalog(locale) ? locale : "en";
     if (shown !== locale) console.info(`rusuite: no "${locale}" portal translation yet – showing English`);
     try {
       messages = await load(shown);

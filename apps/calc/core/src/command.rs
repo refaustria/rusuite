@@ -184,12 +184,21 @@ pub enum CalcCommand {
         #[ts(as = "Option<app_common::wire::Color>")]
         color: Option<Color>,
     },
-    /// Freezes rows `0..rows` and columns `0..cols` (`0, 0` unfreezes).
-    /// The sheet list in the patch carries the new view.
+    /// Freezes `rows` rows from `topRow` and `cols` columns from `leftCol`
+    /// (`0, 0` unfreezes). View › Freeze Panes while scrolled sends the
+    /// scroll position as `topRow` / `leftCol` (Excel keeps it,
+    /// `topLeftCell`). Freezing removes a split. The sheet list in the
+    /// patch carries the new view.
     SetFreeze {
         sheet: u32,
         rows: u32,
         cols: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        top_row: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        left_col: Option<u32>,
     },
     /// Changes the listed view settings (zoom 10..=400).
     SetSheetView {
@@ -1114,6 +1123,24 @@ pub enum CalcCommand {
         sheet: u32,
         id: u32,
     },
+    /// Picture Format: alt text, name, Properties (move and size with
+    /// cells / move but don't size / don't move or size – the anchor
+    /// becomes a two-cell anchor with `editAs`), crop, border,
+    /// transparency.
+    SetPictureFormat {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "crate::wire_tables::PictureFormat")]
+        format: PictureFormat,
+    },
+    /// Bring Forward ▾ / Send Backward ▾: the picture's place in the
+    /// z-order of its sheet.
+    ReorderPicture {
+        sheet: u32,
+        id: u32,
+        #[ts(as = "crate::wire_tables::ZOrder")]
+        to: model_sheet::ZOrder,
+    },
     /// Review › Protect Sheet…: protects the sheet with `options` (their
     /// password fields are ignored) and `password` (absent or empty: no
     /// password), hashed as Excel does (SHA-512, 100000 spins) with
@@ -1416,6 +1443,25 @@ pub struct SheetViewPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub show_headings: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub top_row: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub left_col: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pane_row: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pane_col: Option<u32>,
+    /// View › Split: splitters in twips (0 removes one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub split_x: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub split_y: Option<u32>,
 }
 
 impl SheetViewPatch {
@@ -1427,6 +1473,12 @@ impl SheetViewPatch {
             zoom: Some(view.zoom),
             show_gridlines: Some(view.show_gridlines),
             show_headings: Some(view.show_headings),
+            top_row: Some(view.top_row),
+            left_col: Some(view.left_col),
+            pane_row: Some(view.pane_row),
+            pane_col: Some(view.pane_col),
+            split_x: Some(view.split_x),
+            split_y: Some(view.split_y),
         }
     }
 
@@ -1438,6 +1490,12 @@ impl SheetViewPatch {
             zoom: self.zoom.unwrap_or(view.zoom),
             show_gridlines: self.show_gridlines.unwrap_or(view.show_gridlines),
             show_headings: self.show_headings.unwrap_or(view.show_headings),
+            top_row: self.top_row.unwrap_or(view.top_row),
+            left_col: self.left_col.unwrap_or(view.left_col),
+            pane_row: self.pane_row.unwrap_or(view.pane_row),
+            pane_col: self.pane_col.unwrap_or(view.pane_col),
+            split_x: self.split_x.unwrap_or(view.split_x),
+            split_y: self.split_y.unwrap_or(view.split_y),
         }
     }
 }
@@ -1648,6 +1706,27 @@ pub enum PasteMode {
     ValuesOnly,
     /// Formats only; destination contents are kept.
     FormatsOnly,
+}
+
+/// The changes of [`CalcCommand::SetPictureFormat`] (absent: unchanged).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureFormat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<model_sheet::Placement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<model_sheet::Crop>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<model_sheet::PictureLine>,
+    /// Picture Border › No Outline.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_line: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transparency: Option<u8>,
 }
 
 /// How [`CalcCommand::FillRange`] extends each line of the source.

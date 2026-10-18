@@ -5,6 +5,21 @@ import { zipText } from "../support/zip";
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * Fills a block of cells from (row, col) with one paste of tab-separated text (much faster than typing each cell;
+ * entries are taken as typed text, without Excel's typed-format recognition), then waits for the grid (P9-C7).
+ */
+async function pasteRows(grid: Grid, row: number, col: number, rows: string[][]) {
+  await grid.click(row, col);
+  const tsv = rows.map((r) => r.join("\t")).join("\n");
+  await grid.page.getByTestId("grid").evaluate((el, text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, tsv);
+  await grid.waitIdle();
+}
+
 /** Name / Qty table in A1:B4: pear 3, apple 1, fig 2. */
 async function typeTable(grid: Grid) {
   const rows = [["Name", "Qty"], ["pear", "3"], ["apple", "1"], ["fig", "2"]];
@@ -256,12 +271,12 @@ test.describe("Calc", () => {
     await interceptPrint(page);
     await openCalc(page);
     const grid = new Grid(page);
-    await grid.click(0, 0);
-    for (let i = 1; i <= 120; i++) {
-      await page.keyboard.type(`row ${i}`);
-      await page.keyboard.press("Enter");
-    }
-    await expect(page.getByTestId("cell-address")).toHaveValue("A121");
+    // One paste instead of 120 typed rows (P9-C7: the test stays well under its time budget).
+    await pasteRows(grid, 0, 0, Array.from({ length: 120 }, (_, i) => [`row ${i + 1}`]));
+    // The last row arrived (Name Box → A120).
+    await page.getByTestId("cell-address").fill("A120");
+    await page.getByTestId("cell-address").press("Enter");
+    await expect(page.getByRole("textbox", { name: "Formula bar" })).toHaveValue("row 120");
     await page.keyboard.press("Control+p");
     await expect(page.getByTestId("print-panel")).toBeVisible();
     await expect(page.getByTestId("print-page-count")).toHaveText("Page 1 of 3");
@@ -1089,7 +1104,7 @@ test.describe("Calc pivot tables", () => {
       ["South", "Pear", "Feb", "40"],
       ["North", "Apple", "Feb", "5"],
     ];
-    for (const [r, row] of rows.entries()) for (const [c, v] of row.entries()) await grid.type(r, c, v);
+    await pasteRows(grid, 0, 0, rows);
   }
 
   /** Insert › PivotTable from A1 (the current region) onto a new sheet; the field pane opens. */

@@ -41,7 +41,8 @@ pub mod validation;
 pub mod workbook;
 
 pub use annotations::{
-    guid, initials_of, Hyperlink, LinkTarget, Note, NoteBounds, NoteRun, Person, Reply, Thread,
+    find_mentions, guid, initials_of, Hyperlink, LinkTarget, Mention, Note, NoteBounds, NoteRun,
+    Person, Reply, Thread,
 };
 pub use calc::{CalcMode, CalcSettings};
 pub use chart::{
@@ -62,7 +63,7 @@ pub use sparkline::{
 pub use engine_formula::{CellContent, CellCoord, EngineError, NameScope, Recalc, SheetId};
 pub use names::{BuiltinName, DefinedName};
 pub use outline::{Axis, OutlineProps, OutlineState, MAX_OUTLINE_LEVEL};
-pub use picture::Picture;
+pub use picture::{Crop, Picture, PictureLine, Placement, PxRect, ZOrder};
 pub use pivot::{PivotCache, PivotTable};
 pub use protection::{HashedPassword, Password, SheetProtection, WorkbookProtection};
 pub use rules::RulesPaste;
