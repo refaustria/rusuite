@@ -1,7 +1,10 @@
 import type { Color, ThemeColorSlot, ThemePalette } from "./types";
 
 export const OFFICE_THEME: Required<
-  Pick<ThemePalette, "light1" | "dark1" | "light2" | "dark2" | "accent1" | "accent2" | "accent3" | "accent4" | "accent5" | "accent6">
+  Pick<
+    ThemePalette,
+    "light1" | "dark1" | "light2" | "dark2" | "accent1" | "accent2" | "accent3" | "accent4" | "accent5" | "accent6" | "hyperlink" | "followedHyperlink"
+  >
 > = {
   light1: "FFFFFF",
   dark1: "000000",
@@ -13,6 +16,9 @@ export const OFFICE_THEME: Required<
   accent4: "FFC000",
   accent5: "5B9BD5",
   accent6: "70AD47",
+  // The Office theme's `hlink` / `folHlink` (P9-C7: Calc's link cells use them).
+  hyperlink: "0563C1",
+  followedHyperlink: "954F72",
 };
 
 /** Column order of the theme grid (like Excel). */

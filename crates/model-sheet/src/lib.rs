@@ -41,7 +41,8 @@ pub mod validation;
 pub mod workbook;
 
 pub use annotations::{
-    guid, initials_of, Hyperlink, LinkTarget, Note, NoteBounds, NoteRun, Person, Reply, Thread,
+    find_mentions, guid, initials_of, Hyperlink, LinkTarget, Mention, Note, NoteBounds, NoteRun,
+    Person, Reply, Thread,
 };
 pub use calc::{CalcMode, CalcSettings};
 pub use chart::{

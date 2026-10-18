@@ -106,6 +106,30 @@ fn note_body(n: &Note) -> String {
     }
 }
 
+/// `style` without the Hyperlink style's font parts (the theme hyperlink /
+/// followed-hyperlink colour, a single underline); `None` when it has none.
+pub(crate) fn without_link_format(style: &CellStyle) -> Option<CellStyle> {
+    let link_color = matches!(
+        style.font.color,
+        Some(Color::Theme {
+            slot: ThemeColorSlot::Hyperlink | ThemeColorSlot::FollowedHyperlink,
+            ..
+        })
+    );
+    let underline = style.font.underline == Some(Underline::Single);
+    if !link_color && !underline {
+        return None;
+    }
+    let mut out = style.clone();
+    if link_color {
+        out.font.color = None;
+    }
+    if underline {
+        out.font.underline = None;
+    }
+    Some(out)
+}
+
 /// The Hyperlink cell style's font: theme hyperlink colour, underlined.
 fn hyperlink_style() -> CellStyle {
     CellStyle {
@@ -119,6 +143,30 @@ fn hyperlink_style() -> CellStyle {
 }
 
 impl CalcDocument {
+    /// The @mentions of a comment text: the document's persons (and every
+    /// comment author) by `@Name` (see [`model_sheet::find_mentions`]).
+    fn mentions_in(
+        &self,
+        text: &str,
+        previous: &[model_sheet::Mention],
+    ) -> Vec<model_sheet::Mention> {
+        if !text.contains('@') {
+            return Vec::new();
+        }
+        let wb = self.workbook();
+        let mut people: Vec<Person> = wb.persons().to_vec();
+        for (s, _) in wb.sheets() {
+            for t in wb.threads(s) {
+                for p in std::iter::once(&t.author).chain(t.replies.iter().map(|r| &r.author)) {
+                    if !people.iter().any(|q| q.name == p.name) {
+                        people.push(p.clone());
+                    }
+                }
+            }
+        }
+        model_sheet::find_mentions(text, &people, previous)
+    }
+
     fn sheet_state(&self, s: SheetId) -> SheetState {
         let wb = self.workbook();
         (
@@ -359,6 +407,7 @@ impl CalcDocument {
                         text: note_body(&n),
                         resolved: false,
                         replies: Vec::new(),
+                        mentions: Vec::new(),
                     };
                     self.workbook_mut().set_thread(s, thread)?;
                 }
@@ -384,6 +433,7 @@ impl CalcDocument {
                 let id = self
                     .workbook()
                     .fresh_comment_id(&format!("{sheet}:{row}:{col}:{date}:{text}"));
+                let mentions = self.mentions_in(text, &[]);
                 self.workbook_mut().set_thread(
                     s,
                     Thread {
@@ -395,6 +445,7 @@ impl CalcDocument {
                         text: text.clone(),
                         resolved: false,
                         replies: Vec::new(),
+                        mentions,
                     },
                 )?;
                 done(CalcPatch::default())
@@ -414,11 +465,13 @@ impl CalcDocument {
                     t.id,
                     t.replies.len()
                 ));
+                let mentions = self.mentions_in(text, &[]);
                 t.replies.push(Reply {
                     id,
                     author: author.clone(),
                     date: date.clone(),
                     text: text.clone(),
+                    mentions,
                 });
                 self.workbook_mut().set_thread(s, t)?;
                 done(CalcPatch::default())
@@ -433,14 +486,16 @@ impl CalcDocument {
                 let s = self.sheet(*sheet)?;
                 let mut t = self.thread(s, *row, *col)?;
                 if t.id == *id {
+                    t.mentions = self.mentions_in(text, &t.mentions);
                     t.text.clone_from(text);
                 } else {
-                    t.replies
+                    let r = t
+                        .replies
                         .iter_mut()
                         .find(|r| r.id == *id)
-                        .ok_or_else(|| bad("unknown comment id"))?
-                        .text
-                        .clone_from(text);
+                        .ok_or_else(|| bad("unknown comment id"))?;
+                    r.mentions = self.mentions_in(text, &r.mentions);
+                    r.text.clone_from(text);
                 }
                 self.workbook_mut().set_thread(s, t)?;
                 done(CalcPatch::default())
@@ -568,8 +623,42 @@ impl CalcDocument {
                 c1,
             } => {
                 let range = self.range(sheet, r0, c0, r1, c1)?;
+                let s = range.sheet;
+                // Excel's Remove Hyperlinks also clears the link formatting: the Hyperlink style's
+                // theme colour and single underline go (other formats stay), on the linked cells
+                // of the range.
+                let linked: Vec<(u32, u32)> = self
+                    .workbook()
+                    .hyperlinks(s)
+                    .iter()
+                    .filter(|l| l.r0 <= r1 && r0 <= l.r1 && l.c0 <= c1 && c0 <= l.c1)
+                    .flat_map(|l| {
+                        let (a, b) = (l.r0.max(r0), l.r1.min(r1));
+                        let (c, d) = (l.c0.max(c0), l.c1.min(c1));
+                        (a..=b).flat_map(move |row| (c..=d).map(move |col| (row, col)))
+                    })
+                    .take(100_000)
+                    .collect();
                 self.workbook_mut().remove_hyperlinks(range)?;
-                done(CalcPatch::default())
+                let mut cells: Vec<(u32, u32, u32)> = Vec::new();
+                for (row, col) in linked {
+                    let c = CellCoord::new(s, row, col);
+                    let old = self.workbook().style_id(c);
+                    let style = self.workbook().styles().get(old).clone();
+                    let Some(plain) = without_link_format(&style) else {
+                        continue;
+                    };
+                    let id = self.workbook_mut().intern_style(&plain);
+                    if id != old {
+                        cells.push((row, col, id.0));
+                    }
+                }
+                if cells.is_empty() {
+                    return done(CalcPatch::default());
+                }
+                cells.sort_unstable();
+                cells.dedup();
+                self.apply_cmd(&C::RestoreStyles { sheet, cells })
             }
             C::RestoreAnnotations {
                 sheet,

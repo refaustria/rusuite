@@ -702,7 +702,7 @@
   "calc.comments.group": "Kommentare",
   "calc.comments.new": "Neuer Kommentar",
   "calc.comments.next": "Nächster Kommentar",
-  "calc.comments.none": "Keine Kommentare auf diesem Blatt.",
+  "calc.comments.none": "Keine Kommentare in dieser Arbeitsmappe.",
   "calc.comments.pane": "Kommentare",
   "calc.comments.placeholder": "Unterhaltung beginnen",
   "calc.comments.post": "Senden",
@@ -2124,5 +2124,6 @@
   "calc.goToSpecial.conditionalFormats": "Bedingte Formate",
   "calc.goToSpecial.dataValidation": "Datenüberprüfung",
   "calc.goToSpecial.none": "Es wurden keine Zellen gefunden.",
-  "calc.goToSpecial.tooMany": "Die Auswahl ist zu groß."
+  "calc.goToSpecial.tooMany": "Die Auswahl ist zu groß.",
+  "calc.comments.mention": "Jemanden erwähnen"
 }

@@ -1,10 +1,13 @@
 // Review › Show Comments: the Comments pane right of the grid (as in
-// Excel 365) – the threads of the active sheet by cell, each with reply
-// box, Resolve/Reopen, Edit and Delete; a filter for open/resolved
-// threads and New Comment for the active cell.
+// Excel 365) – the threads of every sheet (`allComments`), grouped by
+// sheet in sheet order and by cell, each with reply box, Resolve/Reopen,
+// Edit and Delete; a filter for open/resolved threads and New Comment for
+// the active cell. Clicking a card goes to its cell (P9-C7).
 
+import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { useCalc, type CalcStore } from "../state/store";
+import type { SheetThreads } from "../generated/SheetThreads";
 import { ThreadView } from "./AnnotationLayer";
 import { newCommentIcon } from "./icons";
 import { paneThreads } from "./model";
@@ -12,10 +15,31 @@ import { paneThreads } from "./model";
 export function CommentsPane({ store }: { store: CalcStore }) {
   const t = useT();
   useCalc(store, (s) => s.version);
-  const sheet = useCalc(store, (s) => s.activeSheet);
+  const version = useCalc(store, (s) => s.version);
+  const info = useCalc(store, (s) => s.info);
   const c = store.comments;
+  const [all, setAll] = useState<SheetThreads[]>([]);
+  useEffect(() => {
+    if (!c.pane) return;
+    let live = true;
+    store.api.allComments(null).then(
+      (list) => {
+        if (live) setAll(list);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [store, c, c.pane, version]);
   if (!c.pane) return null;
-  const threads = paneThreads(c.of(sheet).threads, c.paneFilter);
+  // Sheet order of the workbook; hidden sheets' comments are listed too (Excel).
+  const order = new Map((info?.sheets ?? []).map((sh, i) => [sh.id, i]));
+  const groups = [...all]
+    .sort((a, b) => (order.get(a.sheet) ?? 0) - (order.get(b.sheet) ?? 0))
+    .map((g) => ({ sheet: g.sheet, name: info?.sheets.find((sh) => sh.id === g.sheet)?.name ?? "", threads: paneThreads(g.threads, c.paneFilter) }))
+    .filter((g) => g.threads.length > 0);
+  const threads = groups.flatMap((g) => g.threads);
   const close = () => {
     c.togglePane();
     store.focusGrid();
@@ -58,19 +82,24 @@ export function CommentsPane({ store }: { store: CalcStore }) {
         </select>
       </div>
       {threads.length === 0 && <p className="text-sm text-ui-muted">{t("calc.comments.none")}</p>}
-      {threads.map((th) => (
-        <section
-          key={th.id}
-          className="rounded border border-ui-border bg-ui-bg p-2"
-          aria-label={t("calc.comments.threadLabel", { cell: "" })}
-          onClick={(e) => {
-            // Clicking the card (not its controls) selects the cell.
-            if ((e.target as HTMLElement).closest("button,input,textarea,select,form")) return;
-            store.goToRange(sheet, { r0: th.row, c0: th.col, r1: th.row, c1: th.col });
-          }}
-        >
-          <ThreadView store={store} sheet={sheet} thread={th} />
-        </section>
+      {groups.map((g) => (
+        <div key={g.sheet} className="flex flex-col gap-2" role="group" aria-label={g.name} data-testid="comments-sheet" data-sheet={g.name}>
+          {groups.length > 1 || g.sheet !== store.getState().activeSheet ? <h3 className="text-xs font-semibold uppercase text-ui-muted">{g.name}</h3> : null}
+          {g.threads.map((th) => (
+            <section
+              key={th.id}
+              className="rounded border border-ui-border bg-ui-bg p-2"
+              aria-label={t("calc.comments.threadLabel", { cell: "" })}
+              onClick={(e) => {
+                // Clicking the card (not its controls) goes to the cell, on its sheet.
+                if ((e.target as HTMLElement).closest("button,input,textarea,select,form")) return;
+                store.goToRange(g.sheet, { r0: th.row, c0: th.col, r1: th.row, c1: th.col });
+              }}
+            >
+              <ThreadView store={store} sheet={g.sheet} thread={th} />
+            </section>
+          ))}
+        </div>
       ))}
     </aside>
   );

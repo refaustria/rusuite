@@ -49,6 +49,8 @@ export interface SheetData {
   pivotLook?: (cell: CellView | undefined, row: number, col: number) => PivotLook | undefined;
   /** The Excel table style of a cell (header, bands, totals, lines); absent: none. */
   tableLook?: (row: number, col: number) => PivotLook | undefined;
+  /** A link cell followed in this session: its hyperlink colour becomes the followed one (absent: none). */
+  followed?: (row: number, col: number) => boolean;
 }
 
 /** Width of one indent level (Format Cells › Alignment › Indent, compact pivot labels), px. */
@@ -370,7 +372,12 @@ export function computeRenderOps(
       const x = xOf(c) + shift;
       const w = colGeo.size(c) - shift - (align === "right" ? indentPx : 0);
       if (w <= 0) continue;
-      const t0attrs = withFormatColor(look ? resolveText(cfStyle(withLook(style, look), cf)) : textAttrs(styleId, style, cf), cell, cf);
+      let t0attrs = withFormatColor(look ? resolveText(cfStyle(withLook(style, look), cf)) : textAttrs(styleId, style, cf), cell, cf);
+      // Excel's Followed Hyperlink colour once the link was opened.
+      const fc = style.font?.color;
+      if (fc?.kind === "theme" && fc.value.slot === "hyperlink" && sheet.followed?.(r, c)) {
+        t0attrs = { ...t0attrs, color: colorCss({ kind: "theme", value: { slot: "followedHyperlink", tint: fc.value.tint } }) ?? t0attrs.color };
+      }
       const avail = w - 2 * CELL_PADDING;
       const t = { ...t0attrs, font: shrunkFont(style, cell.display, avail, t0attrs.font, measure) };
       const base = { op: "text" as const, row: r, col: c, x, y, w, h, align, ...t };

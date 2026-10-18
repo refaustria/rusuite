@@ -176,6 +176,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       showFormulas: store.getState().showFormulas,
       pivotLook: store.pivots.looks(sheet),
       tableLook: store.tables.looks(sheet),
+      followed: (r, c) => store.comments.isFollowed(sheet, r, c),
     };
   }, [store]);
 

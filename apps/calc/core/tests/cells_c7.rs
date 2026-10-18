@@ -251,3 +251,116 @@ fn base64_decode(s: &str) -> Vec<u8> {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.decode(s).unwrap()
 }
+
+#[test]
+fn comments_record_mentions_of_known_people() {
+    let mut h = host();
+    h.apply(C::SetUser {
+        name: "Ann Lee".into(),
+        initials: "AL".into(),
+    })
+    .unwrap();
+    h.apply(C::AddComment {
+        sheet: 0,
+        row: 0,
+        col: 0,
+        text: "first".into(),
+        author: model_sheet::Person::new("Bob", ""),
+        date: "2026-10-18T09:00:00.00".into(),
+    })
+    .unwrap();
+    h.apply(C::ReplyComment {
+        sheet: 0,
+        row: 0,
+        col: 0,
+        text: "@Ann Lee and @Bob, have a look".into(),
+        author: model_sheet::Person::new("Ann Lee", "AL"),
+        date: "2026-10-18T09:10:00.00".into(),
+    })
+    .unwrap();
+    let t = h.doc().workbook().threads(model_sheet::SheetId(0))[0].clone();
+    let m: Vec<(u32, u32)> = t.replies[0]
+        .mentions
+        .iter()
+        .map(|m| (m.start, m.length))
+        .collect();
+    assert_eq!(m, vec![(0, 8), (13, 4)]);
+    // Editing the text recomputes them.
+    let rid = t.replies[0].id.clone();
+    h.apply(C::EditComment {
+        sheet: 0,
+        row: 0,
+        col: 0,
+        id: rid,
+        text: "thanks".into(),
+    })
+    .unwrap();
+    assert!(
+        h.doc().workbook().threads(model_sheet::SheetId(0))[0].replies[0]
+            .mentions
+            .is_empty()
+    );
+}
+
+#[test]
+fn remove_hyperlink_clears_the_link_formatting_and_undoes_exactly() {
+    let mut h = host();
+    h.apply(set(0, 0, "site")).unwrap();
+    h.apply(C::ApplyStyle {
+        sheet: 0,
+        r0: 0,
+        c0: 0,
+        r1: 0,
+        c1: 0,
+        patch: model_sheet::CellStyle {
+            font: core_model::RunProperties {
+                bold: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    })
+    .unwrap();
+    h.apply(C::SetHyperlink {
+        sheet: 0,
+        r0: 0,
+        c0: 0,
+        r1: 0,
+        c1: 0,
+        target: model_sheet::LinkTarget::Url {
+            url: "https://example.com".into(),
+        },
+        tooltip: None,
+        text: None,
+    })
+    .unwrap();
+    let c = engine_formula::CellCoord::new(model_sheet::SheetId(0), 0, 0);
+    let linked = h.doc().workbook().style(c).clone();
+    assert!(linked.font.color.is_some() && linked.font.underline.is_some());
+    let before = h.doc().workbook().to_snapshot();
+    let env = h
+        .apply(C::RemoveHyperlink {
+            sheet: 0,
+            r0: 0,
+            c0: 0,
+            r1: 0,
+            c1: 0,
+        })
+        .unwrap();
+    assert!(
+        !env.patch.cells.is_empty(),
+        "the cell's new style is in the patch"
+    );
+    let plain = h.doc().workbook().style(c).clone();
+    assert_eq!(
+        (plain.font.color, plain.font.underline, plain.font.bold),
+        (None, None, Some(true))
+    );
+    assert!(h
+        .doc()
+        .workbook()
+        .hyperlinks(model_sheet::SheetId(0))
+        .is_empty());
+    h.undo().unwrap();
+    assert_eq!(h.doc().workbook().to_snapshot(), before);
+}

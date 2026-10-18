@@ -702,7 +702,7 @@
   "calc.comments.group": "Comments",
   "calc.comments.new": "New Comment",
   "calc.comments.next": "Next Comment",
-  "calc.comments.none": "No comments on this sheet.",
+  "calc.comments.none": "No comments in this workbook.",
   "calc.comments.pane": "Comments",
   "calc.comments.placeholder": "Start a conversation",
   "calc.comments.post": "Post",
@@ -2124,5 +2124,6 @@
   "calc.goToSpecial.conditionalFormats": "Conditional formats",
   "calc.goToSpecial.dataValidation": "Data validation",
   "calc.goToSpecial.none": "No cells were found.",
-  "calc.goToSpecial.tooMany": "The selection is too large."
+  "calc.goToSpecial.tooMany": "The selection is too large.",
+  "calc.comments.mention": "Mention someone"
 }

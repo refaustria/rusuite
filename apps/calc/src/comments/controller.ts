@@ -476,9 +476,19 @@ export class CommentsController {
       this.store.pushError(new Error(t("calc.link.invalid")));
       return null;
     }
+    // A followed link shows in the theme's followed-hyperlink colour for the rest of the session (Excel).
+    this.followed.add(`${at.sheet}:${at.row}:${at.col}`);
     if (action.kind === "external") open(action.href);
     else this.store.goToRange(action.sheet, action.range);
+    this.store.notify();
     return action;
+  }
+
+  /** Link cells followed in this session (`sheet:row:col`). */
+  readonly followed = new Set<string>();
+
+  isFollowed(sheet: number, row: number, col: number): boolean {
+    return this.followed.size > 0 && this.followed.has(`${sheet}:${row}:${col}`);
   }
 
   /** Selects the cell under a link without following it. */
