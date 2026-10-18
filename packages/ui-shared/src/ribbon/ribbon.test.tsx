@@ -11,6 +11,7 @@ import { RibbonGallery, RibbonTableSizePicker } from "./gallery";
 import { CONTEXT_COLORS, contextualTabs, openBackstage, Ribbon, tabRuns, visibleTabs, type RibbonProps, type RibbonTab } from "./Ribbon";
 import { collapseOrder, collapsedWidth, groupsThatFit } from "./groups";
 import { comboEventInit, triggerShortcut } from "./triggerShortcut";
+import { publicVersion, RUSUITE_VERSION } from "../version";
 
 afterEach(cleanup);
 
@@ -237,6 +238,15 @@ describe("Backstage", () => {
     await user.click(tab("File"));
     await user.click(screen.getByRole("button", { name: "Back to the document" }));
     expect(screen.queryByRole("dialog", { name: "File" })).toBeNull();
+  });
+
+  it("shows the app's public version name (3.141.0 → 3.141) under the language list", async () => {
+    const { user } = setup({ backstage: { onOpen: () => {} } });
+    await user.click(tab("File"));
+    const line = screen.getByTestId("backstage-version");
+    expect(line.getAttribute("title")).toBe(RUSUITE_VERSION);
+    expect(line.textContent).toBe(`Rusuite Calc ${publicVersion(RUSUITE_VERSION)}`);
+    expect(line.textContent?.endsWith(".0")).toBe(false);
   });
 
   it("commands close the view and run; missing ones are not offered", async () => {

@@ -20,7 +20,7 @@ test.describe("Portal", () => {
     }
     const logos = await page.locator("img").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).naturalWidth));
     expect(logos.every((w) => w > 0)).toBe(true);
-    await expect(page.getByTestId("version")).toHaveText(/^Build \S+ · \d{4}-\d{2}-\d{2}$/);
+    await expect(page.getByTestId("version")).toHaveText(/^Rusuite \d+\.\d+(\.\d+)?(-\S+)? · Build \S+ · \d{4}-\d{2}-\d{2}$/);
     errors.expectNone();
   });
 

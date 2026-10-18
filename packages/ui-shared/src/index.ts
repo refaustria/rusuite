@@ -1,4 +1,7 @@
-export const UI_SHARED_VERSION = "0.1.0";
+import { RUSUITE_VERSION } from "./version";
+
+export const UI_SHARED_VERSION = RUSUITE_VERSION;
+export * from "./version";
 export * from "./backend";
 export * from "./connectors";
 export * from "./ui";

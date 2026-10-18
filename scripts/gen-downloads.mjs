@@ -88,6 +88,24 @@ export function classify(assetName) {
   return null;
 }
 
+/**
+ * The public name of a release tag (π numbering, docs/versioning.md): the tag without `v` and without a trailing `.0`
+ * patch (`v3.141.0` → `3.141`); hotfixes and pre-releases are kept (`3.141.1`, `0.1.0-rc.1`). Same rule as
+ * ui-shared's `publicVersion`, apps/portal/version.js and release.yml; tags and file names keep the full semver.
+ */
+export function publicName(tag) {
+  const v = String(tag ?? "").trim().replace(/^v/, "");
+  const m = /^(\d+\.\d+)\.0$/.exec(v);
+  return m ? m[1] : v;
+}
+
+/** Display order of the files of one OS: by app (Calc, Write, Show), then by package kind, then by name. */
+function fileOrder(os) {
+  const appIx = (a) => APPS.findIndex((x) => x.id === a.info.app);
+  const kindIx = (a) => os.kinds.findIndex((k) => k.id === a.info.kind);
+  return (x, y) => appIx(x) - appIx(y) || kindIx(x) - kindIx(y) || x.name.localeCompare(y.name);
+}
+
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const attrJson = (o) => esc(JSON.stringify(o));
@@ -188,6 +206,7 @@ export function renderNone(cat = loadCatalog()) {
 /** The page for one release. */
 export function render(release, cat = loadCatalog()) {
   const tag = String(release.tagName ?? "");
+  const version = publicName(tag);
   const date = String(release.publishedAt ?? "").slice(0, 10);
   const assets = (release.assets ?? []).map((a) => ({ ...a, info: classify(a.name) })).filter((a) => a.info);
   const find = (app, os, kind) => assets.find((a) => a.info.app === app && a.info.os === os && a.info.kind === kind);
@@ -216,8 +235,8 @@ export function render(release, cat = loadCatalog()) {
     }).join("");
     const sums = assets
       .filter((a) => a.info.os === os.id)
-      .sort((x, y) => x.name.localeCompare(y.name))
-      .map((a) => `\n            <dt>${esc(a.name)}</dt><dd><code>${sha256Of(a) || "–"}</code></dd>`)
+      .sort(fileOrder(os))
+      .map((a) => `\n            <dt data-app="${a.info.app}">${esc(a.name)}</dt><dd><code>${sha256Of(a) || "–"}</code></dd>`)
       .join("");
     return `
       <section class="os" data-os="${os.id}">
@@ -239,11 +258,11 @@ export function render(release, cat = loadCatalog()) {
     <header class="hero">
       <a class="wordmark" href="./" aria-label="rusuit.es"><span class="wm-a">rusuit</span><span class="wm-b">.es</span></a>
       <h1 ${i18n(cat, "portal.dl.heading")}</h1>
-      <p class="lead" ${i18n(cat, "portal.dl.lead", { params: { tag } })}</p>
+      <p class="lead" ${i18n(cat, "portal.dl.lead", { params: { tag: version } })}</p>
       <p class="sub">${prerelease ? `<span class="pill" ${i18n(cat, "portal.dl.prerelease")}</span> ` : ""}${date ? `<span data-date="${esc(date)}" ${i18n(cat, "portal.dl.released", { params: { date } })}</span>` : ""}</p>
       ${webLinks(cat)}
     </header>
-    <main data-testid="downloads" data-release="${esc(tag)}">
+    <main data-testid="downloads" data-release="${esc(tag)}" data-version="${esc(version)}">
       <aside class="unsigned" role="note">
         <h2 ${i18n(cat, "portal.dl.unsigned.title")}</h2>
         <p ${i18n(cat, "portal.dl.unsigned.text")}</p>

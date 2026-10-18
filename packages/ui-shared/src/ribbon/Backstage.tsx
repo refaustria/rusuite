@@ -17,6 +17,7 @@ import { baseName } from "../connectors/paths";
 import { AiOverlay } from "../ai/ui/AiOverlay";
 import { ReportOverlay } from "../report/ui/ReportDialog";
 import { ReportBackstageItem } from "../report/ui/ribbon";
+import { publicVersion, RUSUITE_VERSION } from "../version";
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -351,6 +352,9 @@ export function Backstage({
           <ReportBackstageItem pick={pick} />
         </ul>
         <LanguageSelect className="px-5 pb-1 pt-2 text-xs [&_span]:text-white/90" />
+        <p className="px-5 pt-1 text-xs text-white/80" data-testid="backstage-version" title={RUSUITE_VERSION}>
+          {appName} {publicVersion(RUSUITE_VERSION)}
+        </p>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-auto p-8">
         <header>
