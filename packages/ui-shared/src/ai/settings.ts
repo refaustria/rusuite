@@ -26,6 +26,11 @@ export interface AiSettings {
   includeDocument: boolean;
   /** Reasoning effort for models with adaptive thinking (actions may ask for more, see `AiAction.effort`). */
   effort: AiEffort;
+  /**
+   * OpenAI-compatible models the user marked as accepting pictures ("vision"); only these get image blocks (every
+   * current Claude model accepts them).
+   */
+  visionModels: string[];
 }
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -39,6 +44,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   temperature: 0.7,
   includeDocument: false,
   effort: "low",
+  visionModels: [],
 };
 
 export const MAX_TOKENS_LIMIT = 128_000;
@@ -70,6 +76,7 @@ export function parseAiSettings(json: string | null | unknown): AiSettings {
     temperature: clamp(o.temperature, 0, 2, d.temperature),
     includeDocument: o.includeDocument === true,
     effort: AI_EFFORTS.includes(o.effort as AiEffort) ? (o.effort as AiEffort) : d.effort,
+    visionModels: Array.isArray(o.visionModels) ? [...new Set(o.visionModels.filter((m): m is string => typeof m === "string" && m.trim() !== "").map((m) => m.trim()))].slice(0, 50) : [],
   };
 }
 

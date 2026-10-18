@@ -10,7 +10,7 @@ import { buildMessages, documentContext, systemPrompt, textHash, type DocContext
 import { createProvider, type ProviderFactory } from "./providers";
 import { parseAiSettings, type AiSettings, type AiStore } from "./settings";
 import { supportsEffort } from "./providers/anthropic";
-import { AI_EFFORTS, AiError, type AiEffort, type AiMessage, type AiProvider, type AiTool, type ModelInfo } from "./types";
+import { AI_EFFORTS, AiError, type AiContentPart, type AiEffort, type AiImage, type AiMessage, type AiProvider, type AiTool, type ModelInfo } from "./types";
 import { t } from "../i18n/locale";
 
 /** A button under a result (Insert, Replace selection, Insert formula, Apply, Set as speaker notes, …). */
@@ -37,6 +37,11 @@ export interface AiAction<T = unknown> {
   task(input: string, ctx: DocContext): string;
   /** Extra system instructions (e.g. the plain-text rule). */
   system?: string;
+  /**
+   * Pictures (and text that belongs to them, e.g. a chart's data table) this action sends with its turn – read when
+   * the action runs (the selected picture, the chart).
+   */
+  attachments?: (ctx: DocContext) => Promise<{ images: AiImage[]; text?: string }>;
   /** A structured result: the tool and its parser. */
   tool?: AiTool;
   parse?: (raw: unknown) => T;
@@ -74,6 +79,8 @@ export interface AiTurn {
   thinking?: string;
   /** The reasoning effort sent (absent where the model / provider takes none). */
   effort?: AiEffort;
+  /** Labels of the pictures sent with this turn. */
+  images?: string[];
   /** The parsed result (structured actions), or the final text. */
   value?: unknown;
   status: AiTurnStatus;
@@ -104,6 +111,8 @@ export interface AssistantState {
   includeDocument: boolean;
   /** Tokens of this document session. */
   usage: AiUsage;
+  /** Pictures attached for the next turn ("Attach selected picture", "Attach current slide as image"). */
+  attachments: AiImage[];
 }
 
 export interface AssistantOptions {
@@ -153,6 +162,7 @@ export class Assistant {
       running: false,
       includeDocument: settings.includeDocument,
       usage: { ...NO_USAGE },
+      attachments: [],
     };
   }
 
@@ -308,7 +318,25 @@ export class Assistant {
   documentReplaced(): void {
     this.stop();
     this.sentDocument = null;
-    this.set({ turns: [], usage: { ...NO_USAGE }, includeDocument: this.state.settings.includeDocument });
+    this.set({ turns: [], usage: { ...NO_USAGE }, includeDocument: this.state.settings.includeDocument, attachments: [] });
+  }
+
+  // --- pictures -----------------------------------------------------------------------
+
+  /** Whether the configured model takes pictures: Claude always; OpenAI-compatible when marked in the settings. */
+  acceptsImages(): boolean {
+    const s = this.state.settings;
+    return s.provider === "anthropic" || s.visionModels.includes(s.models[s.provider]);
+  }
+
+  /** Adds a picture to the next turn (at most 5 pending; the same picture once). */
+  attach(image: AiImage): void {
+    const rest = this.state.attachments.filter((a) => a.data !== image.data);
+    this.set({ attachments: [...rest, image].slice(-5) });
+  }
+
+  detach(index: number): void {
+    this.set({ attachments: this.state.attachments.filter((_, i) => i !== index) });
   }
 
   clearConversation(): void {
@@ -359,6 +387,19 @@ export class Assistant {
       const provider = await this.provider();
       const includeDocument = this.state.includeDocument;
       const messages = buildMessages(ctx, includeDocument, action.task(input.trim(), ctx), this.history(action as AiAction<unknown>));
+      // Pictures: the pending attachments plus the action's own (the selected picture, the chart).
+      const pending = this.state.attachments;
+      const own = action.attachments ? await action.attachments(ctx) : { images: [] };
+      const images = [...pending, ...own.images];
+      if (images.length && !this.acceptsImages()) throw new AiError("noVision", "This model is not marked as accepting pictures");
+      if (images.length || own.text) {
+        const last = messages[messages.length - 1]!;
+        const text = `${own.text ? `${own.text}\n\n` : ""}${last.content as string}`;
+        const parts: AiContentPart[] = [...images.map((image): AiContentPart => ({ type: "image", image })), { type: "text", text }];
+        messages[messages.length - 1] = { role: "user", content: parts };
+        if (pending.length) this.set({ attachments: [] });
+        if (images.length) this.updateTurn(id, { images: images.map((i) => i.label) });
+      }
       const doc = documentContext(ctx, includeDocument);
       if (doc !== undefined) {
         // The provider caches the document block; a changed document is simply a new block (and cache entry).

@@ -8,9 +8,11 @@
 import type { Editor, JSONContent } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import {
-  DRAFT_TOOL, PLAIN_TEXT_RULE, TABLE_TOOL, paragraphsOf, parseDraft, parseTable, plainText,
-  type AiAction, type AiAppAdapter, type AiApply, type DocContext, type DraftBlock, type TableResult,
+  ALT_TEXT_TASK, DRAFT_TOOL, PLAIN_TEXT_RULE, TABLE_TOOL, imageFromUrl, paragraphsOf, parseDraft, parseTable, plainText,
+  type AiAction, type AiAppAdapter, type AiApply, type AiAttachSource, type AiImage, type DocContext, type DraftBlock, type TableResult,
 } from "@rusuite/ui-shared";
+import { NodeSelection } from "@tiptap/pm/state";
+import { selectedImage, setImageAttrs } from "../features/images";
 import { t } from "../i18n";
 import { countDocWords } from "../wordCount";
 import type { SyncController } from "../sync/SyncPlugin";
@@ -20,6 +22,17 @@ export interface WriteAnchor {
   from: number;
   to: number;
   text: string;
+  /** The selected picture (its position and media id) when the request started. */
+  image?: { pos: number; media: number };
+}
+
+/** Alt text as written by the model: one line, no quotes or "Alt text:" preface. */
+export function cleanAltText(text: string): string {
+  return plainText(text)
+    .replace(/\s*\n+\s*/g, " ")
+    .replace(/^(alt(ernative)?[ -]?text|alt-?text|alternativtext)\s*:\s*/i, "")
+    .replace(/^["“„«]+|["”“»]+$/g, "")
+    .trim();
 }
 
 const BLOCK_SEP = "\n\n";
@@ -94,6 +107,34 @@ const TONES = ["formal", "friendly", "concise"] as const;
 
 export function writeAiAdapter(editor: Editor, ctl: SyncController): AiAppAdapter {
   const anchorOf = (turn: { anchor?: unknown }) => turn.anchor as WriteAnchor | undefined;
+  const picture = () => {
+    const sel = selectedImage(editor.state);
+    const media = sel?.node.attrs.mediaId;
+    return sel && typeof media === "number" ? { pos: sel.pos, media } : null;
+  };
+  const pictureImage = async (): Promise<AiImage> => {
+    const p = picture();
+    if (!p) throw new Error(t("ai.write.noPicture"));
+    return imageFromUrl(await ctl.media.resolve(p.media), t("ai.write.pictureLabel"));
+  };
+  const attachPicture: AiAttachSource = {
+    id: "picture",
+    label: t("ai.pane.attachPicture"),
+    unavailable: () => (picture() ? null : t("ai.write.noPicture")),
+    load: pictureImage,
+  };
+  const setAlt: AiApply<string> = {
+    label: t("ai.write.setAlt"),
+    run: async (text, turn) => {
+      const a = anchorOf(turn)?.image;
+      // The picture of the request (if it is still there), else the selected one.
+      const node = a ? editor.state.doc.nodeAt(a.pos) : null;
+      const pos = node?.type.name === "image" && node.attrs.mediaId === a!.media ? a!.pos : (picture()?.pos ?? null);
+      const alt = cleanAltText(text);
+      if (pos === null || !alt || !setImageAttrs(editor.view, pos, { alt, decorative: false })) throw new Error(t("ai.write.noPicture"));
+      return t("ai.write.altSet");
+    },
+  };
   const replace: AiApply<string> = {
     label: t("ai.write.replace"),
     run: async (text, turn) => {
@@ -124,8 +165,10 @@ export function writeAiAdapter(editor: Editor, ctl: SyncController): AiAppAdapte
     textApply: [insert, replace],
     anchor: () => {
       const r = selectionRange(editor);
-      return { from: r.from, to: r.to, text: r.text } satisfies WriteAnchor;
+      const p = picture();
+      return { from: r.from, to: r.to, text: r.text, ...(p ? { image: p } : {}) } satisfies WriteAnchor;
     },
+    attachSources: [attachPicture],
     subscribe: (fn) => {
       editor.on("selectionUpdate", fn);
       editor.on("update", fn);
@@ -136,6 +179,7 @@ export function writeAiAdapter(editor: Editor, ctl: SyncController): AiAppAdapte
     },
     hasSelection: () => selectionRange(editor).text.trim() !== "",
     selectionLabel: () => {
+      if (editor.state.selection instanceof NodeSelection && picture()) return t("ai.write.ctxPicture");
       const r = selectionRange(editor);
       if (!r.text.trim()) return t("ai.write.ctxNone");
       return t(r.whole ? "ai.write.ctxParagraph" : "ai.write.ctxSelection", { count: r.text.length });
@@ -148,7 +192,11 @@ export function writeAiAdapter(editor: Editor, ctl: SyncController): AiAppAdapte
         app: "write",
         title: ctl.getState().name ?? t("doc.untitled"),
         description: `Word-processor document, ${words()} words, ${doc.childCount} blocks.`,
-        selectionLabel: r.text.trim() ? t(r.whole ? "ai.write.ctxParagraph" : "ai.write.ctxSelection", { count: r.text.length }) : t("ai.write.ctxNone"),
+        selectionLabel: picture()
+          ? t("ai.write.ctxPicture")
+          : r.text.trim()
+            ? t(r.whole ? "ai.write.ctxParagraph" : "ai.write.ctxSelection", { count: r.text.length })
+            : t("ai.write.ctxNone"),
         selection: r.text,
         ...(includeDocument ? { document: textOf(doc, 0, doc.content.size) } : {}),
       };
@@ -167,6 +215,15 @@ export function writeAiAdapter(editor: Editor, ctl: SyncController): AiAppAdapte
         input: { placeholder: t("ai.write.translatePlaceholder"), required: true },
         task: (lang) => `Translate the selected text into ${lang}.`,
       }),
+      {
+        id: "alt",
+        label: t("ai.write.describePicture"),
+        unavailable: () => (picture() ? null : t("ai.write.noPicture")),
+        task: () => ALT_TEXT_TASK,
+        system: PLAIN_TEXT_RULE,
+        attachments: async () => ({ images: [await pictureImage()] }),
+        apply: [setAlt],
+      } satisfies AiAction<string>,
       {
         id: "summarize",
         label: t("ai.write.summarize"),

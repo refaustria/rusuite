@@ -110,7 +110,13 @@ export type AiErrorKind =
   | "noResult"
   | "off"
   | "busy"
-  | "noKey";
+  | "noKey"
+  /** A picture over 5 MB even after scaling down. */
+  | "imageTooLarge"
+  /** A picture that cannot be decoded here (e.g. EMF / WMF) or no canvas. */
+  | "imageUnsupported"
+  /** Pictures for a model not marked as accepting them (OpenAI-compatible, Settings › AI). */
+  | "noVision";
 
 /** A failure with a message for the user (never containing the API key). */
 export class AiError extends Error {

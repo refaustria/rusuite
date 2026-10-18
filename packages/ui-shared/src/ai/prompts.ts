@@ -47,7 +47,7 @@ export function truncate(text: string, max: number): { text: string; truncated: 
 const APP_NAME: Record<AiApp, string> = { write: "Rusuite Write (a word processor)", calc: "Rusuite Calc (a spreadsheet)", show: "Rusuite Show (a presentation editor)" };
 
 /** XML-ish escaping of the closing tag only (the content is the user's text and stays as written). */
-const block = (tag: string, text: string, attrs = "") => `<${tag}${attrs}>\n${text.replace(new RegExp(`</${tag}>`, "gi"), `<\\/${tag}>`)}\n</${tag}>`;
+export const block = (tag: string, text: string, attrs = "") => `<${tag}${attrs}>\n${text.replace(new RegExp(`</${tag}>`, "gi"), `<\\/${tag}>`)}\n</${tag}>`;
 
 /** The context part of the user message. */
 export function contextText(ctx: DocContext, includeDocument: boolean): string {
@@ -91,6 +91,14 @@ export function textHash(text: string): string {
 export function contextSize(ctx: DocContext, includeDocument: boolean): number {
   return contextText(ctx, includeDocument).length;
 }
+
+/** "Describe this picture → alt text" (Write, Show): the attached picture's alternative text. */
+export const ALT_TEXT_TASK =
+  "Write alternative text for the attached picture, for people who cannot see it: one or two plain sentences (at most about 250 characters) saying what it shows and, if it carries information (a chart, a diagram, text in it), that information. No preface such as \"Image of\", no quotes, no Markdown. Write it in the language of the document.";
+
+/** "Explain this chart" (Calc, Show): the attached chart picture plus its data table (`<chart_data>`). */
+export const EXPLAIN_CHART_TASK =
+  "Explain the attached chart: what it shows, the main trend or comparison, and anything notable (highest and lowest values, outliers). Take exact values from the data table in <chart_data>, not from the picture. A short paragraph or a few short lines of plain text, no Markdown.";
 
 /** Rule for answers inserted as document text. */
 export const PLAIN_TEXT_RULE =

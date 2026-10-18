@@ -182,6 +182,27 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
           )}
         </div>
       </div>
+      {provider === "openai" && (
+        <div className="flex items-start gap-2 text-sm">
+          <input
+            id={f("vision")}
+            type="checkbox"
+            className="mt-0.5"
+            checked={draft.visionModels.includes(model)}
+            aria-describedby={f("vision-note")}
+            data-testid="ai-vision"
+            onChange={(e) =>
+              patch({ visionModels: e.target.checked ? [...draft.visionModels.filter((m) => m !== model), model] : draft.visionModels.filter((m) => m !== model) })
+            }
+          />
+          <span>
+            <label htmlFor={f("vision")}>{t("ai.settings.vision")}</label>
+            <span id={f("vision-note")} className="block text-xs text-ui-muted">
+              {t("ai.settings.visionNote")}
+            </span>
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <label className={row} htmlFor={f("max")}>
           {t("ai.settings.maxTokens")}

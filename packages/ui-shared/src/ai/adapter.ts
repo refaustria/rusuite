@@ -3,6 +3,17 @@
 
 import type { AiAction, AiApply } from "./controller";
 import type { AiApp, DocContext } from "./prompts";
+import type { AiImage } from "./types";
+
+/** A picture the user can attach to the next turn ("Attach selected picture", "Attach current slide as image"). */
+export interface AiAttachSource {
+  id: string;
+  label: string;
+  /** Why it cannot be used now (`null`: it can) – a primitive, re-read after `subscribe` events. */
+  unavailable(): string | null;
+  /** The picture, scaled for sending (`images.ts`). */
+  load(): Promise<AiImage>;
+}
 import { PLAIN_TEXT_RULE } from "./prompts";
 
 export interface AiAppAdapter {
@@ -21,6 +32,8 @@ export interface AiAppAdapter {
   anchor?(): unknown;
   /** Buttons under free-form answers (Copy is always there). */
   textApply: AiApply<string>[];
+  /** Pictures that can be attached to the next turn. */
+  attachSources?: AiAttachSource[];
 }
 
 /** The free-form prompt ("Ask the assistant"): a text answer with the app's Insert / Replace buttons. */

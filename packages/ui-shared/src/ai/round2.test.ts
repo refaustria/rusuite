@@ -10,6 +10,10 @@ import { resetUnsupportedParams, sseEvents, type FetchLike } from "./providers/h
 import { Assistant, effectiveEffort, type AiAction } from "./controller";
 import { documentContext, textHash, type DocContext } from "./prompts";
 import { MemoryAiStore, parseAiSettings } from "./settings";
+import { IMAGE_MAX_BYTES, base64Size, chartDataTable, encodeRaster, fitWithin, imageFromUrl, parseDataUrl, type ImageCodec, type Raster } from "./images";
+import { anthropicContent } from "./providers/anthropic";
+import { openAiContent } from "./providers/openai";
+import { AiError, type AiImage } from "./types";
 import type { AiProvider, AiRequest, Delta } from "./types";
 
 export function stream(text: string): ReadableStream<Uint8Array> {
@@ -271,5 +275,140 @@ describe("reasoning effort", () => {
     const ai = new Assistant({ store });
     ai.saveSettings({ effort: "medium" });
     expect(new Assistant({ store }).getState().settings.effort).toBe("medium");
+  });
+});
+
+/** A codec that "decodes" any URL to `size` and "encodes" to base64 strings of a chosen length. */
+function fakeCodec(size: { width: number; height: number }, bytes: (type: string, quality?: number) => number = () => 1000) {
+  const encoded: { width: number; height: number; type: string; quality?: number }[] = [];
+  const codec: ImageCodec = {
+    load: async (url) => {
+      if (url.includes("broken")) throw new AiError("imageUnsupported", "x");
+      return { ...size, draw: () => undefined } satisfies Raster;
+    },
+    encode: (_r, width, height, type, quality) => {
+      encoded.push({ width, height, type, ...(quality !== undefined ? { quality } : {}) });
+      return `data:${type};base64,${"A".repeat(Math.ceil((bytes(type, quality) * 4) / 3))}`;
+    },
+  };
+  return { codec, encoded };
+}
+
+const png = (bytes: number) => `data:image/png;base64,${"A".repeat(Math.ceil((bytes * 4) / 3))}`;
+const img = (label = "Picture"): AiImage => ({ mediaType: "image/png", data: "iVBORw0KGgo=", width: 10, height: 10, label });
+
+describe("pictures", () => {
+  it("fitWithin: at most 1568 px on the long side, never enlarged", () => {
+    expect(fitWithin(3000, 2000)).toEqual({ width: 1568, height: 1045, scaled: true });
+    expect(fitWithin(1000, 4000)).toEqual({ width: 392, height: 1568, scaled: true });
+    expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600, scaled: false });
+    expect(fitWithin(1568, 10)).toMatchObject({ scaled: false });
+  });
+
+  it("base64Size and parseDataUrl", () => {
+    expect(base64Size("QUJD")).toBe(3);
+    expect(base64Size("QUI=")).toBe(2);
+    expect(base64Size("QQ==")).toBe(1);
+    expect(parseDataUrl("data:image/PNG;base64,QU\nJD")).toEqual({ mediaType: "image/png", data: "QUJD" });
+    expect(parseDataUrl("blob:http://x/1")).toBeNull();
+  });
+
+  it("a small PNG / JPEG data URL is sent as it is", async () => {
+    const { codec, encoded } = fakeCodec({ width: 640, height: 480 });
+    const out = await imageFromUrl(png(2000), "Picture 1", codec);
+    expect(encoded).toEqual([]);
+    expect(out).toMatchObject({ mediaType: "image/png", width: 640, height: 480, label: "Picture 1" });
+  });
+
+  it("a large picture is redrawn at 1568 px (object URLs and other types always are)", async () => {
+    const big = fakeCodec({ width: 4000, height: 3000 });
+    expect(await imageFromUrl(png(2000), "P", big.codec)).toMatchObject({ width: 1568, height: 1176, mediaType: "image/png" });
+    expect(big.encoded).toEqual([{ width: 1568, height: 1176, type: "image/png" }]);
+    const blob = fakeCodec({ width: 300, height: 200 });
+    await imageFromUrl("blob:http://localhost/abc", "P", blob.codec);
+    expect(blob.encoded).toEqual([{ width: 300, height: 200, type: "image/png" }]);
+    const bmp = fakeCodec({ width: 300, height: 200 });
+    expect((await imageFromUrl("data:image/bmp;base64,Qk0=", "P", bmp.codec)).mediaType).toBe("image/png");
+  });
+
+  it("over 5 MB as PNG: JPEG instead; still too large: an error", () => {
+    const raster: Raster = { width: 1500, height: 1500, draw: () => undefined };
+    const jpeg = fakeCodec({ width: 1, height: 1 }, (type) => (type === "image/png" ? IMAGE_MAX_BYTES + 1 : 900_000));
+    expect(encodeRaster(raster, "Slide 1", jpeg.codec).mediaType).toBe("image/jpeg");
+    expect(jpeg.encoded.map((e) => e.type)).toEqual(["image/png", "image/jpeg"]);
+    const huge = fakeCodec({ width: 1, height: 1 }, () => IMAGE_MAX_BYTES + 1);
+    expect(() => encodeRaster(raster, "Slide 1", huge.codec)).toThrow(/5 MB/);
+  });
+
+  it("an unreadable picture is an imageUnsupported error", async () => {
+    const { codec } = fakeCodec({ width: 1, height: 1 });
+    await expect(imageFromUrl("data:image/x-emf;base64,broken", "P", codec)).rejects.toMatchObject({ kind: "imageUnsupported" });
+  });
+
+  it("chartDataTable: categories down, one column per series; scatter as x / y; empty", () => {
+    const t = chartDataTable({
+      title: "Sales",
+      series: [
+        { name: "2025", categories: ["Q1", "Q2"], values: [10, 12.5] },
+        { name: "2026", categories: ["Q1", "Q2"], values: [11, null] },
+      ],
+    });
+    expect(t).toBe("Title: Sales\nCategory\t2025\t2026\nQ1\t10\t11\nQ2\t12.5\t");
+    expect(chartDataTable({ series: [{ name: "Fit", categories: [], xValues: [1, 2], values: [3, 4] }] })).toBe("Series\tx\ty\nFit\t1\t3\nFit\t2\t4");
+    expect(chartDataTable({ series: [] })).toBe("(no data)");
+  });
+
+  it("image blocks: Anthropic base64 source before the text; OpenAI image_url data URL", () => {
+    const m = { role: "user" as const, content: [{ type: "image" as const, image: img() }, { type: "text" as const, text: "Describe" }] };
+    expect(anthropicContent(m)).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } },
+      { type: "text", text: "Describe" },
+    ]);
+    expect(openAiContent(m)).toEqual([
+      { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+      { type: "text", text: "Describe" },
+    ]);
+    expect(anthropicContent({ role: "user", content: "plain" })).toBe("plain");
+  });
+
+  it("controller: attached pictures go with the next turn (before the text) and are then cleared", async () => {
+    const { ai, requests } = await enabled([{ type: "text", text: "A cat." }, { type: "stop", reason: "end_turn" }]);
+    ai.attach(img("Slide 1"));
+    ai.attach(img("Slide 1"));
+    expect(ai.getState().attachments).toHaveLength(1);
+    const turn = await ai.run(ask, "What is this?", ctx());
+    const parts = requests[0]!.messages.at(-1)!.content as { type: string }[];
+    expect(parts.map((p) => p.type)).toEqual(["image", "text"]);
+    expect(turn.images).toEqual(["Slide 1"]);
+    expect(ai.getState().attachments).toEqual([]);
+    await ai.run(ask, "And now?", ctx());
+    expect(typeof requests[1]!.messages.at(-1)!.content).toBe("string");
+  });
+
+  it("controller: an action's own picture and text (a chart's data table) come before the task", async () => {
+    const { ai, requests } = await enabled([{ type: "stop", reason: "end_turn" }]);
+    const explain: AiAction<string> = { id: "explainChart", label: "Explain", task: () => "Explain it", attachments: async () => ({ images: [img("Chart 1")], text: "<chart_data>\nA\t1\n</chart_data>" }), apply: [] };
+    await ai.run(explain, "", ctx());
+    const parts = requests[0]!.messages[0]!.content as { type: string; text?: string }[];
+    expect(parts[0]!.type).toBe("image");
+    expect(parts[1]!.text).toMatch(/^<chart_data>[\s\S]*<task>\nExplain it/);
+  });
+
+  it("controller: OpenAI-compatible models get pictures only when marked in the settings", async () => {
+    const { ai, requests } = await enabled([{ type: "stop", reason: "stop" }], "openai");
+    ai.attach(img());
+    const turn = await ai.run(ask, "q", ctx());
+    expect(turn.status).toBe("error");
+    expect(turn.error).toContain("accepting pictures");
+    expect(requests).toHaveLength(0);
+    expect(ai.getState().attachments).toHaveLength(1);
+    ai.saveSettings({ visionModels: ["gpt-5-mini"] });
+    expect((await ai.run(ask, "q", ctx())).status).toBe("done");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("settings: vision models persist (strings only, no duplicates)", () => {
+    expect(parseAiSettings({ visionModels: ["llava", "llava", 3, " gpt-5 "] }).visionModels).toEqual(["llava", "gpt-5"]);
+    expect(parseAiSettings({}).visionModels).toEqual([]);
   });
 });
