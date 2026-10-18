@@ -375,3 +375,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Handouts | Uddelingskopier | print |
 | Poster Frame | Plakatramme | PowerPoint media |
 | Fade / Wipe / Split | Udtoning / Visk ud / Opdel | animation and transition |
+| Split (View) | Opdel | Calc (P9-LF) |
+| Go To Special… / Special… | Gå til speciel… / Speciel… | Calc |
+| Picture Format / Alt Text | Billedformat / Alternativ tekst | Calc |
+| Mention someone | Nævn en person | Calc comments |

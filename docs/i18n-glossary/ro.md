@@ -373,3 +373,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | AI assistant | Asistent AI | |
 | Flowchart (shapes) | Schemă logică | "Organigramă" is the org chart |
 | Zoom (effect, transition, group) | Panoramare | |
+| Split (View) | Scindare | Calc (P9-LF) |
+| Go To Special… / Special… | Salt la special… / Special… | Calc |
+| Picture Format / Alt Text | Format imagine / Text alternativ | Calc |
+| Mention someone | Menționează pe cineva | Calc comments |

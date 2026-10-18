@@ -372,3 +372,7 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | Table of contents | Obsah | Write |
 | Entrance / Emphasis / Exit (animations) | Úvodné / Zvýraznenie / Koncové | Show |
 | Sparkline | Miniatúrny graf | Calc |
+| Split (View) | Rozdeliť | Calc (P9-LF) |
+| Go To Special… / Special… | Prejsť na – špeciálne… / Špeciálne… | Calc |
+| Picture Format / Alt Text | Formát obrázka / Alternatívny text | Calc |
+| Mention someone | Spomenúť niekoho | Calc comments |
