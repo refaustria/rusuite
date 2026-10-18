@@ -376,3 +376,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | Go To Special… / Special… | Prejsť na – špeciálne… / Špeciálne… | Calc |
 | Picture Format / Alt Text | Formát obrázka / Alternatívny text | Calc |
 | Mention someone | Spomenúť niekoho | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Uvažovanie | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | vynechaný/á/é | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | prečítaný/á/é ako | reader warnings |
+| dangling relationship | neplatný vzťah | reader warnings |
+| Custom show (PowerPoint) | Vlastná prezentácia | `reader.pptx.customShow.*` |
+| Pivot cache | vyrovnávacia pamäť kontingenčnej tabuľky | `reader.xlsx.pivotCache.*` |

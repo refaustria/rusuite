@@ -4,7 +4,7 @@ Releases are cut from `main` by the PM (agents never tag, publish or deploy). A 
 Release built by `.github/workflows/release.yml`; nothing is public until someone presses **Publish release**.
 
 ## 1. Prepare `main`
-1. `main` is green in CI (`rust`, `frontend`, `e2e`), and `pnpm i18n:check:strict` passes (no pending translation keys, docs/i18n.md). Last green: 2026-10-18 (P9-LF pass 1, all 22 translated languages).
+1. `main` is green in CI (`rust`, `frontend`, `e2e`), and `pnpm i18n:check:strict` passes (no pending translation keys, docs/i18n.md). Last green: 2026-10-18 (P9-LF pass 2, all 22 translated languages, including the P9-A1/A2 AI and P9-X2 reader-warning keys).
 2. Set the version everywhere and commit it:
    ```
    scripts/set-version.sh 0.1.0-rc.1      # workspace Cargo.toml (+ members with a literal version), Cargo.lock,

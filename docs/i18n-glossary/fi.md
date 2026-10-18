@@ -381,3 +381,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Go To Special… / Special… | Siirry määräten… / Määräten… | Calc |
 | Picture Format / Alt Text | Kuvan muotoilu / Vaihtoehtoinen teksti | Calc |
 | Mention someone | Mainitse joku | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Päättely | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | jätetty pois | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | luettu …na | reader warnings |
+| dangling relationship | irrallinen suhde | reader warnings |
+| Custom show (PowerPoint) | Mukautettu esitys | `reader.pptx.customShow.*` |
+| Pivot cache | pivot-välimuisti | `reader.xlsx.pivotCache.*` |

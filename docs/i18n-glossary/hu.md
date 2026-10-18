@@ -388,3 +388,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Go To Special… / Special… | Irányított kijelölés… / Irányított… | Calc |
 | Picture Format / Alt Text | Képformátum / Alternatív szöveg | Calc |
 | Mention someone | Valaki megemlítése | Calc comments |
+| Reasoning (AI setting, reasoning_effort) | Gondolkodás | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | elhagyva | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | …ként olvasva | reader warnings |
+| dangling relationship | érvénytelen kapcsolat | reader warnings |
+| Custom show (PowerPoint) | Egyéni vetítés | `reader.pptx.customShow.*` |
+| Pivot cache | kimutatás-gyorsítótár | `reader.xlsx.pivotCache.*` |

@@ -379,3 +379,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | Go To Special… / Special… | Gå till special… / Special… | Calc |
 | Picture Format / Picture Styles | Bildformat / Bildformat | Calc (as Office) |
 | Alt Text / Mention someone | Alternativ text / Nämn någon | Calc |
+| Reasoning (AI setting, reasoning_effort) | Resonemang | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | ignorerades | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | lästes som | reader warnings |
+| dangling relationship | ogiltig relation | reader warnings |
+| Custom show (PowerPoint) | Anpassat bildspel | `reader.pptx.customShow.*` |
+| Pivot cache | pivotcache | `reader.xlsx.pivotCache.*` |

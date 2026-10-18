@@ -394,3 +394,9 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | High-Low Lines / Up/Down Bars | Linee di massimo e minimo / Barre crescenti/decrescenti | Calc charts |
 | Go To Special… | Vai a formato speciale… | Calc |
 | Picture Format / Alt Text | Formato immagine / Testo alternativo | Calc |
+| Reasoning (AI setting, reasoning_effort) | Ragionamento | Settings › AI, actions (P9-LF pass 2) |
+| dropped (reader warnings) | eliminato/a/i/e | `reader.xlsx.*` / `reader.pptx.*`, as in `reader.docx.*` |
+| read as (reader warnings) | letto/a come | reader warnings |
+| dangling relationship | relazione non valida | reader warnings |
+| Custom show (PowerPoint) | Presentazione personalizzata | `reader.pptx.customShow.*` |
+| Pivot cache | cache pivot | `reader.xlsx.pivotCache.*` |
