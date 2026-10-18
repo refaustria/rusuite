@@ -103,6 +103,13 @@
   "portal.os.share": "dele det – give det videre, med eller uden ændringer",
   "portal.os.code": "Koden findes på <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Fundet et problem? Brug menuen ? Hjælp i programmet (Rapportér et problem…), eller opret en <a href=\"https://github.com/refaustria/rusuite/issues\">issue på GitHub</a>.",
+  "portal.new.h": "Nyt i 3.141",
+  "portal.new.intro": "Det bringer den aktuelle version – detaljerne står i <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">udgivelsesnoterne</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Arkbeskyttelse, udsnitsværktøjer, minidiagrammer, Lynudfyldning, gruppering i pivottabeller, LAMBDA og de nye matrixfunktioner samt mange nye diagramelementer.",
+  "portal.new.item2": "<strong>Write</strong> – Words nummereringsgallerier, sammenkædede tekstbokse, grupperede figurer, skabeloner, nye tabelværktøjer og kommentarer med formatering og @-omtaler.",
+  "portal.new.item3": "<strong>Show</strong> – PowerPoints tabeltypografier, frihåndstegning, mange nye animationer og overgange, beskæring af medier og en oplægsholdervisning med pen.",
+  "portal.new.item4": "<strong>Sprog</strong> – Alle 24 officielle EU-sprog.",
+  "portal.new.item5": "<strong>AI-assistent</strong> – Billeder som input, hurtigere kontekst for hele dokumentet og valgfri ræsonnementsindsats (skrivebordsprogrammer).",
   "portal.soon.h": "Kommer snart",
   "portal.soon.intro": "Hvad de næste udgivelser forventes at give – uden datoer, og planer kan ændres:",
   "portal.soon.item1": "<strong>Mobil</strong> – Android- og iOS-programmer til Calc, Write og Show er planlagt.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – Linkede tekstbokse, grupperede figurer og skabeloner er planlagt.",
   "portal.soon.item6": "<strong>Show</strong> – Flere tabeltypografier, frihåndstegning og beskæring af medier er planlagt.",
   "portal.soon.item7": "<strong>Sprog</strong> – Flere grænsefladesprog er planlagt.",
+  "portal.soon.item8": "<strong>Signerede programmer</strong> – Signerede skrivebordsversioner, så Windows og macOS ikke længere advarer før første start, er planlagt.",
   "portal.soon.close": "Din feedback bestemmer rækkefølgen: fortæl os, hvad du har brug for, via menuen ? Hjælp i programmet (Rapportér et problem…).",
   "portal.soon.link": "Hvad der kommer snart"
 }

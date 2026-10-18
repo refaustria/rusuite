@@ -103,6 +103,13 @@
   "portal.os.share": "jagada seda – edasi anda, muudatustega või ilma",
   "portal.os.code": "Kood asub aadressil <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Leidsid probleemi? Kasuta rakenduse menüüd ? Spikker (Teata probleemist…) või ava <a href=\"https://github.com/refaustria/rusuite/issues\">probleem GitHubis</a>.",
+  "portal.new.h": "Uut versioonis 3.141",
+  "portal.new.intro": "Mida praegune versioon toob – üksikasjad leiad <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">väljalasketeadetest</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Töölehe kaitse, viilutajad, sädejooned, Välktäide, rühmitamine PivotTable’ites, LAMBDA ja uued massiivifunktsioonid ning palju uusi diagrammielemente.",
+  "portal.new.item2": "<strong>Write</strong> – Wordi nummerduskogud, lingitud tekstikastid, rühmitatud kujundid, mallid, uued tabelitööriistad ning vormindatud kommentaarid ja @-mainimised.",
+  "portal.new.item3": "<strong>Show</strong> – PowerPointi tabelilaadid, vabakäejoonistus, palju uusi animatsioone ja üleminekuid, meedia kärpimine ning esitaja vaade pliiatsiga.",
+  "portal.new.item4": "<strong>Keeled</strong> – Kõik ELi 24 ametlikku keelt.",
+  "portal.new.item5": "<strong>AI-assistent</strong> – Pildid sisendina, kiirem kogu dokumendi kontekst ja valitav arutlusvaev (töölauarakendused).",
   "portal.soon.h": "Peagi tulemas",
   "portal.soon.intro": "Mida järgmised väljalasked tuua plaanivad – kuupäevi pole ja plaanid võivad muutuda:",
   "portal.soon.item1": "<strong>Mobiil</strong> – Calci, Write'i ja Show Androidi ning iOS-i rakendused on kavas.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – kavas on lingitud tekstikastid, rühmitatud kujundid ja mallid.",
   "portal.soon.item6": "<strong>Show</strong> – kavas on rohkem tabelilaade, vabakäejoonistus ja meedia kärpimine.",
   "portal.soon.item7": "<strong>Keeled</strong> – kavas on rohkem kasutajaliidese keeli.",
+  "portal.soon.item8": "<strong>Allkirjastatud rakendused</strong> – Kavas on allkirjastatud töölauaversioonid, et Windows ja macOS enam enne esimest käivitust ei hoiataks.",
   "portal.soon.close": "Sinu tagasiside määrab järjekorra: ütle meile, mida vajad, rakenduse menüü ? Spikker kaudu (Teata probleemist…).",
   "portal.soon.link": "Mis on peagi tulemas"
 }

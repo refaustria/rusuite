@@ -103,6 +103,13 @@
   "portal.os.share": "jakaa sitä – antaa sen eteenpäin, muutoksin tai ilman",
   "portal.os.code": "Koodi löytyy <a href=\"https://github.com/refaustria/rusuite\">GitHubista</a>.",
   "portal.os.report": "Löysitkö ongelman? Käytä sovelluksen ? Ohje -valikkoa (Ilmoita ongelmasta…) tai avaa <a href=\"https://github.com/refaustria/rusuite/issues\">issue GitHubissa</a>.",
+  "portal.new.h": "Uutta versiossa 3.141",
+  "portal.new.intro": "Mitä nykyinen versio tuo – tarkemmat tiedot löydät <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">julkaisutiedoista</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Taulukon suojaus, viipaloijat, Sparkline-kaaviot, Pikatäyttö, ryhmittely pivot-taulukoissa, LAMBDA ja uudet matriisifunktiot sekä monia uusia kaavioelementtejä.",
+  "portal.new.item2": "<strong>Write</strong> – Wordin numerointikirjastot, linkitetyt tekstiruudut, ryhmitellyt muodot, mallit, uudet taulukkotyökalut sekä muotoillut kommentit ja @-maininnat.",
+  "portal.new.item3": "<strong>Show</strong> – PowerPointin taulukkotyylit, vapaa piirto, monia uusia animaatioita ja siirtymiä, median leikkaus sekä esittäjänäkymä kynällä.",
+  "portal.new.item4": "<strong>Kielet</strong> – Kaikki EU:n 24 virallista kieltä.",
+  "portal.new.item5": "<strong>Tekoälyavustaja</strong> – Kuvat syötteenä, nopeampi koko asiakirjan konteksti ja valittava päättelyn taso (työpöytäsovellukset).",
   "portal.soon.h": "Tulossa pian",
   "portal.soon.intro": "Mitä seuraavien julkaisujen on suunniteltu tuovan – ei päivämääriä, ja suunnitelmat voivat muuttua:",
   "portal.soon.item1": "<strong>Mobiili</strong> – Android- ja iOS-sovellukset Calcille, Writelle ja Showlle on suunniteltu.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – Linkitetyt tekstiruudut, ryhmitellyt muodot ja mallit on suunniteltu.",
   "portal.soon.item6": "<strong>Show</strong> – Lisää taulukkotyylejä, vapaa piirtäminen ja median leikkaus on suunniteltu.",
   "portal.soon.item7": "<strong>Kielet</strong> – Lisää käyttöliittymäkieliä on suunniteltu.",
+  "portal.soon.item8": "<strong>Allekirjoitetut sovellukset</strong> – Allekirjoitetut työpöytäversiot, jotta Windows ja macOS eivät enää varoita ennen ensimmäistä käynnistystä, on suunniteltu.",
   "portal.soon.close": "Palautteesi vaikuttaa järjestykseen: kerro meille, mitä tarvitset, sovelluksen ? Ohje -valikon kautta (Ilmoita ongelmasta…).",
   "portal.soon.link": "Mitä on tulossa pian"
 }

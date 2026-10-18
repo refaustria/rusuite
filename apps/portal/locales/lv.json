@@ -103,6 +103,13 @@
   "portal.os.share": "dalīties ar to – nodot tālāk, ar izmaiņām vai bez tām",
   "portal.os.code": "Kods atrodas vietnē <a href=\"https://github.com/refaustria/rusuite\">GitHub</a>.",
   "portal.os.report": "Atradi problēmu? Izmanto lietotnes izvēlni ? Palīdzība (Ziņot par problēmu…) vai atver <a href=\"https://github.com/refaustria/rusuite/issues\">problēmu vietnē GitHub</a>.",
+  "portal.new.h": "Kas jauns 3.141",
+  "portal.new.intro": "Ko sniedz pašreizējā versija – detalizēta informācija ir <a href=\"https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.141.md\">laidiena piezīmēs</a>:",
+  "portal.new.item1": "<strong>Calc</strong> – Lapas aizsardzība, griezumi, sparklīnijas, Zibenīgā aizpilde, grupēšana rakurstabulās, LAMBDA un jaunās masīvu funkcijas, kā arī daudz jaunu diagrammu elementu.",
+  "portal.new.item2": "<strong>Write</strong> – Word numerācijas galerijas, saistīti teksta lodziņi, grupētas formas, veidnes, jauni tabulu rīki un komentāri ar formatējumu un @ pieminējumiem.",
+  "portal.new.item3": "<strong>Show</strong> – PowerPoint tabulas stili, brīvrokas zīmēšana, daudz jaunu animāciju un pāreju, multivides apgriešana un prezentētāja skats ar pildspalvu.",
+  "portal.new.item4": "<strong>Valodas</strong> – Visas 24 ES oficiālās valodas.",
+  "portal.new.item5": "<strong>AI asistents</strong> – Attēli kā ievade, ātrāks visa dokumenta konteksts un izvēlams spriešanas līmenis (darbvirsmas lietotnes).",
   "portal.soon.h": "Drīzumā",
   "portal.soon.intro": "Ko plānots ieviest nākamajos izlaidumos – bez datumiem, un plāni var mainīties:",
   "portal.soon.item1": "<strong>Mobilā versija</strong> – plānotas Android un iOS lietotnes Calc, Write un Show.",
@@ -112,6 +119,7 @@
   "portal.soon.item5": "<strong>Write</strong> – plānoti saistīti teksta lodziņi, grupētas formas un veidnes.",
   "portal.soon.item6": "<strong>Show</strong> – plānoti vairāk tabulu stilu, brīvrokas zīmēšana un multivides apgriešana.",
   "portal.soon.item7": "<strong>Valodas</strong> – plānotas vairāk saskarnes valodu.",
+  "portal.soon.item8": "<strong>Parakstītas lietotnes</strong> – Plānotas parakstītas darbvirsmas versijas, lai Windows un macOS pirms pirmās palaišanas vairs nebrīdinātu.",
   "portal.soon.close": "Tava atsauksme nosaka secību: pastāsti, kas tev vajadzīgs, izvēlnē ? Palīdzība lietotnē (Ziņot par problēmu…).",
   "portal.soon.link": "Kas drīzumā gaidāms"
 }
