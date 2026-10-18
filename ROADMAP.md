@@ -188,6 +188,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Presenter: edit notes in the console, pause/per-slide timer, choose screen for the audience window, pen drawing; snap to equal spacing; Selection pane; Format Background pane (gradient/picture); formatted notes; paste-slide elsewhere as one undo step; Alt during drag can focus the ribbon.
 
 ## Cross-cutting
+- P9-X2 (3.141): move `ReaderWarning`/`Note`/`note!` into fmt-ooxml so the three readers share one type and chart notes get codes at the source; show the Reuse Slides pane's stored warnings; translate the pivot "not supported" reasons; `{error}`/`{reason}` parameters stay English inside translated warnings.
 - P9-X1 (3.141): e2e for Write's adjust handles on a rotated shape (drag + keyboard); Show's `handlesOf` should keep the last-known handles while a new outline loads (Write does); adjust handles for Write group members; Show's Konva Transformer could use the shared resize/rotation helpers.
 
 ## Ribbon
