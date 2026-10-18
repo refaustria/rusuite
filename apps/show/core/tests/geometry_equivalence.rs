@@ -43,6 +43,26 @@ fn queries(kind: serde_json::Value, names: &[&str]) -> Vec<serde_json::Value> {
     out
 }
 
+/// Serialises to JSON with every floating-point number rounded to the nearest
+/// integer (EMU), so the digest does not depend on libm/FMA differences
+/// between platforms in the trigonometric presets.
+fn quantise(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Number(n) if n.is_f64() => {
+            *v = serde_json::Value::from(n.as_f64().unwrap().round() as i64);
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(quantise),
+        serde_json::Value::Object(m) => m.values_mut().for_each(quantise),
+        _ => {}
+    }
+}
+
+fn stable_json<T: serde::Serialize>(v: &T) -> String {
+    let mut v = serde_json::to_value(v).unwrap();
+    quantise(&mut v);
+    v.to_string()
+}
+
 #[test]
 fn shape_paths_are_unchanged() {
     let mut out = String::new();
@@ -51,7 +71,7 @@ fn shape_paths_are_unchanged() {
             .into_iter()
             .map(|q| serde_json::from_value::<PathQuery>(q).unwrap().compute())
             .collect();
-        let json = serde_json::to_string(&answers).unwrap();
+        let json = stable_json(&answers);
         out.push_str(&format!("{label} {:016x}\n", fnv(&json)));
     };
     for p in model_show::Preset::ALL {
