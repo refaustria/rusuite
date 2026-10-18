@@ -60,9 +60,21 @@ function loadInto(src: Source, l: Locale): Promise<void> {
 
 const loadedEverywhere = (l: Locale) => sources.every((s) => s.loaded.has(l) || !s.lazy[l]);
 
+/**
+ * Test-only hook (docs/i18n.md "Fallback tests"): once all 24 languages have catalogs, the "(not translated yet)"
+ * fallback is still tested by declaring a registered language catalog-less: `globalThis.__rusuiteNoCatalog = ["mt"]`
+ * (unit tests) or `page.addInitScript` before the app loads (e2e). Nothing sets it in the product.
+ */
+function declaredCatalogless(l: Locale): boolean {
+  const list = (globalThis as { __rusuiteNoCatalog?: unknown }).__rusuiteNoCatalog;
+  return Array.isArray(list) && list.includes(l);
+}
+
 /** Whether `l` has catalogs (a translation adds them to every package at once; a missing key falls back to English). */
 export function hasCatalog(l: Locale): boolean {
-  return l === DEFAULT_LOCALE || sources.some((s) => s.loaded.has(l) || !!s.lazy[l]);
+  if (l === DEFAULT_LOCALE) return true;
+  if (declaredCatalogless(l)) return false;
+  return sources.some((s) => s.loaded.has(l) || !!s.lazy[l]);
 }
 
 /** The languages with catalogs, in `LOCALES` order. */

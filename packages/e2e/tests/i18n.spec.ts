@@ -2,12 +2,13 @@
 // the German UI; the choice (View › Language, the backstage, Options ›
 // Language, the portal's language list) is persisted and shared by the
 // portal and the apps. A language whose catalogs have not landed yet
-// shows English without errors (Maltese, translated last).
+// shows English without errors (P9-L11: tested through the test-only `__rusuiteNoCatalog` hook, see below).
 // P9-LR1: every translated language (TRANSLATED) is checked with the labels of its catalogs.
 // P9-LR2: also the browser-language detection per translated language and the carry-over from the portal to an
 // app (formerly the per-language specs i18n-l3/l4).
 // P9-LR3: pl/cs/sk/sl browsers with their region tags (pl-PL, cs-CZ, sk-SK, sl-SI).
 // P9-LR4: hr/hu/ro/bg browsers with their region tags (hr-HR, hu-HU, ro-RO, bg-BG).
+// P9-L11: ga/mt are translated (ga-IE, mt-MT browsers); the "language without catalogs" cases declare mt catalog-less.
 // `I18N_SHOTS=<dir>` also saves screenshots of the German UI there.
 
 import { expect, test, type Page } from "@playwright/test";
@@ -76,7 +77,7 @@ test.describe("German UI", () => {
 // P9-LR1: one spec for every translated language. Expected labels come from the catalogs
 // (support/i18n.ts), so a reworded catalog value does not break the test. A translation task adds its
 // language here once its catalogs have landed (P9-L3 … L11).
-const TRANSLATED = ["de", "fr", "es", "it", "pt", "nl", "sv", "da", "fi", "pl", "cs", "sk", "sl", "hr", "hu", "ro", "bg", "el", "lt", "lv", "et"] as const;
+const TRANSLATED = ["de", "fr", "es", "it", "pt", "nl", "sv", "da", "fi", "pl", "cs", "sk", "sl", "hr", "hu", "ro", "bg", "el", "lt", "lv", "et", "ga", "mt"] as const;
 
 /** The browser language (BCP 47 with region) of the detection test; a language without an entry uses its bare code. */
 const BROWSER_TAG: Partial<Record<string, string>> = {
@@ -99,6 +100,8 @@ const BROWSER_TAG: Partial<Record<string, string>> = {
   bg: "bg-BG",
   lv: "lv-LV",
   et: "et-EE",
+  ga: "ga-IE",
+  mt: "mt-MT",
 };
 
 /** Ribbon tabs of the app that are always there (File opens the backstage; contextual tabs need a selection). */
@@ -258,12 +261,20 @@ test.describe("Language switch", () => {
 });
 
 test.describe("Languages without catalogs yet", () => {
-  // Maltese is translated last (P9-L11). L11: switch this block to a language that still has no catalogs, or
-  // drop it once all 24 have landed.
+  // All 24 languages are translated (P9-L11), so a language "without catalogs" is declared: the test-only hook
+  // `window.__rusuiteNoCatalog` (packages/ui-shared/src/i18n/locale.ts, apps/portal/i18n.js; docs/i18n.md "Fallback
+  // tests") makes the apps and the portal treat the listed registered languages as having no catalog. The init script
+  // runs before the app does, so the first language is the declared one when the browser asks for it.
+  const CATALOGLESS = "mt";
   test.use({ locale: "mt-MT" });
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript((id) => {
+      (window as unknown as { __rusuiteNoCatalog?: string[] }).__rusuiteNoCatalog = [id];
+    }, CATALOGLESS);
+  });
 
   for (const { app, ready } of APPS) {
-    test(`${app}: a Maltese browser gets English until the Maltese catalogs land`, async ({ page }) => {
+    test(`${app}: a browser whose language has no catalogs (mt, declared) gets English`, async ({ page }) => {
       const errors = trackErrors(page);
       const notes: string[] = [];
       page.on("console", (m) => {
@@ -290,7 +301,7 @@ test.describe("Languages without catalogs yet", () => {
     });
   }
 
-  test("portal: the list offers all 24 languages; Maltese shows English", async ({ page }) => {
+  test("portal: the list offers all 24 languages; a language declared catalog-less (mt) shows English", async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto("./");
     await expect(page.getByRole("link", { name: "Open Calc in browser" })).toBeVisible();
