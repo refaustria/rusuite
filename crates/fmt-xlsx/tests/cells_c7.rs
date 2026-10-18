@@ -1,0 +1,315 @@
+//! P9-C7: pane top-left cells, split panes, threaded comment persons and
+//! mentions, note anchors, page breaks and picture anchors / crop.
+
+use std::io::Cursor;
+
+use fmt_ooxml::{Package, PartName};
+use model_sheet::{SheetId, SheetView, Workbook};
+
+fn part(xlsx: &[u8], name: &str) -> String {
+    let pkg = Package::open(Cursor::new(xlsx)).unwrap();
+    String::from_utf8(
+        pkg.part(&PartName::new(name).unwrap())
+            .unwrap()
+            .data
+            .clone(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn frozen_at_a_scroll_position_roundtrips_with_both_top_left_cells() {
+    let mut wb = Workbook::new();
+    let s = SheetId(0);
+    wb.set_frozen_at(s, 5, 1, 19, 2).unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let xml = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(
+        xml.contains(r#"<sheetView tabSelected="1" topLeftCell="C20" workbookViewId="0"><pane xSplit="1" ySplit="5" topLeftCell="D25" activePane="bottomRight" state="frozen"/>"#),
+        "{xml}"
+    );
+    let back = fmt_xlsx::read(&bytes).unwrap();
+    assert_eq!(back.sheet_view(s), wb.sheet_view(s));
+}
+
+#[test]
+fn split_panes_and_the_scroll_position_roundtrip() {
+    let mut wb = Workbook::new();
+    let s = SheetId(0);
+    let view = SheetView {
+        top_row: 3,
+        left_col: 1,
+        split_x: 2400,
+        split_y: 1800,
+        pane_row: 40,
+        pane_col: 6,
+        ..SheetView::default()
+    };
+    wb.set_sheet_view(s, view).unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let xml = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(
+        xml.contains(
+            r#"<pane xSplit="2400" ySplit="1800" topLeftCell="G41" activePane="bottomRight"/>"#
+        ),
+        "{xml}"
+    );
+    assert!(xml.contains(r#"topLeftCell="B4""#), "{xml}");
+    let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(back.sheet_view(s), wb.sheet_view(s));
+    // Only scrolled: the sheet view's topLeftCell alone.
+    let mut wb = Workbook::new();
+    wb.set_sheet_view(
+        s,
+        SheetView {
+            top_row: 99,
+            ..SheetView::default()
+        },
+    )
+    .unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let xml = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(
+        xml.contains(r#"<sheetView tabSelected="1" topLeftCell="A100" workbookViewId="0"/>"#),
+        "{xml}"
+    );
+    assert_eq!(fmt_xlsx::read(&bytes).unwrap().sheet_view(s).top_row, 99);
+}
+
+#[test]
+fn threaded_comment_mentions_and_person_ids_roundtrip() {
+    use model_sheet::{Mention, Person, Reply, Thread};
+    let mut wb = Workbook::new();
+    let s = SheetId(0);
+    let ann = Person {
+        id: "{11111111-1111-4111-8111-111111111111}".into(),
+        name: "Ann Lee".into(),
+        initials: String::new(),
+        user_id: "ann@example.com".into(),
+        provider_id: "AD".into(),
+    };
+    wb.set_persons(vec![ann.clone()]);
+    let mention = Mention {
+        person_id: ann.id.clone(),
+        id: "{22222222-2222-4222-8222-222222222222}".into(),
+        start: 0,
+        length: 8,
+    };
+    wb.set_thread(
+        s,
+        Thread {
+            id: "{33333333-3333-4333-8333-333333333333}".into(),
+            row: 1,
+            col: 1,
+            author: ann.clone(),
+            date: "2026-10-18T10:00:00.00".into(),
+            text: "@Ann Lee please check".into(),
+            resolved: true,
+            replies: vec![Reply {
+                id: "{44444444-4444-4444-8444-444444444444}".into(),
+                author: Person::new("Bob", ""),
+                date: "2026-10-18T11:00:00.00".into(),
+                text: "done @Ann Lee".into(),
+                mentions: vec![Mention {
+                    start: 5,
+                    ..mention.clone()
+                }],
+            }],
+            mentions: vec![mention],
+        },
+    )
+    .unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let people = part(&bytes, "/xl/persons/person.xml");
+    assert!(people.contains(r#"displayName="Ann Lee" id="{11111111-1111-4111-8111-111111111111}" userId="ann@example.com" providerId="AD""#), "{people}");
+    let threads = part(&bytes, "/xl/threadedComments/threadedComment1.xml");
+    assert!(
+        threads.contains(r#"<mentions><mention mentionpersonId="{11111111-1111-4111-8111-111111111111}" mentionId="{22222222-2222-4222-8222-222222222222}" startIndex="0" length="8"/></mentions>"#),
+        "{threads}"
+    );
+    assert!(threads.contains(r#"done="1""#), "{threads}");
+    let back = fmt_xlsx::read(&bytes).unwrap();
+    let (a, b) = (&back.threads(s)[0], &wb.threads(s)[0]);
+    assert_eq!(
+        (&a.text, &a.mentions, a.resolved, &a.author),
+        (&b.text, &b.mentions, b.resolved, &b.author)
+    );
+    // Bob gets the GUID derived from his name in the person list.
+    assert_eq!(
+        (
+            &a.replies[0].text,
+            &a.replies[0].mentions,
+            &a.replies[0].author.name
+        ),
+        (
+            &b.replies[0].text,
+            &b.replies[0].mentions,
+            &b.replies[0].author.name
+        )
+    );
+    assert_eq!(back.persons()[0].user_id, "ann@example.com");
+    assert_eq!(back.persons()[0].provider_id, "AD");
+}
+
+#[test]
+fn picture_placement_crop_border_transparency_and_order_roundtrip() {
+    use model_sheet::{CellOffset, ChartAnchor, Crop, Picture, PictureLine, Placement};
+    let mut wb = Workbook::new();
+    let s = SheetId(0);
+    let png = core_model::Media {
+        content_type: "image/png".into(),
+        data: vec![0x89, b'P', b'N', b'G'],
+    };
+    let mut a = Picture::new(
+        ChartAnchor::TwoCell {
+            from: CellOffset {
+                col: 1,
+                row: 1,
+                col_offset: 0,
+                row_offset: 0,
+            },
+            to: CellOffset {
+                col: 3,
+                row: 6,
+                col_offset: 9525,
+                row_offset: 0,
+            },
+        },
+        png.clone(),
+    );
+    a.edit_as = Placement::Fixed;
+    a.descr = "Logo".into();
+    a.crop = Crop {
+        left: 10_000,
+        top: 0,
+        right: 5_000,
+        bottom: 2_500,
+    };
+    a.line = Some(PictureLine {
+        color: core_model::Color::Rgb(core_model::Rgb::new(0xC0, 0, 0)),
+        width: 19050,
+    });
+    a.transparency = 40;
+    let mut b = Picture::new(a.anchor, png);
+    b.edit_as = Placement::Move;
+    wb.add_picture(s, a).unwrap();
+    wb.add_picture(s, b).unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let xml = part(&bytes, "/xl/drawings/drawing1.xml");
+    assert!(
+        xml.contains(r#"<xdr:twoCellAnchor editAs="absolute">"#),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(r#"<xdr:twoCellAnchor editAs="oneCell">"#),
+        "{xml}"
+    );
+    assert!(xml.contains(r#"<a:alphaModFix amt="60000"/>"#), "{xml}");
+    assert!(
+        xml.contains(r#"<a:srcRect l="10000" r="5000" b="2500"/>"#),
+        "{xml}"
+    );
+    assert!(
+        xml.contains(
+            r#"<a:ln w="19050"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill></a:ln>"#
+        ),
+        "{xml}"
+    );
+    let (back, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let (pa, pb) = (&back.pictures(s)[0], &back.pictures(s)[1]);
+    assert_eq!(
+        (
+            pa.edit_as,
+            pa.crop,
+            pa.line,
+            pa.transparency,
+            pa.descr.as_str()
+        ),
+        (
+            Placement::Fixed,
+            wb.pictures(s)[0].crop,
+            wb.pictures(s)[0].line,
+            40,
+            "Logo"
+        )
+    );
+    assert_eq!(pb.placement(), Placement::Move);
+}
+
+#[test]
+fn manual_page_breaks_roundtrip() {
+    let mut wb = Workbook::new();
+    let s = SheetId(0);
+    wb.set_page_breaks(s, model_sheet::Axis::Rows, vec![12, 40])
+        .unwrap();
+    wb.set_page_breaks(s, model_sheet::Axis::Cols, vec![5])
+        .unwrap();
+    let bytes = fmt_xlsx::write(&wb).unwrap();
+    let xml = part(&bytes, "/xl/worksheets/sheet1.xml");
+    assert!(
+        xml.contains(
+            r#"<rowBreaks count="2" manualBreakCount="2"><brk id="12" max="16383" man="1"/>"#
+        ),
+        "{xml}"
+    );
+    let back = fmt_xlsx::read(&bytes).unwrap();
+    assert_eq!(back.page_breaks(s, model_sheet::Axis::Rows), &[12, 40]);
+    assert_eq!(back.page_breaks(s, model_sheet::Axis::Cols), &[5]);
+}
+
+#[test]
+fn reference_workbook_reads_and_roundtrips() {
+    use model_sheet::{Axis, Placement};
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/xlsx/provisional-cells-c7.xlsx");
+    let bytes = std::fs::read(path).unwrap();
+    let (wb, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let cells = wb.sheet_id("Cells").unwrap();
+    let v = wb.sheet_view(cells);
+    assert_eq!((v.top_row, v.frozen_rows, v.pane_row), (19, 5, 24));
+    assert_eq!(wb.page_breaks(cells, Axis::Rows), &[20]);
+    let t = &wb.threads(cells)[0];
+    assert_eq!(t.replies[0].mentions.len(), 1);
+    assert_eq!(
+        (
+            t.replies[0].mentions[0].start,
+            t.replies[0].mentions[0].length
+        ),
+        (0, 8)
+    );
+    assert_eq!(wb.persons()[0].provider_id, "AD");
+    let split = wb.sheet_view(wb.sheet_id("Split").unwrap());
+    assert_eq!(
+        (
+            split.split_x,
+            split.split_y,
+            split.top_row,
+            split.left_col,
+            split.pane_row,
+            split.pane_col
+        ),
+        (2400, 1800, 1, 1, 9, 3)
+    );
+    let pics = wb.pictures(wb.sheet_id("Pictures").unwrap());
+    assert_eq!(pics.len(), 2);
+    assert_eq!(
+        (pics[0].edit_as, pics[0].transparency, pics[0].crop.left),
+        (Placement::Fixed, 40, 10_000)
+    );
+    assert!(pics[0].line.is_some());
+    assert_eq!(pics[1].placement(), Placement::Move);
+    // Written back, everything is still there.
+    let again = fmt_xlsx::read(&fmt_xlsx::write(&wb).unwrap()).unwrap();
+    assert_eq!(again.sheet_view(cells), v);
+    assert_eq!(
+        again.pictures(wb.sheet_id("Pictures").unwrap())[0].crop,
+        pics[0].crop
+    );
+    assert_eq!(
+        again.threads(cells)[0].replies[0].mentions,
+        t.replies[0].mentions
+    );
+}

@@ -550,6 +550,10 @@ fn page_breaks_and_pictures() {
             content_type: "image/png".into(),
             data: png.clone(),
         },
+        edit_as: model_sheet::Placement::MoveAndSize,
+        crop: model_sheet::Crop::default(),
+        line: None,
+        transparency: 0,
     };
     let patch = undo_identity(
         &mut h,
@@ -593,6 +597,10 @@ fn page_breaks_and_pictures() {
             content_type: "text/html".into(),
             data: vec![1],
         },
+        edit_as: model_sheet::Placement::MoveAndSize,
+        crop: model_sheet::Crop::default(),
+        line: None,
+        transparency: 0,
     };
     assert!(h
         .apply(C::AddPicture {

@@ -16,6 +16,8 @@ export interface Selection {
   anchor: Cell;
   focus: Cell;
   range?: Range;
+  /** More selected areas besides `range` (Go To Special's multi-area result). */
+  areas?: Range[];
 }
 
 export interface Range {

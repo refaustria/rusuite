@@ -360,10 +360,15 @@ fn shared_formulas_and_dropped_features() {
         all.contains("invalid merged cells dropped: F1, E2:F3"),
         "{all}"
     );
-    assert!(all.contains("split panes dropped"), "{all}");
+    // A split (not frozen) pane is kept (P9-C7): splitters in twips.
+    assert!(!all.contains("split panes"), "{all}");
     // Only the first sheet view counts.
     assert_eq!(wb.sheet_view(s).zoom, 85);
     assert_eq!(wb.sheet_view(s).frozen_rows, 0);
+    assert_eq!(
+        (wb.sheet_view(s).split_x, wb.sheet_view(s).split_y),
+        (2000, 1000)
+    );
     assert!(
         all.contains("hyperlink on A1 without target dropped"),
         "{all}"
@@ -391,6 +396,7 @@ fn frozen_panes_merges_and_hidden_sheets_roundtrip() {
             zoom: 125,
             show_gridlines: false,
             show_headings: false,
+            ..SheetView::default()
         },
     )
     .unwrap();

@@ -34,8 +34,8 @@ export function toolbarValue(style: CellStyle): CellStyleView {
   return { ...v, font: { font: { kind: "named", value: DEFAULT_FONT_FAMILY }, size: DEFAULT_FONT_SIZE, ...v.font } };
 }
 
-/** The Office theme with its hyperlink colours (the Hyperlink cell style uses them). */
-export const CALC_THEME: ThemePalette = { ...OFFICE_THEME, hyperlink: "0563C1", followedHyperlink: "954F72" };
+/** The Office theme, with its hyperlink colour slots (`hlink` / `folHlink`, the Hyperlink and Followed Hyperlink cell styles). */
+export const CALC_THEME: ThemePalette = OFFICE_THEME;
 
 export function colorCss(c: Color | null | undefined): string | undefined {
   return cssColor(c ?? undefined, CALC_THEME);

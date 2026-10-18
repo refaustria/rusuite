@@ -8,7 +8,9 @@ use app_common::{Applied, Patch as _};
 use engine_formula::ast::col_to_letters;
 use engine_formula::{CellContent, Value};
 use model_sheet::textio::{self, Imported, TextImportOptions};
-use model_sheet::{content_to_input, Axis, CellCoord, CellRange, OutlineState, SheetId, Workbook};
+use model_sheet::{
+    content_to_input, Axis, CellCoord, CellRange, ChartAnchor, OutlineState, SheetId, Workbook,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -227,6 +229,50 @@ impl CalcDocument {
                     .ok_or(CalcError::InvalidRange)?;
                 p.anchor = *anchor;
                 self.workbook_mut().set_pictures(s, list)?;
+                Ok(self.pictures_applied(*sheet, old))
+            }
+            C::SetPictureFormat { sheet, id, format } => {
+                let s = self.sheet(*sheet)?;
+                let old = self.workbook().pictures(s).to_vec();
+                let mut list = old.clone();
+                let i = list
+                    .iter()
+                    .position(|p| p.id == *id)
+                    .ok_or(CalcError::InvalidRange)?;
+                let mut p = list[i].clone();
+                if let Some(n) = &format.name {
+                    p.name.clone_from(n);
+                }
+                if let Some(d) = &format.descr {
+                    p.descr.clone_from(d);
+                }
+                if let Some(placement) = format.placement {
+                    // Excel keeps a two-cell anchor and records the choice in `editAs`.
+                    if !matches!(p.anchor, ChartAnchor::TwoCell { .. }) {
+                        let rect = self.workbook().anchor_px(s, &p.anchor);
+                        p.anchor = self.workbook().px_anchor(s, rect);
+                    }
+                    p.edit_as = placement;
+                }
+                if let Some(c) = format.crop {
+                    p.crop = c;
+                }
+                if format.no_line {
+                    p.line = None;
+                } else if let Some(l) = format.line {
+                    p.line = Some(l);
+                }
+                if let Some(t) = format.transparency {
+                    p.transparency = t;
+                }
+                list[i] = p;
+                self.workbook_mut().set_pictures(s, list)?;
+                Ok(self.pictures_applied(*sheet, old))
+            }
+            C::ReorderPicture { sheet, id, to } => {
+                let s = self.sheet(*sheet)?;
+                let old = self.workbook().pictures(s).to_vec();
+                self.workbook_mut().reorder_picture(s, *id, *to)?;
                 Ok(self.pictures_applied(*sheet, old))
             }
             C::RemovePicture { sheet, id } => {

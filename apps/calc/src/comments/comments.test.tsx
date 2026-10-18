@@ -276,7 +276,7 @@ describe("Review tab and shortcuts", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Review" }));
     fireEvent.click(screen.getByRole("button", { name: "Show Comments" }));
     const pane = await screen.findByTestId("comments-pane");
-    expect(within(pane).getByText("No comments on this sheet.")).toBeTruthy();
+    expect(within(pane).getByText("No comments in this workbook.")).toBeTruthy();
     fireEvent.click(within(pane).getByRole("button", { name: "New Comment" }));
     const composer = await screen.findByTestId("comment-composer");
     fireEvent.change(within(composer).getByLabelText("Comment"), { target: { value: "Looks off" } });

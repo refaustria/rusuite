@@ -4,7 +4,7 @@
 // dashed, manual ones solid) and lets the user drag a break line.
 
 import type { AxisGeometry } from "../grid/geometry";
-import { DEFAULT_CALC_PRINT, printableArea, splitRuns } from "../print/layout";
+import { DEFAULT_CALC_PRINT, paginate, printableArea, type CalcPrintOptions } from "../print/layout";
 
 /** `breaks` with a break before `i` (sorted, unique). */
 export function withBreak(breaks: readonly number[], i: number): number[] {
@@ -29,18 +29,22 @@ export interface BreakLine {
 }
 
 /**
- * The page breaks of a sheet's used area `0..=lastRow × 0..=lastCol` at
- * 100 % on the default paper (A4 portrait, normal margins), with the
- * manual breaks.
+ * The page breaks of a sheet's used area `0..=lastRow × 0..=lastCol` with
+ * the manual breaks, paginated like File › Print with the current print
+ * settings (paper, orientation, margins, scaling; default: A4 portrait,
+ * normal margins, 100 %), so that Page Break Preview and the print preview
+ * agree.
  */
-export function previewBreaks(colGeo: AxisGeometry, rowGeo: AxisGeometry, lastRow: number, lastCol: number, rowBreaks: readonly number[], colBreaks: readonly number[]): BreakLine[] {
-  const area = printableArea(DEFAULT_CALC_PRINT);
+export function previewBreaks(
+  colGeo: AxisGeometry, rowGeo: AxisGeometry, lastRow: number, lastCol: number, rowBreaks: readonly number[], colBreaks: readonly number[],
+  options: CalcPrintOptions = DEFAULT_CALC_PRINT,
+): BreakLine[] {
   const sizes = (geo: AxisGeometry, last: number) => Array.from({ length: last + 1 }, (_, i) => geo.size(i));
-  const rows = splitRuns(sizes(rowGeo, lastRow), area.height - 2, area.height - 2, new Set(rowBreaks));
-  const cols = splitRuns(sizes(colGeo, lastCol), area.width - 2, area.width - 2, new Set(colBreaks));
+  const p = paginate(sizes(colGeo, lastCol), sizes(rowGeo, lastRow), options, printableArea(options), { rows: rowBreaks, cols: colBreaks });
+  const starts = (key: "rows" | "cols") => [...new Set(p.pages.map((pg) => pg[key][0]))].filter((i) => i > 0).sort((a, b) => a - b);
   const out: BreakLine[] = [];
-  for (const [start] of rows.slice(1)) out.push({ axis: "rows", index: start, manual: rowBreaks.includes(start) });
-  for (const [start] of cols.slice(1)) out.push({ axis: "cols", index: start, manual: colBreaks.includes(start) });
+  for (const start of starts("rows")) out.push({ axis: "rows", index: start, manual: rowBreaks.includes(start) });
+  for (const start of starts("cols")) out.push({ axis: "cols", index: start, manual: colBreaks.includes(start) });
   return out;
 }
 

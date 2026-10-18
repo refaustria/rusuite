@@ -10,8 +10,10 @@ import { loadUsedRange } from "./loadUsed";
 import { CALC_MARGINS, HEADING_COL_PX, HEADING_ROW_PX, colLetters, paginate, printableArea, type CalcPrintOptions, type PageSlice, type PrintTitlesSpec } from "./layout";
 import { parseRange } from "../charts/refs";
 import { lettersToCol } from "../formula/refs";
-import { buildPrintTable, type PrintLook, type PrintTable } from "./printTable";
+import { buildPrintTable, type PrintCell, type PrintLook, type PrintTable } from "./printTable";
 import type { IconSetKind } from "../generated/IconSetKind";
+import type { Picture } from "../generated/Picture";
+import { colorCss } from "../grid/style";
 import type { NameInfo } from "../generated/NameInfo";
 import { iconGlyph } from "../grid/cf";
 import { cellAddress } from "../grid/address";
@@ -124,6 +126,14 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
           const text = c.rotation
             ? `<span class="rs-rot" style="display:inline-block;white-space:nowrap;transform:rotate(${-c.rotation}deg)">${escapeHtml(c.text)}</span>`
             : escapeHtml(c.text);
+          const spill = c.overflow && !c.span ? overflowExtent(r.cells, colIdx, k, cols, c.overflow) : null;
+          if (spill && (spill.left > 0 || spill.right > 0)) {
+            // Text wider than its cell runs over the empty cells beside it on this page (Excel), cut at the page edge.
+            const justify = c.overflow!.align === "left" ? "flex-start" : c.overflow!.align === "right" ? "flex-end" : "center";
+            const valign = c.style.verticalAlign === "top" ? "flex-start" : c.style.verticalAlign === "middle" ? "center" : "flex-end";
+            const inner = `<div class="rs-spill" style="position:absolute;top:0;bottom:0;left:${-spill.left}px;right:${-spill.right}px;display:flex;justify-content:${justify};align-items:${valign};overflow:hidden;white-space:nowrap;padding:0 3px">${text}</div>`;
+            return `<td${attrs} style="${styleText(c.style)};position:relative;overflow:visible">${c.icon ? iconHtml(c.icon.set, c.icon.index) : ""}${inner}</td>`;
+          }
           return `<td${attrs} style="${styleText(c.style)}${c.rotation ? ";overflow:hidden" : ""}">${c.icon ? iconHtml(c.icon.set, c.icon.index) : ""}${text}</td>`;
         })
         .join("");
@@ -131,6 +141,32 @@ export function sliceTableHtml(table: PrintTable, slice: PageSlice, o: Pick<Calc
     })
     .join("");
   return `<table class="rs-calc-table${o.gridlines ? " rs-grid" : ""}" style="width:${width}px"><colgroup>${colgroup}</colgroup>${head}${body}</table>`;
+}
+
+/**
+ * How far (px) an overflowing text at slice column `k` runs over its empty neighbours on the page: right for
+ * left-aligned text, left for right-aligned, both ways (half each) when centred; a non-empty or merged cell and
+ * the page's first / last column stop it.
+ */
+export function overflowExtent(
+  cells: readonly PrintCell[], colIdx: readonly number[], k: number, cols: readonly { width: number }[], o: { width: number; align: "left" | "center" | "right" },
+): { left: number; right: number } {
+  const own = cols[k]!.width;
+  const need = o.width - own;
+  const empty = (j: number) => {
+    const c = cells[colIdx[j]!];
+    return !!c && c.text === "" && !c.covered && !c.span;
+  };
+  const grow = (dir: 1 | -1, budget: number) => {
+    let got = 0;
+    // Only columns next to each other on this page (a hidden column ends the run like Excel's print).
+    for (let j = k + dir; got < budget && j >= 0 && j < colIdx.length && colIdx[j] === colIdx[j - dir]! + dir && empty(j); j += dir) got += cols[j]!.width;
+    return got;
+  };
+  if (need <= 0) return { left: 0, right: 0 };
+  if (o.align === "left") return { left: 0, right: grow(1, need) };
+  if (o.align === "right") return { left: grow(-1, need), right: 0 };
+  return { left: grow(-1, need / 2), right: grow(1, need / 2) };
 }
 
 /** The charts of one page: absolutely placed SVGs over the slice's table, cut at the page's cell area. */
@@ -318,7 +354,7 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     const x0 = geo.col.offset(r.c0);
     const y0 = geo.row.offset(r.r0);
     const box = { x: x0, y: y0, w: geo.col.offset(r.c1 + 1) - x0, h: geo.row.offset(r.r1 + 1) - y0 };
-    let table = buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, box0.r0, box0.c0, printLooks(store, id));
+    let table = buildPrintTable(store.cache(id), store.styles(), r.r1, r.c1, box0.r0, box0.c0, printLooks(store, id), store.measure);
     const inRows = (row: number) => (row >= r.r0 && row <= r.r1) || (!!up && row >= up[0] && row <= Math.min(up[1], r.r0 - 1));
     const inCols = (col: number) => (col >= r.c0 && col <= r.c1) || (!!left && col >= left[0] && col <= Math.min(left[1], r.c0 - 1));
     if (up || left) table = filterTable(table, inRows, inCols);
@@ -326,11 +362,18 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
     const before = <T,>(list: readonly T[], key: (x: T) => number, size: (x: T) => number, at: number) => list.filter((x) => key(x) < at).reduce((a, x) => a + size(x), 0);
     const dy = before(table.rows, (x) => x.row, (x) => x.height, r.r0);
     const dx = before(table.cols, (x) => x.col, (x) => x.width, r.c0);
-    const charts = (await printCharts(store, id, { x: 0, y: 0 }))
+    // Pictures, charts and, with Comments "As displayed on sheet", the visible notes of the range print with it.
+    const annots = await printAnnotations(store, id, o);
+    const inRange = (row: number, col: number) => row >= r.r0 && row <= r.r1 && col >= r.c0 && col <= r.c1;
+    const charts = [...(await printPictures(store, id)), ...(await printCharts(store, id, { x: 0, y: 0 })), ...annots.boxes]
       .filter((c) => rectsIntersect(c, box))
       .map((c) => ({ ...c, x: c.x - x0 + dx, y: c.y - y0 + dy }));
+    const annotations = annots.list.filter((a) => {
+      const m = /^([A-Z]+)(\d+)$/.exec(a.cell);
+      return !m || inRange(Number(m[2]) - 1, lettersToCol(m[1]!) ?? -1);
+    });
     const spec: PrintTitlesSpec = titles ? { rows: indexRange(table.rows, (x) => x.row, titles.rows), cols: indexRange(table.cols, (x) => x.col, titles.cols) } : {};
-    parts.push({ sheetName: nameOf(id), table, charts, breaks: tableBreaks(store, id, table), titles: spec });
+    parts.push({ sheetName: nameOf(id), table, charts, annotations, breaks: tableBreaks(store, id, table), titles: spec });
   };
   const sheetPart = async (id: number) => {
     if (store.isChartSheet(id)) {
@@ -351,7 +394,7 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
       return;
     }
     const used = await loadUsedRange(store, id);
-    const charts = await printCharts(store, id);
+    const charts = [...(await printPictures(store, id)), ...(await printCharts(store, id))];
     // The printed area reaches the charts' bottom-right cells.
     const geo = store.geometry(id);
     let { lastRow, lastCol } = used;
@@ -366,7 +409,7 @@ export async function buildCalcPrintDoc(store: CalcStore, o: CalcPrintOptions): 
       lastCol = Math.max(lastCol, geo.col.indexAt(n.x + n.w - 1));
     }
     if (lastRow > used.lastRow || lastCol > used.lastCol) await store.ensureRegion(id, 0, 0, lastRow, lastCol);
-    const table = buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol, 0, 0, printLooks(store, id));
+    const table = buildPrintTable(store.cache(id), store.styles(), lastRow, lastCol, 0, 0, printLooks(store, id), store.measure);
     const titles: PrintTitlesSpec = { rows: indexRange(table.rows, (x) => x.row, names.rows), cols: indexRange(table.cols, (x) => x.col, names.cols) };
     parts.push({ sheetName: nameOf(id), table, charts: [...charts, ...annots.boxes], annotations: annots.list, breaks: tableBreaks(store, id, table), titles });
   };
@@ -409,6 +452,32 @@ export async function printAnnotations(store: CalcStore, sheet: number, o: Pick<
     .sort((x, y) => x.row - y.row || x.col - y.col)
     .map((x) => x.a);
   return { boxes: [], list };
+}
+
+/**
+ * The pictures of a sheet as print HTML boxes (sheet px), as on the screen: crop, transparency and border; back to
+ * front like the charts' z-order after them.
+ */
+export async function printPictures(store: CalcStore, sheet: number): Promise<PrintChart[]> {
+  const list = await store.pictures.ensure(sheet);
+  const geo = store.geometry(sheet);
+  return list.flatMap((p) => {
+    const r = anchorRect(p.anchor, geo.col, geo.row);
+    if (r.w < 1 || r.h < 1) return [];
+    return [{ x: r.x, y: r.y, w: Math.round(r.w), h: Math.round(r.h), svg: pictureHtml(p, Math.round(r.w), Math.round(r.h)) }];
+  });
+}
+
+/** One picture's print HTML at `w × h` px: the image cropped by moving and scaling it inside a clipping box. */
+export function pictureHtml(p: Picture, w: number, h: number): string {
+  const c = p.crop ?? { left: 0, top: 0, right: 0, bottom: 0 };
+  const f = (v: number) => Math.max(0, v) / 100000;
+  const fullW = w / Math.max(0.01, 1 - f(c.left) - f(c.right));
+  const fullH = h / Math.max(0.01, 1 - f(c.top) - f(c.bottom));
+  const opacity = 1 - (p.transparency ?? 0) / 100;
+  const border = p.line && p.line.width > 0 ? `;box-shadow:inset 0 0 0 ${Math.max(1, Math.round(p.line.width / 9525))}px ${colorCss(p.line.color) ?? "#000"}` : "";
+  const alt = escapeHtml(p.descr ?? "");
+  return `<div class="rs-calc-pic" style="position:relative;width:${w}px;height:${h}px;overflow:hidden${border}"><img alt="${alt}" src="data:${p.media.contentType};base64,${p.media.data}" style="position:absolute;left:${(-fullW * f(c.left)).toFixed(2)}px;top:${(-fullH * f(c.top)).toFixed(2)}px;width:${fullW.toFixed(2)}px;height:${fullH.toFixed(2)}px;opacity:${opacity}"></div>`;
 }
 
 /** The charts of a sheet as print SVGs, in sheet px (`origin`: subtracted). */

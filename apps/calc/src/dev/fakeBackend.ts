@@ -697,8 +697,12 @@ export class FakeCalcCore {
       case "setFreeze": {
         const s = this.sheet(cmd.sheet);
         const old = s.view;
-        s.view = { ...old, frozenRows: cmd.rows, frozenCols: cmd.cols };
-        return [this.sheetsPatch(), { type: "setFreeze", sheet: cmd.sheet, rows: old.frozenRows, cols: old.frozenCols }];
+        const top = cmd.topRow ?? 0, left = cmd.leftCol ?? 0;
+        s.view = {
+          ...old, frozenRows: cmd.rows, frozenCols: cmd.cols, topRow: top, leftCol: left,
+          paneRow: cmd.rows > 0 ? top + cmd.rows : 0, paneCol: cmd.cols > 0 ? left + cmd.cols : 0, splitX: 0, splitY: 0,
+        };
+        return [this.sheetsPatch(), { type: "setSheetView", sheet: cmd.sheet, patch: { ...old } }];
       }
       case "setSheetView": {
         const s = this.sheet(cmd.sheet);
@@ -1060,6 +1064,8 @@ export class FakeCalcCore {
       case "addPicture":
       case "setPictureAnchor":
       case "removePicture":
+      case "setPictureFormat":
+      case "reorderPicture":
       case "restorePictures":
         return this.dataCmd(cmd);
       case "flashFill":
@@ -1270,7 +1276,7 @@ export class FakeCalcCore {
     return this.exec({ type: "restoreCols", sheet: cmd.sheet, cols });
   }
 
-  private dataCmd(cmd: Extract<CalcCommand, { type: "removeDuplicates" | "textToColumns" | "setPageBreaks" | "addPicture" | "setPictureAnchor" | "removePicture" | "restorePictures" }>): [CalcPatch, CalcCommand | null] {
+  private dataCmd(cmd: Extract<CalcCommand, { type: "removeDuplicates" | "textToColumns" | "setPageBreaks" | "addPicture" | "setPictureAnchor" | "removePicture" | "restorePictures" | "setPictureFormat" | "reorderPicture" }>): [CalcPatch, CalcCommand | null] {
     const sh = this.sheet(cmd.sheet);
     const pics = (): CalcCommand => ({ type: "restorePictures", sheet: sh.id, pictures: JSON.parse(JSON.stringify(sh.pictures)) as Picture[] });
     const picPatch = () => ({ ...this.emptyPatch(), pictureSheets: [sh.id] });
@@ -1333,6 +1339,30 @@ export class FakeCalcCore {
       case "removePicture": {
         const inv = pics();
         sh.pictures = sh.pictures.filter((x) => x.id !== cmd.id);
+        return [picPatch(), inv];
+      }
+      case "setPictureFormat": {
+        const inv = pics();
+        const p = sh.pictures.find((x) => x.id === cmd.id);
+        if (!p) throw new Fail("invalid_range", "no picture");
+        const f = cmd.format;
+        if (f.name !== undefined) p.name = f.name;
+        if (f.descr !== undefined) p.descr = f.descr;
+        if (f.placement !== undefined) p.editAs = f.placement;
+        if (f.crop !== undefined) p.crop = f.crop;
+        if (f.noLine) delete p.line;
+        else if (f.line !== undefined) p.line = f.line;
+        if (f.transparency !== undefined) p.transparency = f.transparency;
+        return [picPatch(), inv];
+      }
+      case "reorderPicture": {
+        const inv = pics();
+        const i = sh.pictures.findIndex((x) => x.id === cmd.id);
+        if (i < 0) throw new Fail("invalid_range", "no picture");
+        const [p] = sh.pictures.splice(i, 1);
+        const last = sh.pictures.length;
+        const j = cmd.to === "front" ? last : cmd.to === "back" ? 0 : cmd.to === "forward" ? Math.min(i + 1, last) : Math.max(0, i - 1);
+        sh.pictures.splice(j, 0, p!);
         return [picPatch(), inv];
       }
       case "restorePictures": {
@@ -2526,6 +2556,37 @@ export class FakeCalcCore {
           return { ok: { type: "trace", refs: this.precedents(req.sheet, req.row, req.col) } };
         case "dependents":
           return { ok: { type: "trace", refs: this.dependents(req.sheet, req.row, req.col) } };
+        case "sheetPictures":
+          return { ok: { type: "pictures", pictures: JSON.parse(JSON.stringify(this.sheet(req.sheet).pictures)) as Picture[] } };
+        case "goToSpecial": {
+          // A toy for the UI tests: blanks and constants of the used range (or the selection), row-major single cells.
+          const s = this.sheet(req.sheet);
+          const single = req.range.r0 === req.range.r1 && req.range.c0 === req.range.c1;
+          let r1 = 0, c1 = 0;
+          for (const [r, row] of s.cells) for (const [c, cell] of row) if (cell.input !== "") [r1, c1] = [Math.max(r1, r), Math.max(c1, c)];
+          const area = single ? { r0: 0, c0: 0, r1, c1 } : req.range;
+          const areas: { r0: number; c0: number; r1: number; c1: number }[] = [];
+          for (let r = area.r0; r <= Math.min(area.r1, 200); r++) {
+            for (let c = area.c0; c <= Math.min(area.c1, 50); c++) {
+              const input = s.cells.get(r)?.get(c)?.input ?? "";
+              const hit = req.kind === "blanks" ? input === "" : req.kind === "constants" ? input !== "" && !input.startsWith("=") : req.kind === "formulas" && input.startsWith("=");
+              if (hit) areas.push({ r0: r, c0: c, r1: r, c1: c });
+            }
+          }
+          return { ok: { type: "areas", areas } };
+        }
+        case "fillPreview": {
+          // A toy: numbers continue by one step of the source's last difference; anything else copies its display.
+          const s = this.sheet(req.sheet);
+          const down = req.dst.r0 > req.src.r1 || req.dst.c0 > req.src.c1;
+          const vertical = req.dst.c0 === req.src.c0 && req.dst.c1 === req.src.c1;
+          const end = down ? (vertical ? this.view(s, req.src.r1, req.src.c0) : this.view(s, req.src.r0, req.src.c1)) : this.view(s, req.src.r0, req.src.c0);
+          if (end.input.startsWith("=") || end.display === "") return { ok: { type: "fillPreview", text: null } };
+          const n = Number(end.input);
+          const steps = vertical ? (down ? req.dst.r1 - req.src.r1 : req.src.r0 - req.dst.r0) : (down ? req.dst.c1 - req.src.c1 : req.src.c0 - req.dst.c0);
+          const text = Number.isFinite(n) && req.mode !== "copy" ? String(n + (down ? steps : -steps)) : end.display;
+          return { ok: { type: "fillPreview", text } };
+        }
         case "loadSnapshotJson":
         case "saveSnapshotJson":
           throw new Fail("internal", "not supported by the fake backend");

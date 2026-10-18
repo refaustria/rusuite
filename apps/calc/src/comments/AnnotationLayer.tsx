@@ -5,6 +5,7 @@
 // composer and the hyperlink tip. Positions come from the grid
 // (`store.comments.screen`), refreshed after every frame.
 
+import { MentionField } from "./MentionField";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ColorPicker, type Color } from "@rusuite/ui-shared";
 import type { Note } from "../generated/Note";
@@ -335,13 +336,20 @@ export function ThreadView({ store, sheet, thread }: { store: CalcStore; sheet: 
             send();
           }}
         >
-          <input
-            aria-label={t("calc.comments.replyLabel")}
-            placeholder={t("calc.comments.replyPlaceholder")}
-            className="h-8 min-w-0 flex-1 rounded border border-ui-border bg-ui-bg px-2 text-sm"
+          <MentionField
+            store={store}
             value={reply}
-            onChange={(e) => setReply(e.target.value)}
+            onChange={setReply}
             onKeyDown={(e) => e.stopPropagation()}
+            render={({ ref, ...p }) => (
+              <input
+                {...p}
+                ref={ref}
+                aria-label={t("calc.comments.replyLabel")}
+                placeholder={t("calc.comments.replyPlaceholder")}
+                className="h-8 w-full min-w-0 rounded border border-ui-border bg-ui-bg px-2 text-sm"
+              />
+            )}
           />
           <button type="submit" className={BTN} disabled={!reply.trim()}>
             {t("calc.comments.post")}
@@ -382,7 +390,7 @@ function Card({ store, x, y, children, label, testId }: { store: CalcStore; x: n
 function Composer({ store, x, y }: { store: CalcStore; x: number; y: number }) {
   const t = useT();
   const [text, setText] = useState("");
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const ref = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => ref.current?.focus(), []);
   const user = store.comments.currentUser();
   return (
@@ -398,13 +406,10 @@ function Composer({ store, x, y }: { store: CalcStore; x: number; y: number }) {
           <Avatar name={user?.name ?? "?"} />
           <span className="text-sm font-semibold">{user?.name}</span>
         </div>
-        <textarea
-          ref={ref}
-          aria-label={t("calc.comments.textLabel")}
-          placeholder={t("calc.comments.placeholder")}
-          className="min-h-16 rounded border border-ui-border bg-ui-bg p-1 text-sm"
+        <MentionField
+          store={store}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={setText}
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -415,6 +420,18 @@ function Composer({ store, x, y }: { store: CalcStore; x: number; y: number }) {
               store.focusGrid();
             }
           }}
+          render={({ ref: fieldRef, ...p }) => (
+            <textarea
+              {...p}
+              ref={(el) => {
+                fieldRef(el);
+                ref.current = el as HTMLTextAreaElement | null;
+              }}
+              aria-label={t("calc.comments.textLabel")}
+              placeholder={t("calc.comments.placeholder")}
+              className="min-h-16 w-full rounded border border-ui-border bg-ui-bg p-1 text-sm"
+            />
+          )}
         />
         <div className="flex justify-end gap-1">
           <button type="button" className={BTN} onClick={() => store.comments.cancelCompose()}>

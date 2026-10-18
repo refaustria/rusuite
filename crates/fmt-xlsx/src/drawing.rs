@@ -260,22 +260,24 @@ pub(crate) fn load(
                     };
                     consumed.insert(target.expect("checked"));
                     let props = obj.find("cNvPr");
-                    pictures.push(model_sheet::Picture {
-                        id: pictures.len() as u32 + 1,
-                        name: props
-                            .and_then(|c| c.attr("name"))
-                            .unwrap_or_default()
-                            .to_owned(),
-                        descr: props
-                            .and_then(|c| c.attr("descr"))
-                            .unwrap_or_default()
-                            .to_owned(),
+                    let mut picture = model_sheet::Picture::new(
                         anchor,
-                        media: core_model::Media {
+                        core_model::Media {
                             content_type,
                             data: media.data.clone(),
                         },
-                    });
+                    );
+                    picture.id = pictures.len() as u32 + 1;
+                    picture.name = props
+                        .and_then(|c| c.attr("name"))
+                        .unwrap_or_default()
+                        .to_owned();
+                    picture.descr = props
+                        .and_then(|c| c.attr("descr"))
+                        .unwrap_or_default()
+                        .to_owned();
+                    read_picture_format(anchor_el, obj, &mut picture);
+                    pictures.push(picture);
                 }
                 "AlternateContent" => match crate::slicer::drawing_slicer_name(obj) {
                     Some(name) => slicers.push((name, anchor)),
@@ -402,6 +404,58 @@ pub(crate) fn bind_pivot_charts(
     }
     wb.sync_pivot_charts();
     warnings
+}
+
+/// Format Picture parts of an `xdr:pic`: `editAs` of its two-cell anchor,
+/// crop (`a:srcRect`), transparency (`a:alphaModFix`), border (`a:ln`).
+fn read_picture_format(anchor_el: &El, pic: &El, p: &mut model_sheet::Picture) {
+    use model_sheet::Placement;
+    p.edit_as = match anchor_el.attr("editAs") {
+        Some("oneCell") => Placement::Move,
+        Some("absolute") => Placement::Fixed,
+        _ => Placement::MoveAndSize,
+    };
+    if let Some(fill) = pic.child("blipFill") {
+        if let Some(r) = fill.child("srcRect") {
+            let v = |a| {
+                r.attr(a)
+                    .and_then(parse_i64)
+                    .unwrap_or(0)
+                    .clamp(-1_000_000, 1_000_000) as i32
+            };
+            p.crop = model_sheet::Crop {
+                left: v("l"),
+                top: v("t"),
+                right: v("r"),
+                bottom: v("b"),
+            };
+            if i64::from(p.crop.left) + i64::from(p.crop.right) >= 100_000
+                || i64::from(p.crop.top) + i64::from(p.crop.bottom) >= 100_000
+            {
+                p.crop = model_sheet::Crop::default();
+            }
+        }
+        if let Some(amt) = fill
+            .child("blip")
+            .and_then(|b| b.child("alphaModFix"))
+            .and_then(|a| a.attr("amt"))
+            .and_then(parse_i64)
+        {
+            p.transparency =
+                (100 - (amt.clamp(0, 100_000) as f64 / 1000.0).round() as i64).clamp(0, 100) as u8;
+        }
+    }
+    if let Some(ln) = pic.child("spPr").and_then(|sp| sp.child("ln")) {
+        let color = ln.child("solidFill").and_then(fmt_ooxml::chart::read_color);
+        if let (Some(color), None) = (color, ln.child("noFill")) {
+            let width = ln
+                .attr("w")
+                .and_then(parse_i64)
+                .unwrap_or(9525)
+                .clamp(0, 20 * 12700);
+            p.line = Some(model_sheet::PictureLine { color, width });
+        }
+    }
 }
 
 /// Resolves chart references against the workbook for the caches.
@@ -611,7 +665,12 @@ impl DrawingParts {
                 .add(rel::IMAGE, format!("../media/image{}.{ext}", self.images))
                 .id
                 .clone();
-            let tag = anchor_start(&mut x, &p.anchor, None);
+            let edit_as = match (p.anchor, p.edit_as) {
+                (ChartAnchor::TwoCell { .. }, model_sheet::Placement::Move) => Some("oneCell"),
+                (ChartAnchor::TwoCell { .. }, model_sheet::Placement::Fixed) => Some("absolute"),
+                _ => None,
+            };
+            let tag = anchor_start(&mut x, &p.anchor, edit_as);
             x.start("xdr:pic", &[]);
             x.start("xdr:nvPicPr", &[]);
             let id = (base + j).to_string();
@@ -630,7 +689,35 @@ impl DrawingParts {
             x.end("xdr:cNvPicPr");
             x.end("xdr:nvPicPr");
             x.start("xdr:blipFill", &[]);
-            x.empty("a:blip", &[("xmlns:r", rel::NS), ("r:embed", &rid)]);
+            if p.transparency > 0 {
+                x.start("a:blip", &[("xmlns:r", rel::NS), ("r:embed", &rid)]);
+                let amt = ((100 - i64::from(p.transparency.min(100))) * 1000).to_string();
+                x.empty("a:alphaModFix", &[("amt", &amt)]);
+                x.end("a:blip");
+            } else {
+                x.empty("a:blip", &[("xmlns:r", rel::NS), ("r:embed", &rid)]);
+            }
+            if !p.crop.is_none() {
+                let c = p.crop;
+                let (l, t, r, b) = (
+                    c.left.to_string(),
+                    c.top.to_string(),
+                    c.right.to_string(),
+                    c.bottom.to_string(),
+                );
+                let mut a: Vec<(&str, &str)> = Vec::new();
+                for (name, v, raw) in [
+                    ("l", &l, c.left),
+                    ("t", &t, c.top),
+                    ("r", &r, c.right),
+                    ("b", &b, c.bottom),
+                ] {
+                    if raw != 0 {
+                        a.push((name, v.as_str()));
+                    }
+                }
+                x.empty("a:srcRect", &a);
+            }
             x.start("a:stretch", &[]);
             x.empty("a:fillRect", &[]);
             x.end("a:stretch");
@@ -639,6 +726,13 @@ impl DrawingParts {
             x.start("a:prstGeom", &[("prst", "rect")]);
             x.empty("a:avLst", &[]);
             x.end("a:prstGeom");
+            if let Some(line) = &p.line {
+                x.start("a:ln", &[("w", &line.width.to_string())]);
+                x.start("a:solidFill", &[]);
+                fmt_ooxml::chart::write_color(&mut x, &line.color);
+                x.end("a:solidFill");
+                x.end("a:ln");
+            }
             x.end("xdr:spPr");
             x.end("xdr:pic");
             x.empty("xdr:clientData", &[]);

@@ -47,6 +47,8 @@ fn script() -> Vec<C> {
             sheet: 0,
             rows: 2,
             cols: 1,
+            top_row: None,
+            left_col: None,
         },
         C::SetSheetView {
             sheet: 0,
@@ -813,6 +815,8 @@ fn panes_hidden_sheets_and_merges() {
             sheet: 1,
             rows: 1,
             cols: 2,
+            top_row: None,
+            left_col: None,
         })
         .unwrap()
         .patch;
@@ -950,7 +954,8 @@ fn panes_hidden_sheets_and_merges() {
     let r = call(&mut host, json!({"type": "info"}));
     assert_eq!(
         r["ok"]["info"]["sheets"][0]["view"],
-        json!({"frozenRows": 1, "frozenCols": 0, "zoom": 120, "showGridlines": false, "showHeadings": true})
+        // The scrolling pane starts after the frozen row (`pane/@topLeftCell`, P9-C7).
+        json!({"frozenRows": 1, "frozenCols": 0, "paneRow": 1, "zoom": 120, "showGridlines": false, "showHeadings": true})
     );
     assert_eq!(r["ok"]["info"]["sheets"][1]["hidden"], true);
     let r = call(

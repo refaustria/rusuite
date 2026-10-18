@@ -367,6 +367,9 @@ export function GoToDialog({ store }: { store: CalcStore }) {
           </p>
         )}
         <div className="flex justify-end gap-2">
+          <button type="button" className={`${BTN} mr-auto`} onClick={() => store.openDialog({ kind: "goToSpecial" })}>
+            {t("calc.goToSpecial.button")}
+          </button>
           <button type="button" className={BTN} onClick={() => close(store)}>
             {t("common.cancel")}
           </button>

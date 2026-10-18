@@ -625,6 +625,10 @@ pub(crate) fn parse_sst(xml: &[u8], part: &str) -> Result<Vec<String>> {
 /// `showGridLines`, `showRowColHeaders` and `zoomScale` of a `<sheetView>`
 /// (a zoom outside Excel's 10..=400 is clamped; 0 means 100).
 fn read_view_attrs(el: &BytesStart<'_>, view: &mut SheetView) {
+    if let Some((row, col)) = attr(el, "topLeftCell").and_then(|r| parse_cell(&r)) {
+        view.top_row = row;
+        view.left_col = col;
+    }
     view.show_gridlines = attr_bool(el, "showGridLines").unwrap_or(true);
     view.show_headings = attr_bool(el, "showRowColHeaders").unwrap_or(true);
     view.zoom = match attr_parse::<u32>(el, "zoomScale") {
@@ -840,16 +844,25 @@ impl SheetLoader<'_> {
                         }
                         b"pane" if view_state == 1 => {
                             let state = attr(el, "state");
+                            let split = |name| {
+                                attr_parse::<f64>(el, name)
+                                    .filter(|v| v.is_finite() && *v >= 0.0)
+                                    .map_or(0, |v| v.round().min(f64::from(u32::MAX)) as u32)
+                            };
+                            let (pane_row, pane_col) = attr(el, "topLeftCell")
+                                .and_then(|r| parse_cell(&r))
+                                .unwrap_or((0, 0));
+                            view.pane_row = pane_row;
+                            view.pane_col = pane_col;
                             if state.as_deref().is_some_and(|s| s.starts_with("frozen")) {
-                                let split = |name| {
-                                    attr_parse::<f64>(el, name)
-                                        .filter(|v| v.is_finite() && *v >= 0.0)
-                                        .map_or(0, |v| v.round() as u32)
-                                };
-                                view.frozen_rows = split("ySplit").min(MAX_ROW);
-                                view.frozen_cols = split("xSplit").min(MAX_COL);
+                                view.frozen_rows =
+                                    split("ySplit").min(MAX_ROW.saturating_sub(view.top_row));
+                                view.frozen_cols =
+                                    split("xSplit").min(MAX_COL.saturating_sub(view.left_col));
                             } else {
-                                dropped.insert("split panes");
+                                // `split` (the default state): distances in twips.
+                                view.split_x = split("xSplit");
+                                view.split_y = split("ySplit");
                             }
                         }
                         name if filter.start(name, el, empty) => {}

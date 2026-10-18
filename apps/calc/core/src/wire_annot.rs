@@ -67,6 +67,23 @@ mirror! {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         #[ts(optional, as = "Option<String>")]
         pub initials: String,
+        /// The file's `userId` / `providerId` (kept for roundtrips).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        #[ts(optional, as = "Option<String>")]
+        pub user_id: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        #[ts(optional, as = "Option<String>")]
+        pub provider_id: String,
+    }
+
+    /// Mirror of `model_sheet::Mention`: `@Name` at `start..start + length`
+    /// (UTF-16 units) of a comment's text.
+    #[serde(rename_all = "camelCase")]
+    pub struct Mention {
+        pub person_id: String,
+        pub id: String,
+        pub start: u32,
+        pub length: u32,
     }
 
     /// Mirror of `model_sheet::Reply`.
@@ -77,6 +94,9 @@ mirror! {
         /// ISO 8601, written by the UI.
         pub date: String,
         pub text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<Mention>>")]
+        pub mentions: Vec<Mention>,
     }
 
     /// Mirror of `model_sheet::Thread`: a threaded comment.
@@ -94,6 +114,9 @@ mirror! {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         #[ts(optional, as = "Option<Vec<Reply>>")]
         pub replies: Vec<Reply>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(optional, as = "Option<Vec<Mention>>")]
+        pub mentions: Vec<Mention>,
     }
 
     /// Mirror of `model_sheet::LinkTarget`.
@@ -172,6 +195,8 @@ mod tests {
             id: "{1}".into(),
             name: "Ann Lee".into(),
             initials: "AL".into(),
+            user_id: "ann@example.com".into(),
+            provider_id: "AD".into(),
         };
         let thread = ms::Thread {
             id: "{t}".into(),
@@ -185,8 +210,15 @@ mod tests {
                 id: "{r}".into(),
                 author: ms::Person::new("Bob", ""),
                 date: "d".into(),
-                text: "because".into(),
+                text: "because @Ann Lee".into(),
+                mentions: vec![ms::Mention {
+                    person_id: "{1}".into(),
+                    id: "{m}".into(),
+                    start: 8,
+                    length: 8,
+                }],
             }],
+            mentions: Vec::new(),
         };
         same_shape::<_, Thread>(&thread);
         same_shape::<_, Person>(&ms::Person::new("x", ""));

@@ -97,6 +97,6 @@ describe("sheet handling (P9-C1)", () => {
     expect(readableOn("#002060")).toBe("#ffffff");
     core.log.length = 0;
     fireEvent.keyDown(screen.getByTestId("grid"), { key: "s", ctrlKey: true });
-    await waitFor(() => expect(core.log.find((r) => r.type === "saveXlsx")).toEqual({ type: "saveXlsx", activeSheet: 0 }));
+    await waitFor(() => expect(core.log.find((r) => r.type === "saveXlsx")).toEqual({ type: "saveXlsx", activeSheet: 0, scroll: { sheet: 0, topRow: 0, leftCol: 0, paneRow: 0, paneCol: 0 } }));
   });
 });

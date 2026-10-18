@@ -4,6 +4,7 @@
 // versioned rather than copied, which a tiny custom store expresses
 // directly and without a new runtime dependency.
 
+import { DEFAULT_CALC_PRINT, type CalcPrintOptions } from "../print/layout";
 import { useSyncExternalStore } from "react";
 import type { CellStylePatch, Color } from "@rusuite/ui-shared";
 import { CalcApiError, type CalcApi, type PatchEnvelope } from "../backend/calcApi";
@@ -32,8 +33,11 @@ import type { SheetFormat } from "../generated/SheetFormat";
 import type { SheetInfo } from "../generated/SheetInfo";
 import type { SheetView } from "../generated/SheetView";
 import type { SheetViewPatch } from "../generated/SheetViewPatch";
+import type { SheetScroll } from "../generated/SheetScroll";
+import type { GoToTypes } from "../generated/GoToTypes";
+import type { GoToChoice } from "../names/GoToSpecialDialog";
 import type { WorkbookInfo } from "../generated/WorkbookInfo";
-import { AxisGeometry, colGeometry, DEFAULT_FORMAT, rowGeometry, rowHeightPx } from "../grid/geometry";
+import { AxisGeometry, colGeometry, colWidthPx, DEFAULT_FORMAT, rowGeometry, rowHeightPx } from "../grid/geometry";
 import { CELL_PADDING } from "../grid/render";
 import { approxMeasure, lineHeightPx, wrapLines, type Measure } from "../grid/textLayout";
 import { colName, sheetPrefix } from "../grid/address";
@@ -260,6 +264,8 @@ export type CalcDialog =
   | { kind: "pasteNames" }
   /** Go To (Ctrl+G / F5). */
   | { kind: "goTo" }
+  | { kind: "goToSpecial" }
+  | { kind: "pictureAltText" }
   /** Insert Function (Shift+F3), optionally preselecting a category. */
   | { kind: "insertFunction"; category?: string }
   /** Insert › Link (Ctrl+K): insert or edit the selection's hyperlink. */
@@ -1219,7 +1225,7 @@ export class CalcStore {
   saveFile(asName?: string, saveAs = asName !== undefined): Promise<void> {
     return this.guard(async () => {
       await this.commitEdit(0, 0);
-      const saved = await this.api.saveXlsx(this.state.activeSheet);
+      const saved = await this.api.saveXlsx(this.state.activeSheet, this.viewport?.() ?? undefined);
       const suggested = asName ?? this.state.name ?? saved.suggestedName;
       const result = await this.api.backend.saveFile(suggested, saved.bytesBase64, { saveAs });
       if (!result) return;
@@ -1288,7 +1294,9 @@ export class CalcStore {
     // Selecting cells leaves the chart (not while a chart dialog picks a range).
     if (!this.state.dialog) this.charts.deselect();
     this.flash.dismiss();
-    this.set({ selection: snapSelection(selection, this.merges()) });
+    const snapped = snapSelection(selection, this.merges());
+    // Further areas (Go To Special) stay as they are.
+    this.set({ selection: selection.areas?.length ? { ...snapped, areas: selection.areas } : snapped });
   }
 
   /** Starts editing the active cell; `text` replaces its input (typing) or is its input (F2). */
@@ -1314,9 +1322,16 @@ export class CalcStore {
     });
   }
 
-  private patchEdit(partial: Partial<EditState>): void {
-    if (this.state.edit) this.set({ edit: { ...this.state.edit, ...partial } });
+  private patchEdit(partial: Partial<EditState>, fromField = false): void {
+    if (!this.state.edit) return;
+    // A caret placed by the store (pointing, autocomplete) waits for the editor to show it: until then a selection
+    // event of the field reports the old caret and must not win (`syncCaret`).
+    if (!fromField && (partial.selStart !== undefined || partial.selEnd !== undefined)) this.caretPending = true;
+    this.set({ edit: { ...this.state.edit, ...partial } });
   }
+
+  /** The store moved the caret and the editor has not shown it yet (see `patchEdit`). */
+  caretPending = false;
 
   setEditOrigin(origin: EditState["origin"]): void {
     if (this.state.edit && this.state.edit.origin !== origin) this.patchEdit({ origin, mode: "edit" });
@@ -1340,7 +1355,7 @@ export class CalcStore {
   /** Caret / selection moved inside the focused editor. */
   setEditCaret(start: number, end: number = start): void {
     const e = this.state.edit;
-    if (e && (e.selStart !== start || e.selEnd !== end)) this.patchEdit({ selStart: start, selEnd: end });
+    if (e && (e.selStart !== start || e.selEnd !== end)) this.patchEdit({ selStart: start, selEnd: end }, true);
   }
 
   /** Cancels the edit (Esc); returns to the edited cell's sheet. */
@@ -1750,23 +1765,60 @@ export class CalcStore {
     const r = this.selectionRange();
     const { row, col } = edit.cell;
     const sheet = edit.sheet;
+    const areas = this.selectionAreas();
     const ok = await this.commitEdit(0, 0);
-    if (!ok || this.state.edit || this.state.activeSheet !== sheet || isSingleCell(r, this.merges())) return ok;
+    if (!ok || this.state.edit || this.state.activeSheet !== sheet || (areas.length === 1 && isSingleCell(r, this.merges()))) return ok;
     this.select(selection);
-    if (this.refuseMergeSplit(r) || this.refuseArrayChange(r)) return ok;
+    if (areas.some((a) => this.refuseMergeSplit(a) || this.refuseArrayChange(a))) return ok;
     const input = this.cache(sheet).cells.get(row)?.get(col)?.input ?? "";
-    return this.applyChecked(
+    // Every area gets the entry (Excel's Go To Special › Blanks, then Ctrl+Enter); references shift per cell.
+    const commands: CalcCommand[] = areas.map((a) =>
       input === ""
-        ? { type: "clearRange", sheet, ...r }
+        ? { type: "clearRange", sheet, ...a }
         : {
-          type: "pasteRange", sheet, r0: r.r0, c0: r.c0, src: { sheet, r0: row, c0: col, r1: row, c1: col },
-          cells: [{ dr: 0, dc: 0, input }], mode: "all", cut: false, repeatRows: r.r1 - r.r0 + 1, repeatCols: r.c1 - r.c0 + 1,
-        },
-    );
+          type: "pasteRange", sheet, r0: a.r0, c0: a.c0, src: { sheet, r0: row, c0: col, r1: row, c1: col },
+          cells: [{ dr: 0, dc: 0, input }], mode: "all", cut: false, repeatRows: a.r1 - a.r0 + 1, repeatCols: a.c1 - a.c0 + 1,
+        });
+    return this.applyChecked(commands.length === 1 ? commands[0]! : { type: "compound", commands });
   }
 
   selectionRange(): Range {
     return clipRange(normalize(this.state.selection), this.cache(this.state.activeSheet));
+  }
+
+  /** Every area of the selection (Go To Special selects several), the active one first. */
+  selectionAreas(): Range[] {
+    const cache = this.cache(this.state.activeSheet);
+    return [this.selectionRange(), ...(this.state.selection.areas ?? []).map((a) => clipRange(a, cache))];
+  }
+
+  /**
+   * Go To Special: selects the cells of the selection (one cell: the used range) that match `kind` as a
+   * multi-area selection, the first cell active; "No cells were found." when none do. Resolves whether any was.
+   */
+  async goToSpecial(kind: GoToChoice, types: GoToTypes, allLevels: boolean): Promise<boolean> {
+    const sheet = this.state.activeSheet;
+    let areas: Range[];
+    if (kind === "currentArray") {
+      const o = this.activeSpill();
+      areas = o ? [o.range] : [];
+    } else {
+      const a = this.activeAnchor();
+      try {
+        areas = await this.api.goToSpecial(sheet, normalize(this.state.selection), a.row, a.col, kind, types, allLevels);
+      } catch (e) {
+        this.pushError(e instanceof CalcApiError && e.code !== "internal" ? new Error(t("calc.goToSpecial.tooMany")) : e);
+        return false;
+      }
+    }
+    if (areas.length === 0) {
+      this.pushError(new Error(t("calc.goToSpecial.none")));
+      return false;
+    }
+    const [first, ...rest] = areas as [Range, ...Range[]];
+    this.select({ anchor: { row: first.r0, col: first.c0 }, focus: { row: first.r1, col: first.c1 }, range: first, ...(rest.length ? { areas: rest } : {}) });
+    this.revealCell?.(first.r0, first.c0);
+    return true;
   }
 
   /** Applies a command; a failure becomes a toast. Resolves whether it was applied. */
@@ -1807,6 +1859,17 @@ export class CalcStore {
 
   /** Scrolls a cell into view (set by the grid). */
   revealCell: ((row: number, col: number) => void) | null = null;
+  /**
+   * The grid's scroll position (installed by the grid): the first row and column of the top-left pane and of the
+   * scrolling (bottom-right) pane. Freeze Panes freezes at it; Save records it (Excel's `topLeftCell`).
+   */
+  viewport: (() => SheetScroll) | null = null;
+  /** View › Split at the active cell (installed by the grid): the view patch with the splitters. */
+  splitHere: (() => SheetViewPatch | null) | null = null;
+  /** The next pane change keeps the scroll position (a splitter dragged by hand). */
+  keepScrollOnce = false;
+  /** File › Print's current settings (the app's): Page Break Preview paginates with them. */
+  printOptions: CalcPrintOptions = DEFAULT_CALC_PRINT;
 
   /**
    * AutoSum (Alt+=): starts `=FN(` in the active cell with the numbers
@@ -1897,6 +1960,8 @@ export class CalcStore {
     }
     // Spilled cells are cleared through their formula cell (Delete there removes the whole spill).
     if (onlySpilledCells(this.cache(this.state.activeSheet).cells, r)) return Promise.resolve();
+    const areas = this.selectionAreas();
+    if (areas.length > 1) return this.apply({ type: "compound", commands: areas.map((a) => ({ type: "clearRange", sheet: this.state.activeSheet, ...a })) });
     return this.apply({ type: "clearRange", sheet: this.state.activeSheet, ...r });
   }
 
@@ -1906,12 +1971,25 @@ export class CalcStore {
     // The U button (and any plain underline) ends an accounting underline.
     const full: CellStyle = patch.font?.underline !== undefined && !("underlineAccounting" in patch) ? { ...(patch as CellStyle), underlineAccounting: false } : (patch as CellStyle);
     const command: CalcCommand = { type: "applyStyle", sheet, ...r, patch: full };
+    // A multi-area selection (Go To Special) formats every area in one step.
+    const areas = this.selectionAreas();
+    if (areas.length > 1) return this.apply({ type: "compound", commands: areas.map((a) => ({ type: "applyStyle", sheet, ...a, patch: full })) });
     const wrap = patch.alignment?.wrapText;
-    if (wrap === undefined || wrap === null || r.r1 - r.r0 > 500) return this.apply(command);
-    // Wrap text on/off: rows without an explicit height follow (Excel).
+    const size = patch.font?.size;
+    const sizing = (wrap !== undefined && wrap !== null) || (size !== undefined && size !== null);
+    if (!sizing || r.r1 - r.r0 > 500) return this.apply(command);
+    // Wrap text on/off and font size: rows without an explicit height follow (Excel).
     const rows: number[] = [];
     for (let row = r.r0; row <= r.r1; row++) rows.push(row);
-    const fit = this.rowFitCommands(sheet, rows, (c) => (c >= r.c0 && c <= r.c1 ? { wrap } : undefined));
+    const cache = this.cache(sheet);
+    const styles = this.styles();
+    const fit = this.rowFitCommands(sheet, rows, (c, row) => {
+      if (c < r.c0 || c > r.c1) return undefined;
+      if (size === undefined || size === null) return { wrap: wrap ?? undefined };
+      // The style as it will be: the patched font size over each cell's own style.
+      const own = styleAt(styles, styleIdIn(cache, row, c));
+      return { wrap: wrap ?? undefined, style: { ...own, font: { ...(own.font ?? {}), size } } };
+    });
     return this.apply(fit.length === 0 ? command : { type: "compound", commands: [command, ...fit] });
   }
 
@@ -1928,7 +2006,9 @@ export class CalcStore {
    * edit being committed, a style being applied). Measures cached cells only.
    */
   private rowFitCommands(
-    sheet: number, rows: number[], override: (col: number) => { text?: string; wrap?: boolean; rotation?: number } | undefined, extraCols: number[] = [],
+    sheet: number, rows: number[],
+    override: (col: number, row: number) => { text?: string; wrap?: boolean; rotation?: number; style?: CellStyle; width?: number } | undefined,
+    extraCols: number[] = [],
   ): CalcCommand[] {
     const cache = this.cache(sheet);
     const geo = this.geometry(sheet);
@@ -1943,9 +2023,11 @@ export class CalcStore {
       for (const c of extraCols) cols.add(c);
       let need = 0;
       for (const col of cols) {
-        const o = override(col);
+        const o = override(col, row);
         const cell = cache.cells.get(row)?.get(col);
-        const style = styleAt(styles, styleIdIn(cache, row, col));
+        // Merged cells never grow their rows (Excel).
+        if (cache.merges.some((m) => m.r0 <= row && row <= m.r1 && m.c0 <= col && col <= m.c1)) continue;
+        const style = o?.style ?? styleAt(styles, styleIdIn(cache, row, col));
         const text = o?.text ?? cell?.display ?? "";
         const wrap = o?.wrap ?? !!style.alignment?.wrapText;
         const rotation = o?.rotation ?? style.alignment?.textRotation ?? 0;
@@ -1955,8 +2037,12 @@ export class CalcStore {
           need = Math.max(need, rotatedHeight(this.measure(text, font), lineHeightPx(font), rotation));
           continue;
         }
-        if (!wrap) continue;
-        const lines = wrapLines(text, geo.col.size(col) - 2 * CELL_PADDING, font, this.measure).length;
+        // A larger font grows the row even without wrapping (Excel fits rows to their tallest font).
+        if (!wrap) {
+          need = Math.max(need, lineHeightPx(font));
+          continue;
+        }
+        const lines = wrapLines(text, (o?.width ?? geo.col.size(col)) - 2 * CELL_PADDING, font, this.measure).length;
         need = Math.max(need, lines * lineHeightPx(font));
       }
       if (need <= def) {
@@ -2356,7 +2442,20 @@ export class CalcStore {
 
   setColWidth(col: number, widthPx: number | null): Promise<void> {
     const width = widthPx === null ? null : pxToChars(widthPx);
-    return this.apply({ type: "setColWidth", sheet: this.state.activeSheet, col, width });
+    const sheet = this.state.activeSheet;
+    const command: CalcCommand = { type: "setColWidth", sheet, col, width };
+    // Rows with wrapped text in the column refit to the new width (Excel), when their height is automatic.
+    const cache = this.cache(sheet);
+    const styles = this.styles();
+    const rows: number[] = [];
+    for (const [row, cells] of cache.cells) {
+      const cell = cells.get(col);
+      if (cell && cell.display !== "" && styleAt(styles, cell.style).alignment?.wrapText) rows.push(row);
+    }
+    if (rows.length === 0 || rows.length > 2000) return this.apply(command);
+    const px = widthPx ?? colWidthPx(cache.format.defaultColWidth);
+    const fit = this.rowFitCommands(sheet, rows, (c) => (c === col ? { width: px } : undefined));
+    return this.apply(fit.length === 0 ? command : { type: "compound", commands: [command, ...fit] });
   }
 
   setRowHeight(row: number, heightPx: number | null): Promise<void> {
@@ -2536,10 +2635,35 @@ export class CalcStore {
    */
   freezePanes(kind: "selection" | "topRow" | "firstCol" | "none"): Promise<void> {
     const { row, col } = this.activeAnchor();
-    const [rows, cols] = kind === "selection" ? [row, col] : kind === "topRow" ? [1, 0] : kind === "firstCol" ? [0, 1] : [0, 0];
     const view = this.sheetView();
-    if (view.frozenRows === rows && view.frozenCols === cols) return Promise.resolve();
-    return this.apply({ type: "setFreeze", sheet: this.state.activeSheet, rows, cols });
+    // Excel freezes at the scroll position: the rows above / columns left of the active cell that are on the screen
+    // (Freeze Top Row: the top visible row). Unfreezing stays where the frozen area began.
+    const vp = this.viewport?.() ?? { sheet: this.state.activeSheet, topRow: 0, leftCol: 0, paneRow: 0, paneCol: 0 };
+    const frozen = view.frozenRows > 0 || view.frozenCols > 0;
+    const top = frozen ? (view.frozenRows > 0 ? (view.topRow ?? 0) : vp.paneRow) : vp.paneRow;
+    const left = frozen ? (view.frozenCols > 0 ? (view.leftCol ?? 0) : vp.paneCol) : vp.paneCol;
+    let [rows, cols] = kind === "selection" ? [Math.max(0, row - top), Math.max(0, col - left)] : kind === "topRow" ? [1, 0] : kind === "firstCol" ? [0, 1] : [0, 0];
+    // The active cell above / left of the screen's first line: freeze nothing on that axis.
+    if (kind === "selection" && row < top) rows = 0;
+    if (kind === "selection" && col < left) cols = 0;
+    if (view.frozenRows === rows && view.frozenCols === cols && (rows === 0 || (view.topRow ?? 0) === top) && (cols === 0 || (view.leftCol ?? 0) === left)) {
+      return Promise.resolve();
+    }
+    return this.apply({ type: "setFreeze", sheet: this.state.activeSheet, rows, cols, topRow: top, leftCol: left });
+  }
+
+  /** View › Split: splits the window at the active cell, or removes the split (Excel's toggle). */
+  toggleSplit(): Promise<void> {
+    const v = this.sheetView();
+    if ((v.splitX ?? 0) > 0 || (v.splitY ?? 0) > 0) return this.setSheetView({ splitX: 0, splitY: 0 });
+    const patch = this.splitHere?.();
+    if (!patch) return Promise.resolve();
+    // Splitting unfreezes (Excel).
+    if (v.frozenRows > 0 || v.frozenCols > 0) return this.apply({ type: "compound", commands: [
+      { type: "setFreeze", sheet: this.state.activeSheet, rows: 0, cols: 0, topRow: patch.topRow ?? 0, leftCol: patch.leftCol ?? 0 },
+      { type: "setSheetView", sheet: this.state.activeSheet, patch },
+    ] });
+    return this.setSheetView(patch);
   }
 
   // --- merged cells ------------------------------------------------------------

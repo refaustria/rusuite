@@ -284,10 +284,26 @@ pub(crate) fn load_persons(
     Ok(root
         .elements()
         .filter(|e| e.name == "person")
-        .map(|e| Person {
-            id: e.attr("id").unwrap_or_default().to_owned(),
-            name: e.attr("displayName").unwrap_or_default().to_owned(),
-            initials: String::new(),
+        .map(|e| {
+            let name = e.attr("displayName").unwrap_or_default().to_owned();
+            // `userId` = the name and `providerId` = None are what Rusuite writes without them.
+            let user_id = e
+                .attr("userId")
+                .filter(|u| *u != name)
+                .unwrap_or_default()
+                .to_owned();
+            let provider_id = e
+                .attr("providerId")
+                .filter(|p| *p != "None")
+                .unwrap_or_default()
+                .to_owned();
+            Person {
+                id: e.attr("id").unwrap_or_default().to_owned(),
+                name,
+                initials: String::new(),
+                user_id,
+                provider_id,
+            }
         })
         .collect())
 }
@@ -437,6 +453,23 @@ pub(crate) fn load(
             let author = person(e.attr("personId"));
             let date = e.attr("dT").unwrap_or_default().to_owned();
             let text = e.child("text").map(t_text).unwrap_or_default();
+            // `<mentions><mention mentionpersonId mentionId startIndex length/>`.
+            let mentions: Vec<model_sheet::Mention> = e
+                .child("mentions")
+                .map(|m| {
+                    m.elements()
+                        .filter(|x| x.name == "mention")
+                        .filter_map(|x| {
+                            Some(model_sheet::Mention {
+                                person_id: x.attr("mentionpersonId")?.to_owned(),
+                                id: x.attr("mentionId").unwrap_or_default().to_owned(),
+                                start: x.attr("startIndex")?.parse().ok()?,
+                                length: x.attr("length")?.parse().ok()?,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             match e.attr("parentId") {
                 Some(parent) => match threads.iter_mut().find(|t| t.id == parent) {
                     Some(t) => t.replies.push(Reply {
@@ -444,6 +477,7 @@ pub(crate) fn load(
                         author,
                         date,
                         text,
+                        mentions,
                     }),
                     None => warnings.push(format!("reply {id} without its comment dropped")),
                 },
@@ -467,6 +501,7 @@ pub(crate) fn load(
                             .and_then(fmt_ooxml::xml::parse_bool)
                             .unwrap_or(false),
                         replies: Vec::new(),
+                        mentions,
                     });
                 }
             }
@@ -630,13 +665,23 @@ pub(crate) fn write_persons(
     );
     for p in persons {
         let id = p.guid();
+        let user = if p.user_id.is_empty() {
+            &p.name
+        } else {
+            &p.user_id
+        };
+        let provider = if p.provider_id.is_empty() {
+            "None"
+        } else {
+            p.provider_id.as_str()
+        };
         x.empty(
             "person",
             &[
                 ("displayName", &p.name),
                 ("id", &id),
-                ("userId", &p.name),
-                ("providerId", "None"),
+                ("userId", user),
+                ("providerId", provider),
             ],
         );
     }
@@ -859,7 +904,8 @@ impl CommentParts {
                         id: &str,
                         parent: Option<&str>,
                         done: bool,
-                        text: &str| {
+                        text: &str,
+                        mentions: &[model_sheet::Mention]| {
                 let pid = person_id(persons, author);
                 let mut a: Vec<(&str, &str)> = vec![("ref", r)];
                 if !date.is_empty() {
@@ -875,6 +921,22 @@ impl CommentParts {
                 }
                 x.start("threadedComment", &a);
                 x.text_el("text", &[], &encode_x_escapes(text));
+                if !mentions.is_empty() {
+                    x.start("mentions", &[]);
+                    for m in mentions {
+                        let (start, length) = (m.start.to_string(), m.length.to_string());
+                        x.empty(
+                            "mention",
+                            &[
+                                ("mentionpersonId", m.person_id.as_str()),
+                                ("mentionId", m.id.as_str()),
+                                ("startIndex", &start),
+                                ("length", &length),
+                            ],
+                        );
+                    }
+                    x.end("mentions");
+                }
                 x.end("threadedComment");
             };
             for th in threads {
@@ -888,6 +950,7 @@ impl CommentParts {
                     None,
                     th.resolved,
                     &th.text,
+                    &th.mentions,
                 );
                 for rep in &th.replies {
                     item(
@@ -899,6 +962,7 @@ impl CommentParts {
                         Some(&th.id),
                         false,
                         &rep.text,
+                        &rep.mentions,
                     );
                 }
             }

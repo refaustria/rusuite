@@ -34,6 +34,7 @@ mod dispatch;
 mod display;
 mod doc;
 mod fill;
+mod goto;
 mod names;
 mod patch;
 mod pivots;
@@ -55,13 +56,14 @@ pub use audit::{ErrorIssue, ErrorRule, EvalStep, Evaluation, WatchCell, WatchIte
 pub use calc_tools::{CalcModeWire, CalcOptions, CalcState};
 pub use command::{
     BorderEdits, CalcCommand, ClipCell, DeleteShift, EdgeEdit, FillMode, FlashCell, InsertShift,
-    PasteMode, PasteOperation, PasteParts, PasteSpecial, RangeFormat, Rect, SheetRect,
-    SheetViewPatch, SlicerPatch, StyleRename, SubtotalFunction,
+    PasteMode, PasteOperation, PasteParts, PasteSpecial, PictureFormat, RangeFormat, Rect,
+    SheetRect, SheetViewPatch, SlicerPatch, StyleRename, SubtotalFunction,
 };
-pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody};
+pub use dispatch::{dispatch, CalcHost, Request, Response, ResponseBody, SheetScroll};
 pub use display::{display_value, UNDISPLAYABLE};
 pub use doc::{CalcDocument, CalcError};
 pub use fill::{plan as fill_plan, shift_input, FillItem, FillPlan};
+pub use goto::{cells_to_rects, GoToKind, GoToTypes, MAX_GOTO_AREAS};
 pub use names::{name_from_text, preview_value, NameDef, NameEdges, NameInfo, NameRow};
 pub use patch::{
     CalcPatch, CellCf, CellKind, CellView, ColView, CommentState, FoundCell, RegionSnapshot,

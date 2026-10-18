@@ -58,6 +58,11 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         active_sheet: Option<u32>,
+        /// Where the UI is scrolled to (the active sheet): saved as the
+        /// view's `topLeftCell`s, as Excel does (view state, not undoable).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        scroll: Option<SheetScroll>,
     },
     /// Marks the current state as saved (after the shell wrote the file);
     /// `name` (save as) replaces the document's file name → `documentState`.
@@ -242,6 +247,46 @@ pub enum Request {
     },
     /// The pictures of a sheet (with their images).
     SheetPictures { sheet: u32 },
+    /// Go To Special (Ctrl+G › Special…): the cells of `range` (one cell =
+    /// the used range) matching `kind`, `(row, col)` being the active cell
+    /// → `areas` (row-major rectangles; empty = "No cells were found.").
+    GoToSpecial {
+        sheet: u32,
+        range: Rect,
+        row: u32,
+        col: u32,
+        kind: crate::goto::GoToKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        types: Option<crate::goto::GoToTypes>,
+        /// Precedents / dependents: all levels (else direct only).
+        #[serde(default)]
+        #[ts(optional)]
+        all_levels: Option<bool>,
+    },
+    /// The fill handle's tip while dragging `src` over `dst` → `fillPreview`
+    /// (the text the farthest filled cell would show; `null` for a copied
+    /// formula).
+    FillPreview {
+        sheet: u32,
+        src: Rect,
+        dst: Rect,
+        mode: crate::command::FillMode,
+    },
+}
+
+/// The scroll position of a sheet's panes (`saveXlsx`): the first row and
+/// column of the top-left pane and of the scrolling (bottom-right) pane.
+/// With frozen panes only the scrolling pane's position counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "apps/calc/src/generated/")]
+pub struct SheetScroll {
+    pub sheet: u32,
+    pub top_row: u32,
+    pub left_col: u32,
+    pub pane_row: u32,
+    pub pane_col: u32,
 }
 
 /// The successful part of a [`Response`].
@@ -305,6 +350,14 @@ pub enum ResponseBody {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         color: Option<String>,
+    },
+    /// The reply to `goToSpecial`.
+    Areas {
+        areas: Vec<Rect>,
+    },
+    /// The reply to `fillPreview`.
+    FillPreview {
+        text: Option<String>,
     },
     /// The reply to `names`.
     Names {
@@ -511,10 +564,16 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
                 envelope: Box::new(host.envelope(CalcPatch::default())),
             }
         }
-        Request::SaveXlsx { active_sheet } => {
+        Request::SaveXlsx {
+            active_sheet,
+            scroll,
+        } => {
             if let Some(id) = active_sheet {
                 let id = model_sheet::SheetId(id);
                 host.doc_mut().workbook_mut().set_active_sheet(Some(id));
+            }
+            if let Some(sc) = scroll {
+                host.doc_mut().set_scroll(sc)?;
             }
             let bytes = host.doc().save_xlsx()?;
             ResponseBody::Saved {
@@ -751,6 +810,33 @@ fn handle(host: &mut CalcHost, request: Request) -> Result<ResponseBody, Dispatc
         }
         Request::SheetPictures { sheet } => ResponseBody::Pictures {
             pictures: host.doc().sheet_pictures(sheet)?,
+        },
+        Request::GoToSpecial {
+            sheet,
+            range,
+            row,
+            col,
+            kind,
+            types,
+            all_levels,
+        } => ResponseBody::Areas {
+            areas: host.doc().go_to_special(
+                sheet,
+                range,
+                row,
+                col,
+                kind,
+                types.unwrap_or_default(),
+                all_levels.unwrap_or(false),
+            )?,
+        },
+        Request::FillPreview {
+            sheet,
+            src,
+            dst,
+            mode,
+        } => ResponseBody::FillPreview {
+            text: host.doc().fill_preview(sheet, src, dst, mode)?,
         },
     })
 }

@@ -107,6 +107,11 @@ export default function App({ backend }: { backend: CalcBackend }) {
     [session, store],
   );
   const [printOptions, setPrintOptions] = useState<CalcPrintOptions>(DEFAULT_CALC_PRINT);
+  useEffect(() => {
+    // Page Break Preview paginates with the print settings.
+    store.printOptions = printOptions;
+    store.notify();
+  }, [store, printOptions]);
   // Zoom, gridlines and headings belong to the active sheet (saved in the file); the formula bar is the app's.
   const [formulaBar, setFormulaBar] = useState(true);
   const sheetView = useCalc(store, (s) => sheetViewOf(s.info, s.activeSheet));
