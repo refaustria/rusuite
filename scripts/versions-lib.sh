@@ -38,6 +38,13 @@ wix_version() {
   esac
 }
 
+# The public name of a version (docs/versioning.md): a trailing `.0` patch dropped (`3.141.0` → `3.141`); hotfixes and
+# pre-releases unchanged. Same rule as ui-shared's publicVersion, scripts/gen-downloads.mjs and release.yml.
+public_version() {
+  local v=${1#v}
+  if [[ "$v" =~ ^([0-9]+\.[0-9]+)\.0$ ]]; then echo "${BASH_REMATCH[1]}"; else echo "$v"; fi
+}
+
 tauri_confs() { for f in apps/*/src-tauri/tauri.conf.json; do echo "$f"; done; }
 # Shipped packages: everything but the e2e test harness.
 package_jsons() { for f in apps/*/package.json packages/*/package.json; do [ "$f" = packages/e2e/package.json ] || echo "$f"; done; }

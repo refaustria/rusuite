@@ -123,3 +123,21 @@ tag `v3.141.0`, release.yml run, Downloads page regenerated, signing if the Appl
 2. ~~Web deployment during the cycle~~ decided 2026-10-17: the web keeps being deployed from `main` after each verified merge.
 3. Apple Developer Program (signing) – pulled into the cycle as soon as the secrets exist.
 4. A test API key for the AI desktop smoke (Block 3).
+
+## Closing status (P9-R1, 2026-10-18)
+
+| Block | Task | State |
+| --- | --- | --- |
+| 1 Calc | C1 protection/sheets, C2 tables/slicers/Flash Fill, C3 pivots, C4 formulas (247 functions), C5 CF/sorting, C6 charts/sparklines, C7 cells/comments | merged |
+| 1 Show | S1 text editing, S2 tables/freeform, S3 views/design, S4 animations/transitions, S5 presenter/reuse/themes | merged |
+| 1 Write | W1 lists/shortcuts, W2 pagination, W3 styles/templates, W4 drawings, W5 tables, W6 comments/notes/fields | merged |
+| 1 Cross-app | X1 shared geometry, X2 coded warnings/F12/chart presets/Show wasm size; Q1 e2e stability | merged |
+| 2 Languages | L0/L0b infrastructure, L1–L11 (22 new languages, 24 in total), LR1–LR5 reviews, LF pass 1 | merged |
+| 2 Languages | LF pass 2 (strict gate for the A1/A2/X2 keys and the P9-R1 portal keys) | open at P9-R1 – see its report |
+| 3 AI | A1 caching/reasoning/images/reply language, A2 per-action settings/export/local models | merged (owner's real-key smoke still open) |
+| 4 Release | R1 version 3.141.0, public name, notes, CHANGELOG, NOTICE, Office check pack, portal "New in 3.141" | prepared; tag, workflow run, publish and deploy by the PM ([release.md](release.md) "Release 3.141") |
+| – | Code signing | not in 3.141: no Apple Developer account/secrets yet |
+
+Open owner decisions carried over: Apple Developer Program (signing), the test API key for the AI desktop smoke.
+Follow-ups of every batch are in ROADMAP.md ("P9-… (3.141)" lines); the release notes' known limitations summarise
+them.

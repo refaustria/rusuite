@@ -3,11 +3,33 @@
 Releases are cut from `main` by the PM (agents never tag, publish or deploy). A release is a draft, pre-release GitHub
 Release built by `.github/workflows/release.yml`; nothing is public until someone presses **Publish release**.
 
+**Version numbers (π scheme, [versioning.md](versioning.md)):** one release per cycle, public name with one more digit
+of π – **3.141** (semver `3.141.0`, tag `v3.141.0`), then 3.1415, 3.14159. The public name (no trailing `.0`) is used in
+the release title (`releaseName` in release.yml), the Downloads page, the apps' File view and the portal footer; tags,
+`Cargo.toml`/`tauri.conf.json`/`package.json` and the installer file names keep the full semver. One rule derives it
+everywhere: ui-shared `publicVersion`, `scripts/gen-downloads.mjs` `publicName`, `scripts/versions-lib.sh`
+`public_version`, apps/portal/version.js and the `tag` step of release.yml. A hotfix inside a cycle bumps the patch
+(`3.141.1`, shown as "3.141.1").
+
+## Release 3.141 – the steps of this cycle
+Prepared by P9-R1 on `p9/r1-release-3141` (versions `3.141.0`, notes `docs/release-notes/3.141.md`, CHANGELOG, NOTICE,
+Office check pack in `/home/bojan/rusuite-office-check/rusuite-office-check-3.141.0.zip`). After that branch is merged:
+1. `pnpm i18n:check:strict` green on `main` (the portal's "New in 3.141" / signing keys need translating, see the
+   P9-R1 report), CI green, the live site deployed from `main` and its e2e green.
+2. Owner: open the Office check pack in Excel/Word/PowerPoint (README.txt lists the 3.141 files first).
+3. Optional test run of release.yml (section 2) with *Release tag name* `v0.0.0-test`, then delete the draft.
+4. Tag and push: `git tag -a v3.141.0 -m "Rusuite 3.141" && git push origin v3.141.0` – the workflow builds the draft
+   release "Rusuite 3.141".
+5. Review the draft (section 4): paste `docs/release-notes/3.141.md` as the text, **untick "Set as a pre-release"**
+   (3.141 is a release), *Publish release*.
+6. Redeploy the web from `main` (`scripts/deploy-web.sh --e2e`): the Downloads page then lists 3.141 (section 5), the
+   portal footer shows "Rusuite 3.141 · Build …".
+
 ## 1. Prepare `main`
-1. `main` is green in CI (`rust`, `frontend`, `e2e`), and `pnpm i18n:check:strict` passes (no pending translation keys, docs/i18n.md). Last green: 2026-10-18 (P9-LF pass 1, all 22 translated languages).
+1. `main` is green in CI (`rust`, `frontend`, `e2e`), and `pnpm i18n:check:strict` passes (no pending translation keys, docs/i18n.md). Last green: 2026-10-18 (P9-LF pass 1, all 22 translated languages); open again since A1/A2/X2 and P9-R1 added en/de keys (P9-LF pass 2).
 2. Set the version everywhere and commit it:
    ```
-   scripts/set-version.sh 0.1.0-rc.1      # workspace Cargo.toml (+ members with a literal version), Cargo.lock,
+   scripts/set-version.sh 3.141.0         # workspace Cargo.toml (+ members with a literal version), Cargo.lock,
                                           # tauri.conf.json x3 (+ bundle.windows.wix.version), package.json x4
    scripts/check-versions.sh              # also run by CI and by the release workflow (against the tag)
    ```
@@ -17,11 +39,15 @@ Release built by `.github/workflows/release.yml`; nothing is public until someon
    **π versions (docs/versioning.md):** `3.141.0` is a valid MSI version as is (MINOR 141 ≤ 255). The next cycle's
    `3.1415.0` is not – WiX limits MINOR to 255 – so that release task changes `wix_version` in
    `scripts/versions-lib.sh` (the single place; e.g. `3.1.4159.0`, BUILD ≤ 65535) before running `set-version.sh`.
-3. Regenerate `NOTICE` if dependencies changed: `scripts/gen-notice.sh` (needs `cargo-license`, docs/setup.md).
-4. Update `CHANGELOG.md`: move the finished items from **Unreleased** into the version's section (user language, no
+3. Regenerate `NOTICE`: `scripts/gen-notice.sh` (needs `cargo-license`, docs/setup.md); it also writes the "Data
+   sources" paragraph (docs/legal-notes.md).
+4. Build the Office check pack for the owner: `scripts/office-check-pack.sh /home/bojan/rusuite-office-check` (release
+   builds of the three format crates' examples, ~2 min); add the cycle's new features to its README text.
+5. Update `CHANGELOG.md`: move the finished items from **Unreleased** into the version's section (user language, no
    task ids; the source is the task board in STATUS.md and `git log`), refresh **Known limitations** from ROADMAP.md and
-   the QA logs in `docs/qa/`. `docs/release-notes/0.1.0.md` is the GitHub release text.
-5. Owner checks on real Office and real machines: [testing.md › Before tagging](testing.md#before-tagging-owner-checklist).
+   the QA logs in `docs/qa/`. `docs/release-notes/<public name>.md` (e.g. `3.141.md`; format of `0.1.0.md`) is the
+   GitHub release text.
+6. Owner checks on real Office and real machines: [testing.md › Before tagging](testing.md#before-tagging-owner-checklist).
 
 ## 2. Test run of the workflow (`workflow_dispatch`)
 Do this after any change to `release.yml` and before the first tag of a version. The repository token used by the
@@ -41,8 +67,8 @@ agents cannot dispatch workflows, so the owner/PM clicks:
 
 ## 3. Tag
 ```
-git tag v0.1.0-rc.1
-git push origin v0.1.0-rc.1
+git tag -a v3.141.0 -m "Rusuite 3.141"
+git push origin v3.141.0
 ```
 The `Release` workflow runs on the tag: `version strings` fails at once if the tag does not match the version files;
 then each app (Calc, Write, Show) is built on
@@ -54,7 +80,8 @@ then each app (Calc, Write, Show) is built on
 | `macos-latest` | Apple Silicon `.dmg` (+ `.app.tar.gz`) |
 | `macos-15-intel` | Intel `.dmg` (+ `.app.tar.gz`) |
 
-and attached to a **draft, pre-release** GitHub Release named `Rusuite <tag>` (<https://github.com/refaustria/rusuite/releases>).
+and attached to a **draft, pre-release** GitHub Release named `Rusuite <public name>` (e.g. "Rusuite 3.141";
+<https://github.com/refaustria/rusuite/releases>).
 The `smoke` job then starts every built binary on its OS with `--smoke`.
 
 ### The smoke job
@@ -68,8 +95,8 @@ reply, that the native window title names the app and that `ping` reports the ve
 ## 4. Review and publish
 1. Open the draft. Check the asset list (per app: `.deb`, `.rpm`, `.AppImage`, `.msi`, `.exe`, two `.dmg`, two
    `.app.tar.gz`) and download one installer per OS for a last start.
-2. Replace the release text with `docs/release-notes/0.1.0.md` (adapt the heading for an rc). Keep **Set as a
-   pre-release** ticked for alpha/rc builds.
+2. Replace the release text with `docs/release-notes/<public name>.md` (adapt the heading for an rc). Keep **Set as a
+   pre-release** ticked for alpha/rc builds; untick it for a cycle release such as 3.141.
 3. **Publish release**. The SHA-256 digests of the assets then show under *Assets*.
 
 ## 5. Portal downloads page
@@ -79,7 +106,8 @@ The portal's `downloads.html` is static and generated at deploy time from the ne
 After publishing, the PM redeploys from `main` (`scripts/deploy-web.sh`). `DOWNLOADS_TAG=<tag>` picks a specific release;
 without `gh` or without a published release the page says "no release yet" and links to GitHub Releases (that page is
 also the committed `apps/portal/downloads.html`). Preview locally:
-`DOWNLOADS_TAG=v0.1.0-alpha.3 scripts/gen-downloads.sh --out /tmp/downloads.html` (drafts work for the PM's token, but
+`DOWNLOADS_TAG=v3.141.0 scripts/gen-downloads.sh --out /tmp/downloads.html` (the lead line then reads "Rusuite 3.141 for
+Windows, macOS and Linux") (drafts work for the PM's token, but
 their download links work only for repository members).
 
 ## Report relay URL (P8-43)
@@ -99,7 +127,12 @@ say so plainly:
 - **Windows SmartScreen**: "Windows protected your PC" – *More info* › *Run anyway*.
 - **Linux**: no warning; make the AppImage executable (`chmod +x`), install deb/rpm as usual.
 
-Code signing, notarization and auto-update are on the ROADMAP.
+Code signing, notarization and auto-update are on the ROADMAP. State at 3.141 (2026-10-18): the repository has no
+Apple signing secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_PASSWORD`, `APPLE_TEAM_ID`; the owner has not enrolled in the Apple Developer Program yet), so 3.141 ships
+unsigned and the notes above stay. Once they exist: pass them as `env` to the `tauri-action` step for the macOS runners
+(tauri-action/Tauri read them from the environment and sign + notarize), then replace the Gatekeeper steps on the
+Downloads page (`portal.dl.mac15.*`, `portal.dl.unsigned.*`) and in the release notes.
 
 ## Known risks of pre-release versions in bundles
 - **RPM**: RPM versions cannot contain `-`; the bundler has to map `0.1.0-rc.1` to an RPM version/release. If the
