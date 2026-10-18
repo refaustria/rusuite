@@ -94,6 +94,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - Move the XML DOM/writer and theme parser into fmt-ooxml (now triplicated).
 
 ## i18n follow-ups
+- From the LR reviews (2026-10-18): `i18n-check` should flag leading/trailing whitespace or control characters absent from English, mixed-script words in Cyrillic catalogs, and punctuation/ellipsis/length-ratio parity (catches index-slip swaps); the i18n e2e should open the contextual tabs (Sparkline, Chart, Picture) for the clipping scan; derive the spec's `TRANSLATED` list from the catalogs to stop the per-language merge conflicts.
 - Locale-aware formula input/display (German `;`/`,`, function names) – owner decision pending; translated core messages via error codes; unused-key catalog check; wider gallery tiles for long German labels ("Überschri…"); Write Clipboard group overflow.
 
 ## Calc parity follow-ups
@@ -183,7 +184,11 @@ Captured here, **not implemented** unless essential to the current phase. README
 ## Show (Phase 6 leftovers)
 - Presenter: edit notes in the console, pause/per-slide timer, choose screen for the audience window, pen drawing; snap to equal spacing; Selection pane; Format Background pane (gradient/picture); formatted notes; paste-slide elsewhere as one undo step; Alt during drag can focus the ribbon.
 
+## Cross-cutting
+- P9-X1 (3.141): e2e for Write's adjust handles on a rotated shape (drag + keyboard); Show's `handlesOf` should keep the last-known handles while a new outline loads (Write does); adjust handles for Write group members; Show's Konva Transformer could use the shared resize/rotation helpers.
+
 ## Ribbon
+- Reported by the L7 translator (2026-10-18): in Calc's Home tab at 1024 px the Clipboard group label is drawn over the Cut/Copy buttons in every language (a ribbon layout issue, not a translation) – check the group's collapse threshold; also a cheap CI rule for swapped catalog values (punctuation/ellipsis/length-ratio parity per key against English).
 - Groups that collapse into dropdowns on narrow windows; Quick Access Toolbar; remember collapsed state and zoom; Calc Data tab (sort/filter) if it enters scope; print preview in the backstage; Write font box shows the effective (style-derived) font.
 
 ## Desktop shells

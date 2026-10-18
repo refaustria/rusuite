@@ -811,6 +811,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "ts-rs",
 ]
 
 [[package]]
@@ -4036,6 +4037,7 @@ dependencies = [
  "core-model",
  "fmt-ooxml",
  "fmt-pptx",
+ "insta",
  "model-show",
  "serde",
  "serde_json",
@@ -5797,7 +5799,6 @@ dependencies = [
  "fmt-docx",
  "fmt-ooxml",
  "insta",
- "model-show",
  "model-text",
  "serde",
  "serde_json",

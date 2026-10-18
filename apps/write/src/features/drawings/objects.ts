@@ -2,10 +2,13 @@
 // drawings to the selection (the editor's node selection is the first one,
 // the others are kept here and drawn selected), arrow keys nudge the
 // selected objects (Ctrl: 1 px), Arrange › Group / Ungroup / Regroup, Align
-// and Distribute. Group builds the group value in the editor from the
+// and Distribute. With one shape selected, Tab / Shift+Tab focus its
+// adjust handles one after the other and the arrow keys move the focused
+// handle (1 px, Shift: 10; Escape leaves it) – as in Show (P9-X1). Group builds the group value in the editor from the
 // objects' rendered frames (one transaction; the mapper sends it with the
 // always-correct fallback); members keep their ids.
 
+import { effectiveAdjust, handleNudgeKey, nudgeAdjust, stepHandleFocus } from "@rusuite/ui-shared";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
@@ -15,7 +18,9 @@ import type { Indent } from "../../generated/Indent";
 import type { PictureFormat } from "../../generated/PictureFormat";
 import { canonDrawing } from "../../sync/model";
 import { movedAnchor, newAnchor, renderedOffset, zoomOf } from "../floating";
+import { focusedDrawing, handleFocusOf, handlesOf, outlineFor, setHandleFocus } from "./handles";
 import { innerEditors } from "./innerEditors";
+import { pathQuery, shapePaths } from "./paths";
 import { alignBoxes, distributeBoxes, EMU_PER_PX, groupMembers, nudgeDelta, ungroupMembers, type AlignMode, type Box } from "./geometry";
 
 const TWIPS_PER_PX = 15;
@@ -45,6 +50,47 @@ export function selectedObjects(state: EditorState): { pos: number; node: PMNode
   return out;
 }
 
+/**
+ * Tab / Shift+Tab, arrows and Escape on the adjust handles of the one
+ * selected shape (see the module docs). Returns whether the key was used.
+ */
+export function adjustHandleKey(view: EditorView, e: Pick<KeyboardEvent, "key" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey" | "preventDefault">): boolean {
+  if (e.altKey || e.ctrlKey || e.metaKey) return false;
+  const sel = view.state.selection;
+  if (!(sel instanceof NodeSelection) || sel.node.type.name !== "drawing" || !sel.node.attrs.value) return false;
+  if ((objectsKey.getState(view.state)?.extra ?? []).length) return false;
+  const d = sel.node.attrs.value as Drawing;
+  if (d.kind === "group" || d.kind === "canvas") return false;
+  const q = pathQuery(d.preset, d.width, d.height, d.adjust ?? null);
+  const outline = outlineFor(d.id, shapePaths.get(q));
+  const defs = handlesOf(outline, q.w, q.h);
+  if (!defs.length) return false;
+  const cur = handleFocusOf(d.id);
+  if (e.key === "Tab") {
+    e.preventDefault();
+    setHandleFocus(d.id, stepHandleFocus(cur, defs.length, e.shiftKey ? -1 : 1));
+    return true;
+  }
+  const def = cur === null ? undefined : defs[cur];
+  if (!def) return false;
+  if (e.key === "Escape") {
+    setHandleFocus(null, null);
+    return true;
+  }
+  const step = handleNudgeKey(e.key, e.shiftKey);
+  if (!step) return false;
+  e.preventDefault();
+  // The handle moves in screen directions, whatever the shape's rotation and flips.
+  const box = { x: 0, y: 0, w: q.w, h: q.h, rotationDeg: d.rotation ?? 0, flipH: !!d.flipH, flipV: !!d.flipV };
+  const moved = nudgeAdjust(def, effectiveAdjust(outline?.defaults ?? {}, d.adjust), box, step.x * EMU_PER_PX, step.y * EMU_PER_PX);
+  const adjust = { ...(d.adjust ?? {}), ...moved };
+  if (JSON.stringify(adjust) === JSON.stringify(d.adjust ?? {})) return true;
+  const tr = view.state.tr.setNodeMarkup(sel.from, undefined, { value: canonDrawing({ ...d, adjust }) });
+  tr.setSelection(NodeSelection.create(tr.doc, sel.from));
+  view.dispatch(tr);
+  return true;
+}
+
 export function objectsPlugin(): Plugin<ObjectsState> {
   return new Plugin<ObjectsState>({
     key: objectsKey,
@@ -63,6 +109,10 @@ export function objectsPlugin(): Plugin<ObjectsState> {
     },
     view: () => ({
       update(view, prev) {
+        // The handle focus belongs to the selected shape.
+        const f = focusedDrawing();
+        const sel = view.state.selection;
+        if (f !== null && !(sel instanceof NodeSelection && (sel.node.attrs.value as Drawing | undefined)?.id === f)) setHandleFocus(null, null);
         // An object selected in the main editor is the formatting target from now on (not a text box edited before).
         if (!prev.selection.eq(view.state.selection) && view.state.selection instanceof NodeSelection) innerEditors.mainSelected();
       },
@@ -97,6 +147,7 @@ export function objectsPlugin(): Plugin<ObjectsState> {
         },
       },
       handleKeyDown(view, e) {
+        if (adjustHandleKey(view, e)) return true;
         if (e.altKey || e.shiftKey) return false;
         const d = nudgeDelta(e.key, e.ctrlKey || e.metaKey);
         if (!d) return false;

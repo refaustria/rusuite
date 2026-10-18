@@ -1,6 +1,8 @@
 {
   "register": {},
   "untranslated": {
-    "apps/show/src/locales:show.defaultName": "\"Presentation\" is also the Swedish word; only the file extension differs"
+    "apps/show/src/locales:show.defaultName": "\"Presentation\" is also the Swedish word; only the file extension differs",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "Sample sequence of upper-case Roman numerals, language-neutral",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "Sample sequence of lower-case Roman numerals, language-neutral"
   }
 }

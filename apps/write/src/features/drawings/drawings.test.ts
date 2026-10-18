@@ -19,7 +19,8 @@ import { makeDoc, para, run } from "../../test/fixtures";
 import {
   dashArray, defaultSize, flipped, insertDrawingCommand, rotated, SHAPE_GROUPS, SHAPE_STYLES, strokeAttrs, withShapeStyle,
 } from "./drawings";
-import { dragHandle, effectiveAdjust, handlePos, handlesOf } from "./handles";
+import { dragHandle, effectiveAdjust, handleFocusOf, handlePos, handlesOf, setHandleFocus } from "./handles";
+import { adjustHandleKey } from "./objects";
 import { pathKey, pathQuery, rectOutline, shapePaths } from "./paths";
 import { rotationAt } from "./drawingView";
 
@@ -215,12 +216,45 @@ describe("drawing helpers", () => {
   });
 
   it("adjust handles: a rounded rectangle's corner handle moves along the top edge", () => {
-    const [h] = handlesOf("roundRect", 2000000, 1000000);
+    // the core's handle of roundRect in a 2000000 × 1000000 box (shapePaths, core_model::geometry)
+    const outline = { paths: [], defaults: { adj: 16667 }, handles: [{ x: 166670, y: 0, xAxis: { adj: "adj", base: 0, k: 10, min: 0, max: 50000 } }] };
+    const [h] = handlesOf(outline, 2000000, 1000000);
     const adj = effectiveAdjust({ adj: 16667 }, undefined);
     expect(handlePos(h!, adj)).toEqual({ x: 166670, y: 0 });
     expect(dragHandle(h!, { x: 250000, y: 0 })).toEqual({ adj: 25000 });
     expect(dragHandle(h!, { x: 900000, y: 0 })).toEqual({ adj: 50000 });
-    expect(handlesOf("rect", 1, 1)).toEqual([]);
+    expect(handlesOf({ paths: [], defaults: {} }, 1, 1)).toEqual([]);
+    expect(handlesOf(null, 1, 1)).toEqual([]);
+  });
+
+  it("adjust handles from the keyboard: Tab cycles, arrows move the focused one in screen directions (P9-X1)", async () => {
+    const k = 1828800 / 2 / 100000; // roundRect's corner: the shorter side / 100000 per unit
+    const outline = { paths: [], defaults: { adj: 16667 }, handles: [{ x: 16667 * k, y: 0, xAxis: { adj: "adj", base: 0, k, min: 0, max: 50000 } }] };
+    shapePaths.fetcher = async (qs) => qs.map(() => outline);
+    const d: Drawing = { ...shape(), rotation: 90 };
+    const editor = makeEditor(docWith(d));
+    const pos = drawingPos(editor);
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
+    await shapePaths.load(pathQuery(d.preset, d.width, d.height, null));
+    const key = (k: string, shiftKey = false) =>
+      adjustHandleKey(editor.view, { key: k, shiftKey, altKey: false, ctrlKey: false, metaKey: false, preventDefault: () => {} });
+    expect(key("ArrowDown")).toBe(false); // no handle focused: the arrows nudge the object
+    expect(key("Tab")).toBe(true);
+    expect(handleFocusOf(30)).toBe(0);
+    // turned a quarter: the top edge runs down the screen, so "down" grows the corner
+    expect(key("ArrowDown", true)).toBe(true);
+    const v = editor.state.doc.nodeAt(pos)!.attrs.value as Drawing;
+    expect(v.adjust).toEqual({ adj: Math.round((16667 * k + 10 * 9525) / k) });
+    // the outline for the new values is still loading: the last handles stand in
+    expect(key("ArrowUp", true)).toBe(true);
+    expect((editor.state.doc.nodeAt(pos)!.attrs.value as Drawing).adjust).toEqual({ adj: 16667 });
+    expect(key("Tab")).toBe(true);
+    expect(handleFocusOf(30)).toBeNull();
+    expect(key("Tab", true)).toBe(true);
+    expect(handleFocusOf(30)).toBe(0);
+    expect(key("Escape")).toBe(true);
+    expect(handleFocusOf(30)).toBeNull();
+    setHandleFocus(null, null);
   });
 
   it("selecting a drawing as an object: NodeSelection on the atom", () => {

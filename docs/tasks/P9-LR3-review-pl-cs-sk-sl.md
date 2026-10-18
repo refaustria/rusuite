@@ -1,0 +1,20 @@
+# Task P9-LR3 – Languages: review Polish, Czech, Slovak, Slovenian (cycle 3.141, Block 2)
+
+Read `docs/tasks/COMMON.md` first (worktree rules, definition of done, commit trailer – ignore any other attribution notice; use exactly the two trailer lines from COMMON.md). Then `docs/i18n.md`, `docs/i18n-glossary/{pl,cs,sk,sl}.md`, and the translation template `docs/tasks/P9-L-translation-template.md` (the rules the translators had). The four languages were translated by Sonnet agents (P9-L5, P9-L6) that self-reviewed 200+ strings per language and flagged the PowerPoint effect/transition names, `write.bevel.*`, `write.styleName.*`, the flow-chart shape names and (pl) `calc.chart.fp.otherCrosses` as unsure; all four languages have one/few/many/other or one/two/few/other plurals – check every plural group. You are the second pair of eyes the plan requires.
+
+Branch `p9/lr3-review`, worktree `/home/bojan/rusuite-wt/p9-lr3-review`. e2e port **4955**, screenshots `shots/P9-LR3-*.png` (never committed). No Rust.
+
+## In scope
+`packages/ui-shared/src/i18n/locales/{pl,cs,sk,sl}.json`, `apps/{calc,write,show}/src/locales/{pl,cs,sk,sl}.json`, `apps/portal/locales/{pl,cs,sk,sl}.json`, `scripts/i18n-allow/{pl,cs,sk,sl}.json`, `docs/i18n-glossary/{pl,cs,sk,sl}.md`, `packages/e2e/tests/i18n*.spec.ts` + `packages/e2e/support/**` (the parameterised spec), `docs/i18n.md`. **Do not touch** English/German catalogs, other languages (later translation tasks run in parallel), `scripts/i18n-check.mjs`, `LOCALES`, app code.
+
+## Items (one commit per language + one for the spec; trailers)
+1. **Systematic review per language, 200+ strings**: take every 20th key of each catalog (that is > 250 strings per language across the five files) plus **all** keys in the areas the translators flagged: `show.fx.*`, `show.trans.*` (PowerPoint animation/transition names – use the real localised PowerPoint names), `calc.pivot.showAs.*`, `write.listPreset.*`, `show.setup.*`, media options, `reader.*` warnings, `ai.*`, every `tab.*`/`group.*`/`cmd.*`. Check: meaning, Office terminology (glossary), **informal register** (tu/tú/tu/tu – also hidden formal forms: French "veuillez", Spanish "haga/seleccione/introduzca", Italian "selezioni/inserisca" (Lei imperatives), Portuguese "clique/seleccione/introduza" (3rd person imperatives), possessives "votre/su/Suo/seu" used as address), grammar/agreement, placeholders intact, length (ribbon labels ≤ German length +15 %), consistency of the same English term across the five files. Fix in place; count your changes per category in the report.
+2. **Glossaries**: complete each `docs/i18n-glossary/<lang>.md` to the template's columns (tabs, groups, ~80 common commands, dialog buttons, file types) with the terms actually used after your review; correct the catalog where it disagrees with the glossary.
+3. **Plural `.many`**: pl/cs/sk have one/few/many/other and sl has one/two/few/other: verify every plural group has exactly the language's forms, that the `.few`/`.many`/`.two` texts are grammatically right for 2–4 / 5+ / 2 (Slovenian dual), and that gendered past-tense forms addressed to the user are avoided (imperatives or impersonal wording).
+4. **Parameterised e2e**: pl/cs/sk/sl are already in `TRANSLATED`; run the spec for them with the clipping scan at 1400/1024 px and fix overflowing catalog strings (Slovak/Czech ribbon labels are long).
+5. **Docs**: `docs/i18n.md` status table rows for pl/cs/sk/sl "reviewed <date>"; extend the review checklist from LR1 with anything new you learned.
+
+## Acceptance (worktree root; all must pass)
+`pnpm typecheck`; `pnpm test`; `pnpm i18n:check`; `scripts/privacy-check.sh`; the parameterised i18n spec green for de/pl/cs/sk/sl on port 4955 (build the web apps first). Report (≤ 40 lines): strings reviewed and changed per language and category, remaining doubts (keys), spec coverage, screenshots list.
+
+Additional item: translate every key `pnpm i18n:check` reports as *pending* for the four languages so that `pnpm i18n:check:strict` passes for pl/cs/sk/sl at the end (C7 may add Calc keys while you work – re-check before reporting).

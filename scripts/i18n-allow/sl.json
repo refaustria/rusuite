@@ -1,0 +1,9 @@
+{
+  "register": {
+    "apps/portal/locales:portal.dl.win.1": "quotes the Windows SmartScreen message \"Windows je zaščitil vaš računalnik\" verbatim"
+  },
+  "untranslated": {
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "numeral samples (I, II, III) are language-neutral",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "numeral samples (i, ii, iii) are language-neutral"
+  }
+}

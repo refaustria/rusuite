@@ -6,9 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# ts-rs derives on the shape geometry types (`geometry`), exported to
+# apps/show/src/generated/ by `cargo test` (enabled by model-show's `ts`).
+ts = ["dep:ts-rs"]
+
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
+ts-rs = { version = "12", features = ["serde-compat"], optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

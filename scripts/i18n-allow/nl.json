@@ -4,6 +4,8 @@
     "apps/write/src/locales:write.defaultName": "Dutch Word also names a new document \"Document\"; only the file extension differs by app",
     "apps/show/src/locales:show.tableStyle.accentPair": "\"Accent\" is the Dutch Office term as well",
     "apps/portal/locales:portal.dl.title": "\"Downloads\" is the Dutch word; the product name Rusuite follows",
-    "apps/portal/locales:portal.privacy.title": "\"Privacy\" is the Dutch word; the product name Rusuite follows"
+    "apps/portal/locales:portal.privacy.title": "\"Privacy\" is the Dutch word; the product name Rusuite follows",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "Sample sequence of upper-case Roman numerals, language-neutral",
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "Sample sequence of lower-case Roman numerals, language-neutral"
   }
 }

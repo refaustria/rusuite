@@ -55,7 +55,7 @@
   "portal.dl.linux.title": "Linux",
   "portal.dl.linux.1": "<strong>.deb / .rpm:</strong> installeer zoals gewoonlijk, bijv. <code>sudo apt install ./file.deb</code> of <code>sudo dnf install ./file.rpm</code>.",
   "portal.dl.linux.2": "<strong>.AppImage:</strong> maak het uitvoerbaar met <code>chmod +x file.AppImage</code> en start het daarna.",
-  "portal.language": "Language / Taal",
+  "portal.language": "Taal / Language",
   "portal.languagePending": "{name} (nog niet vertaald)",
   "portal.nav": "Site",
   "portal.legal": "Microsoft, Word, Excel en PowerPoint zijn handelsmerken van Microsoft Corporation. Rusuite is niet verbonden aan Microsoft.",
