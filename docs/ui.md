@@ -760,6 +760,36 @@ Ribbon dropdown panels near the window's right edge move left to stay in the win
   Sparkline Color ▾ (weight), Marker Color ▾, Axis ▾ (date axis, show axis, right-to-left, vertical bounds automatic /
   same for all / custom), Group, Ungroup and Clear ▾. Category labels turn −45° (then −90°) when they would overlap, and
   value axes use Excel's automatic bounds.
+- **Calc cells, panes, comments and pictures round 2** (P9-C7, `grid/render.ts`, `grid/panes.ts`,
+  `names/GoToSpecialDialog.tsx`, `comments/`, `pictures/PictureRibbon.tsx`): **cells** – rotated text wider than its
+  cell overflows into empty neighbours by its horizontal extent (vertical text never does); right-aligned text is
+  indented from the right; horizontal alignment Fill repeats the content, Justify breaks into lines; a General number in
+  a narrow cell keeps whichever form has more significant digits (`3.141593`, but `1.23E-05` for `0.0000123456`), other
+  numbers and dates that do not fit show `####`. Rows refit after a column width change (wrapped cells) and a font size
+  change; merged cells never grow their rows (Excel). Print: one-line text overflows over the empty cells of its page,
+  cut at the page edge; numbers print as on the screen; wrap text and indents print. Dragging the fill handle shows a tip
+  with the value the farthest cell gets, in the source's format (`fillPreview`). **Panes** – Freeze Panes while scrolled
+  freezes from the first visible row / column and keeps the position (`sheetView/@topLeftCell` + `pane/@topLeftCell`);
+  Freeze Top Row freezes the top visible row; unfreezing stays where the frozen area began; Save records where the sheet
+  is scrolled. View › **Split** splits the window at the active cell (in the middle with the first visible cell
+  active) into panes that scroll on their own (the left / top ones with the wheel, the others with the scroll bars);
+  drag a splitter to move it, to the window's edge or double-click it to remove it; splitting unfreezes. The grid runs on
+  pointer events: a touch tap selects a cell, a swipe scrolls. **Go To Special** (Go To › Special…, Home › Find &
+  Select ▾): Notes, Constants / Formulas (Numbers, Text, Logicals, Errors), Blanks, Current region, Current array, Row /
+  Column differences, Precedents / Dependents (Direct only, All levels), Last cell, Visible cells only, Conditional
+  formats, Data validation; the result is a multi-area selection (the further areas drawn tinted) that Delete, the
+  formatting commands and Ctrl+Enter act on; "No cells were found." otherwise. **Comments** – the Comments pane lists
+  the threads of every sheet, grouped by sheet; clicking a card goes to its cell; reply, resolve and delete there. Typing
+  `@` and a name in a reply or a new comment lists the document's people (↑ / ↓, Enter or Tab inserts `@Name`); the
+  mentions are saved (`threadedComment/mentions`) and the persons keep their `userId` / `providerId`. Remove Hyperlink
+  also clears the link formatting; link cells use the theme's hyperlink colour slots and a link followed in the session
+  turns into the followed-hyperlink colour. **Pictures** – the contextual **Picture Format** tab (shown on insert):
+  Transparency ▾ (0–95 %), Picture Border ▾ (No Outline, colours, weights), Alt Text…, Bring Forward ▾ / Send Backward ▾,
+  Properties ▾ (Move and size with cells, Move but don't size with cells, Don't move or size with cells), Crop (black
+  handles cut the image; Esc ends it) and Reset Crop; Ctrl+V of an image (a screenshot) inserts it as a picture. Pictures
+  print with crop, transparency and border; printing a selection or a print area also prints its notes and comments.
+  Page Break Preview paginates with File › Print's settings (paper, orientation, margins, scaling), so its breaks match
+  the print preview. Not done: View › New Window / Arrange All (one window per document in the browser).
 - **Calc names and Formulas tab** (P8-23, `apps/calc/src/names`, `formulas`, `audit`, `numfmt`): the **Name Box** left of the
   formula bar is a combobox: it shows the active cell (or the name of a selected named range); typing a reference
   (`B7`, `A1:C3`, `A:A`, `Sheet2!B2`) or a name and Enter goes there, any other valid name is defined (workbook scope)

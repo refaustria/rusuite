@@ -258,3 +258,58 @@ fn manual_page_breaks_roundtrip() {
     assert_eq!(back.page_breaks(s, model_sheet::Axis::Rows), &[12, 40]);
     assert_eq!(back.page_breaks(s, model_sheet::Axis::Cols), &[5]);
 }
+
+#[test]
+fn reference_workbook_reads_and_roundtrips() {
+    use model_sheet::{Axis, Placement};
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/xlsx/provisional-cells-c7.xlsx");
+    let bytes = std::fs::read(path).unwrap();
+    let (wb, warnings) = fmt_xlsx::read_with_warnings(&bytes).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let cells = wb.sheet_id("Cells").unwrap();
+    let v = wb.sheet_view(cells);
+    assert_eq!((v.top_row, v.frozen_rows, v.pane_row), (19, 5, 24));
+    assert_eq!(wb.page_breaks(cells, Axis::Rows), &[20]);
+    let t = &wb.threads(cells)[0];
+    assert_eq!(t.replies[0].mentions.len(), 1);
+    assert_eq!(
+        (
+            t.replies[0].mentions[0].start,
+            t.replies[0].mentions[0].length
+        ),
+        (0, 8)
+    );
+    assert_eq!(wb.persons()[0].provider_id, "AD");
+    let split = wb.sheet_view(wb.sheet_id("Split").unwrap());
+    assert_eq!(
+        (
+            split.split_x,
+            split.split_y,
+            split.top_row,
+            split.left_col,
+            split.pane_row,
+            split.pane_col
+        ),
+        (2400, 1800, 1, 1, 9, 3)
+    );
+    let pics = wb.pictures(wb.sheet_id("Pictures").unwrap());
+    assert_eq!(pics.len(), 2);
+    assert_eq!(
+        (pics[0].edit_as, pics[0].transparency, pics[0].crop.left),
+        (Placement::Fixed, 40, 10_000)
+    );
+    assert!(pics[0].line.is_some());
+    assert_eq!(pics[1].placement(), Placement::Move);
+    // Written back, everything is still there.
+    let again = fmt_xlsx::read(&fmt_xlsx::write(&wb).unwrap()).unwrap();
+    assert_eq!(again.sheet_view(cells), v);
+    assert_eq!(
+        again.pictures(wb.sheet_id("Pictures").unwrap())[0].crop,
+        pics[0].crop
+    );
+    assert_eq!(
+        again.threads(cells)[0].replies[0].mentions,
+        t.replies[0].mentions
+    );
+}

@@ -332,6 +332,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       // The spill range around the active cell: blue, dashed red when blocked (`#SPILL!`).
       const spill = edit ? null : store.activeSpill();
       const cfOps: RenderOp[] = [];
+      // The main pane's texts (sheet px clip spans), for the end-to-end tests.
+      const textOps: { row: number; col: number; text: string; clipX: number; clipW: number; rotation: number }[] = [];
       const pivotButtonsShown: PivotButton[] = [];
       // Charts over the cells; the selected chart's source ranges are outlined (Excel).
       const frames = store.charts.frames(state.activeSheet);
@@ -356,6 +358,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         cctx.clip();
         const base = computeRenderOps(vp, data, store.styles(), store.measure);
         if (data.cf && data.cf.size > 0) for (const o of base) if (o.op === "bar" || o.op === "icon") cfOps.push(o);
+        if (q === quads[0]) for (const o of base) if (o.op === "text") textOps.push({ row: o.row, col: o.col, text: o.text, clipX: o.clipX + vp.scrollX, clipW: o.clipW, rotation: o.rotation ?? 0 });
         drawOps(cctx, store.sheetView().showGridlines ? base : base.filter((o) => o.op !== "gridlines"), null);
         // Sparklines inside their cells (P9-C6), under the selection.
         paintSparklines(cctx, store.sparklines.views(state.activeSheet), (r, c) => rangeRect(vp, data, { r0: r, c0: c, r1: r, c1: c }), visibleRange(vp, data.colGeo, data.rowGeo));
@@ -445,6 +448,9 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       (window as unknown as { __calcSparklines?: unknown }).__calcSparklines = store.sparklines.views(state.activeSheet);
       // Render-op hook for the end-to-end tests: the data bars and icons of the last frame.
       (window as unknown as { __calcCfOps?: RenderOp[] }).__calcCfOps = cfOps;
+      // The texts and pictures of the last frame (P9-C7 e2e: overflow, `####`, picture placement).
+      (window as unknown as { __calcTexts?: unknown }).__calcTexts = textOps;
+      (window as unknown as { __calcPictures?: unknown }).__calcPictures = store.pictures.frames(state.activeSheet).map((f) => ({ id: f.pic.id, rect: f.rect, editAs: f.pic.editAs ?? null }));
       // The pivot buttons of the last frame (sheet px), for the end-to-end tests.
       (window as unknown as { __calcPivotButtons?: PivotButton[] }).__calcPivotButtons = pivotButtonsShown;
       drawFreezeLines(cctx, l);

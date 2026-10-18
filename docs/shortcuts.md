@@ -39,7 +39,7 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Backspace | Edit the active cell starting empty (Enter clears it, Esc keeps the old content); a selected chart, picture or note box is deleted |
 | Alt+Enter | Line break in the cell editor (stored as `\n`; committing turns wrap text on and grows the row) |
 | Enter, Tab (Shift: reverse) | Commit the edit and move down / right |
-| Mod+Enter | Commit the edit without moving; a selected range gets the entry in every cell (relative references shift, formats stay) |
+| Mod+Enter | Commit the edit without moving; a selected range gets the entry in every cell (relative references shift, formats stay); after Go To Special every area does (P9-C7) |
 | Esc | Cancel the edit (first closes the function list) |
 | Arrows | Enter mode (editing started by typing): point at cells in a formula, otherwise commit and move. Edit mode (F2, double-click, formula bar): move the caret |
 | Shift+Arrows | While pointing: extend the pointed reference to a range |
@@ -70,6 +70,10 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 | Esc | Deselect a note box, close a comment card |
 | Mod+A, Mod+Shift+* | Inside a pivot table: select the whole table (page fields included) |
 | Alt+F5, Mod+Alt+F5 | Refresh the selected pivot table, refresh all pivot tables |
+| Mod+G, F5 | Go To (names, references); its Special… button opens Go To Special (P9-C7) |
+| @ | In a comment or reply: list the people to mention; ArrowUp / ArrowDown choose, Enter or Tab inserts `@Name`, Esc closes the list (P9-C7) |
+| Esc | With a picture in crop mode: end cropping; again: deselect the picture (P9-C7) |
+| Mod+V | With an image on the clipboard: insert it as a picture at the active cell (P9-C7) |
 | Alt+ArrowDown | On a pivot table's `Row Labels` / `Column Labels` / field header or page cell: open its filter dropdown |
 | Delete | On a selection covering whole pivot tables: delete them (after a question); part of a table is refused |
 | F9 | Calculate Now: recalculate the pending cells of every sheet (manual calculation, P9-C4) |
@@ -86,12 +90,15 @@ labels Ctrl as **Strg** (and Delete as **Entf**) in the help dialog, tooltips an
 - **Filter buttons** (the ▾ boxes on an AutoFilter's header row): click to open the filter dropdown (sort, clear, text / number filters, search, value list).
 - **Pivot tables**: click a −/+ button (or double-click the item's label) to collapse / expand an item; click a header's or page cell's ▾ for its filter dropdown. In the PivotTable Fields pane drag fields between the list and the areas (and within them); dropping an area entry outside the areas removes it. While editing a formula, clicking a value of a pivot table inserts a `GETPIVOTDATA` formula (Analyze › Options ▾ › Generate GetPivotData).
 - **Slicers** (P9-C2): click a button to filter to that item, Ctrl+click or Multi-Select to add or remove items; drag the frame to move the slicer, its corner handles to resize it.
-- **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill. One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
+- **Fill handle** (the small square at the selection's bottom-right): drag down, up, right or left to fill; a tip shows the value the last cell gets (P9-C7). One cell is copied (relative references shift); two or more numbers continue their linear trend (1, 2 → 3, 4, …); a date steps by a day; text ending in a number counts up (`Item1` → `Item2`). Hold Ctrl while releasing to swap series and copy. Double-click the handle to fill down to the end of the neighbouring column's data.
 - **Right-click** cells, row headers or column headers for a context menu (cut/copy/paste/paste values, insert/delete rows and columns, clear contents, sort A to Z / Z to A / custom sort (cells), format cells, row height / column width, hide/unhide, autofit column width). The menu is keyboard navigable (arrows, Home/End, Enter, Esc).
 - **Sheet tabs**: right-click for Insert sheet, Delete sheet (asks first when the sheet has content; references to it become `#REF!`, Undo brings it back), Rename, Duplicate (`Name (2)`, formulas referring to the sheet itself point at the copy), Move left / right and Tab colour… (shown as the tab's underline, saved as `sheetPr/tabColor`). Drag a tab to reorder. Ribbon Insert › Sheet offers the same for the active sheet. All of it is undoable.
 - **Merged cells**: clicking any part of a merged cell selects the whole merge (its top-left cell is the active cell); dragging or Shift+clicking grows the range to whole merges; double-click or typing edits the top-left cell. Right-click cells for Merge & Center, Merge Cells and Unmerge Cells (also Home › Merge & Center ▾ with Merge Across).
 - **Sheet tabs**: Hide and Unhide… (lists the hidden sheets) are also in the tab menu, and in Home › Format.
-- **Frozen panes** (View › Freeze Panes ▾): frozen rows and columns stay in place while the rest scrolls; clicks and drags work across the divider.
+- **Frozen panes** (View › Freeze Panes ▾): frozen rows and columns stay in place while the rest scrolls; clicks and drags work across the divider. Freezing while scrolled keeps the position (P9-C7).
+- **Split panes** (View › Split, P9-C7): the wheel over the left / top pane scrolls that pane; drag a splitter to move it, drag it to the edge of the window or double-click it to remove it.
+- **Pictures** (P9-C7): drag to move, handles to resize (Alt snaps to cells); with Picture Format › Crop on, the black handles crop the picture instead.
+- **Touch** (P9-C7): a tap selects a cell, a swipe scrolls the sheet (no drag selection by touch).
 - Double-click a column boundary to autofit the column, a row boundary to autofit the row. Autofit measures the cells loaded in the view cache (the visible area plus prefetched blocks), not the whole sheet.
 - **Notes and comments**: hover a cell with a red triangle (note) or a purple bubble (comment) to see it; click a shown note box to select it, drag to move it, drag its handles to resize it, double-click to edit. Hover a link for its ScreenTip; Ctrl+click follows it.
 - Cut/paste moves the cells and their formulas keep their text; references to the moved cells (an area only when it lies entirely inside the moved block), in the moved formulas and anywhere in the workbook, follow them, as in Excel.

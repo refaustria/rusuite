@@ -7,6 +7,21 @@ import { openViaBackstage, saveViaBackstage, trackErrors } from "../support/comm
 import { Grid, openCalc } from "../support/calc";
 import { zipText } from "../support/zip";
 
+/**
+ * Fills a block of cells from (row, col) with one paste of tab-separated text (much faster than typing each cell;
+ * entries are taken as typed text, without Excel's typed-format recognition), then waits for the grid (P9-C7).
+ */
+async function pasteRows(grid: Grid, row: number, col: number, rows: string[][]) {
+  await grid.click(row, col);
+  const tsv = rows.map((r) => r.join("\t")).join("\n");
+  await grid.page.getByTestId("grid").evaluate((el, text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, tsv);
+  await grid.waitIdle();
+}
+
 const shot = async (page: Page, name: string) => {
   if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/P9-C3-${name}.png` });
 };
@@ -22,7 +37,9 @@ async function salesTable(grid: Grid) {
     ["2025-03-09", "East", "Apple", "60"],
     ["2025-03-30", "North", "Pear", "70"],
   ];
-  for (const [r, row] of rows.entries()) for (const [c, v] of row.entries()) await grid.type(r, c, v);
+  // Dates typed (they get their date format as typed); the rest in one paste (P9-C7).
+  await pasteRows(grid, 0, 1, rows.map((r) => r.slice(1)));
+  for (const [r, row] of rows.entries()) await grid.type(r, 0, row[0]!);
 }
 
 /** Insert › PivotTable from A1 onto a new sheet; resolves with the field pane. */
