@@ -2,8 +2,10 @@
 // and tables as one `insertBlocks` command (one undo step).
 import { describe, expect, it } from "vitest";
 import { change, makeEditor, select } from "../test/harness";
-import { makeDoc, para } from "../test/fixtures";
-import { draftNodes, insertBlocks, paragraphNodes, replaceRange, selectionRange, tableNode } from "./writeAi";
+import { FIXTURES, PNG_1PX, makeDoc, para } from "../test/fixtures";
+import { NodeSelection } from "@tiptap/pm/state";
+import type { SyncController } from "../sync/SyncPlugin";
+import { cleanAltText, draftNodes, insertBlocks, paragraphNodes, replaceRange, selectionRange, tableNode, writeAiAdapter, type WriteAnchor } from "./writeAi";
 import type { WriteCommand } from "../generated/WriteCommand";
 
 const doc = () => makeDoc([para(1, "Teh report are late."), para(2, "Second paragraph.")]);
@@ -67,5 +69,39 @@ describe("Write AI", () => {
     expect(table.value.rows).toHaveLength(2);
     expect(JSON.stringify(table.value.rows[0])).toContain('"bold":true');
     expect(JSON.stringify(table.value.rows[1])).toContain("Ann");
+  });
+});
+
+// P9-A1: "Describe picture → alt text" writes through the image's alt attribute (SetImageAlt).
+describe("Write AI pictures", () => {
+  const ctl = { media: { resolve: async () => `data:image/png;base64,${PNG_1PX}` }, getState: () => ({ name: "Doc.docx" }) } as unknown as SyncController;
+  const imagePos = (editor: ReturnType<typeof makeEditor>) => {
+    let pos = -1;
+    editor.state.doc.descendants((n, p) => {
+      if (pos < 0 && n.type.name === "image") pos = p;
+    });
+    return pos;
+  };
+
+  it("cleanAltText: one line, no preface or quotes", () => {
+    expect(cleanAltText('Alt text: "A red bar chart\nof sales."')).toBe("A red bar chart of sales.");
+    expect(cleanAltText("„Ein Logo“")).toBe("Ein Logo");
+  });
+
+  it("the action and the attach button need a selected picture; Set as alt text writes it", async () => {
+    const editor = makeEditor(FIXTURES.image!);
+    const ai = writeAiAdapter(editor, ctl);
+    const alt = ai.actions().find((a) => a.id === "alt")!;
+    expect(alt.unavailable?.()).toBe("Select a picture first.");
+    expect(ai.attachSources?.[0]?.unavailable()).toBe("Select a picture first.");
+    const pos = imagePos(editor);
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)));
+    expect(alt.unavailable?.()).toBeNull();
+    expect(ai.selectionLabel()).toBe("selected picture");
+    const anchor = ai.anchor!() as WriteAnchor;
+    expect(anchor.image).toEqual({ pos, media: 1 });
+    const r = change(editor, () => alt.apply[0]!.run("Alt text: The company logo.", { anchor } as never));
+    expect(editor.state.doc.nodeAt(pos)!.attrs.alt).toBe("The company logo.");
+    expect(JSON.stringify(r?.command)).toContain("The company logo.");
   });
 });

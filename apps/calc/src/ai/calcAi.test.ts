@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CalcApi } from "../backend/calcApi";
 import { FakeBackend, FakeCalcCore } from "../dev/fakeBackend";
 import { CalcStore } from "../state/store";
-import { calcAiAdapter, invalidFormulas, parseAddress, writeCommands } from "./calcAi";
+import { calcAiAdapter, chartNoteCell, invalidFormulas, parseAddress, writeCommands } from "./calcAi";
 
 async function readyStore() {
   const core = new FakeCalcCore();
@@ -74,5 +74,18 @@ describe("Calc AI", () => {
     expect(applies).toHaveLength(1);
     expect(JSON.stringify(applies[0])).toContain('"type":"compound"');
     expect(store.getState().selection).toMatchObject({ anchor: { row: 2, col: 2 }, focus: { row: 3, col: 3 } });
+  });
+
+  // P9-A1: Explain this chart needs a selected chart; its note goes under the chart's top-left corner.
+  it("Explain this chart: unavailable without a chart; formula actions ask for medium reasoning", async () => {
+    const { store } = await readyStore();
+    const ai = calcAiAdapter(store);
+    const byId = (id: string) => ai.actions().find((a) => a.id === id)!;
+    expect(byId("explainChart").unavailable?.()).toBe("Select a chart first.");
+    expect(byId("formula").effort).toBe("medium");
+    expect(byId("transform").effort).toBe("medium");
+    const chart = { kind: { type: "bar", direction: "column", grouping: "clustered" }, series: [], axes: {} } as never;
+    expect(chartNoteCell({ id: 1, chart, anchor: { type: "twoCell", from: { row: 3, col: 2, rowOffset: 0, colOffset: 0 }, to: { row: 9, col: 7, rowOffset: 0, colOffset: 0 } } })).toEqual({ row: 3, col: 2 });
+    expect(chartNoteCell({ id: 1, chart, anchor: { type: "absolute", x: 0, y: 0, width: 10, height: 10 } })).toBeNull();
   });
 });

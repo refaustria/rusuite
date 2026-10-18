@@ -79,7 +79,7 @@ describe("Anthropic adapter", () => {
     const ds = await collect(new AnthropicProvider("sk-ant-test", undefined, f).complete(req()));
     expect(text(ds)).toBe("The report was finished on time.");
     expect(ds).toContainEqual({ type: "model", model: "claude-sonnet-5-5" });
-    expect(ds).toContainEqual({ type: "usage", inputTokens: 412, outputTokens: 1 });
+    expect(ds).toContainEqual({ type: "usage", inputTokens: 412, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 });
     expect(ds).toContainEqual({ type: "usage", outputTokens: 9 });
     expect(ds.at(-1)).toEqual({ type: "stop", reason: "end_turn" });
     const { url, init } = calls[0]!;
@@ -101,7 +101,7 @@ describe("Anthropic adapter", () => {
     const { f, calls } = fakeFetch({ body: anthropicTool });
     const ds = await collect(new AnthropicProvider("k", undefined, f).complete(req({ model: "claude-opus-5-5", tools: [FORMULA_TOOL] })));
     expect(ds).toContainEqual({ type: "toolUse", id: "toolu_01", name: "insert_formula", input: { formula: "=SUM(B2:B10)", explanation: "Adds B2 to B10." } });
-    expect(ds).toContainEqual({ type: "usage", inputTokens: 1000, outputTokens: 2 });
+    expect(ds).toContainEqual({ type: "usage", inputTokens: 1000, outputTokens: 2, cacheReadTokens: 20, cacheWriteTokens: 0 });
     expect(ds.at(-1)).toEqual({ type: "stop", reason: "tool_use" });
     const body = JSON.parse(calls[0]!.init.body as string);
     expect(body.tool_choice).toEqual({ type: "auto" });

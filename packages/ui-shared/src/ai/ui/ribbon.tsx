@@ -10,7 +10,12 @@ export function AiRibbonButton({ ai }: { ai: Assistant }) {
   return <RibbonButton label={t("ai.ribbon.button")} icon="sparkle" size="large" pressed={open} shortcut="Mod+Shift+A" tooltip={t("ai.ribbon.tip")} onClick={() => ai.togglePanel()} />;
 }
 
-/** The Home tab's AI group (empty – so not shown – when the backend has no assistant or it is unavailable: web build). */
+/**
+ * The Home tab's AI group (empty – so not shown – when the backend has no assistant or it is unavailable: web build).
+ * It collapses last (`collapsePriority: -1`): it is a single button about as wide as its own collapsed form, so
+ * collapsing it first (as before P9-A1) saved ~9 px and hid the Assistant behind a drop-down, e.g. in Show's German
+ * Home tab at 1400 px.
+ */
 export function aiRibbonGroup(ai: Assistant | null | undefined): RibbonGroup {
-  return { label: t("ai.ribbon.group"), items: ai?.available ? <AiRibbonButton ai={ai} /> : null };
+  return { label: t("ai.ribbon.group"), items: ai?.available ? <AiRibbonButton ai={ai} /> : null, collapsePriority: -1 };
 }
