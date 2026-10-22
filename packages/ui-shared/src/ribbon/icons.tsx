@@ -12,7 +12,7 @@ export type RibbonIconName =
   | "present" | "presentCurrent"
   | "new" | "open" | "save" | "saveAs" | "pdf" | "print" | "home" | "close" | "back" | "recent"
   | "alignJustify" | "chevronDown" | "chevronUp" | "options"
-  | "cloud" | "folder" | "file" | "device" | "plus" | "refresh" | "rename" | "chevronRight" | "sparkle";
+  | "cloud" | "folder" | "file" | "device" | "plus" | "refresh" | "rename" | "chevronRight" | "sparkle" | "menu" | "more";
 
 const P = (d: string) => <path d={d} />;
 const page = <path d="M5 2.5h7l3 3v12H5z" />;
@@ -86,6 +86,8 @@ const PATHS: Record<RibbonIconName, ReactNode> = {
   plus: P("M10 4v12M4 10h12"),
   refresh: <><path d="M16 10a6 6 0 11-1.8-4.3" /><path d="M16 3.5v3.2h-3.2" /></>,
   rename: <><path d="M3 15.5l9-9 2.5 2.5-9 9H3z" /><path d="M11 4.5l2.5 2.5" /></>,
+  menu: P("M3.5 5.5h13M3.5 10h13M3.5 14.5h13"),
+  more: <><circle cx="4.5" cy="10" r="1.2" fill="currentColor" /><circle cx="10" cy="10" r="1.2" fill="currentColor" /><circle cx="15.5" cy="10" r="1.2" fill="currentColor" /></>,
 };
 
 /** A ribbon icon; `size` in px (large buttons use 22). */

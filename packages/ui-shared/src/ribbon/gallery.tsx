@@ -7,6 +7,7 @@ import { FOCUS_RING } from "../Popover";
 import { RibbonMenuButton, type RibbonButtonSize } from "./controls";
 import type { RibbonIconName } from "./icons";
 import { useT } from "../i18n/react";
+import { useCompact, useInCompactBar } from "../compact/useCompact";
 
 export interface RibbonGalleryItem {
   id: string;
@@ -57,7 +58,7 @@ function gridKeys(e: KeyboardEvent, root: HTMLElement | null, cols: number) {
 }
 
 function GalleryGrid({
-  label, items, selected, onPick, columns, itemClassName, hideLabels, disabled, autoFocus, onItemContextMenu,
+  label, items, selected, onPick, columns, itemClassName, hideLabels, disabled, autoFocus, onItemContextMenu, fill,
 }: {
   label: string;
   items: RibbonGalleryItem[];
@@ -69,8 +70,12 @@ function GalleryGrid({
   disabled?: boolean;
   autoFocus?: boolean;
   onItemContextMenu?: (id: string, at: { x: number; y: number }) => void;
+  /** Compact layout (a bottom sheet): as many columns as fit the sheet's width. */
+  fill?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Arrow keys move by the columns actually shown.
+  const cols = () => (fill && ref.current ? Math.max(1, getComputedStyle(ref.current).gridTemplateColumns.split(" ").filter(Boolean).length) : columns);
   const first = items.findIndex((it) => it.id === selected);
   return (
     <div
@@ -78,9 +83,9 @@ function GalleryGrid({
       role="group"
       aria-label={label}
       // `w-max`: in a dropdown panel (absolutely positioned under a small button) the grid keeps its items' widths.
-      className="grid w-max gap-0.5"
-      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, auto))` }}
-      onKeyDown={(e) => gridKeys(e, ref.current, columns)}
+      className={fill ? "grid w-full gap-1" : "grid w-max gap-0.5"}
+      style={{ gridTemplateColumns: fill ? "repeat(auto-fill, minmax(5.5rem, 1fr))" : `repeat(${columns}, minmax(0, auto))` }}
+      onKeyDown={(e) => gridKeys(e, ref.current, cols())}
     >
       {items.map((it, n) => (
         <button
@@ -93,6 +98,7 @@ function GalleryGrid({
           disabled={disabled || it.disabled}
           autoFocus={autoFocus && n === Math.max(0, first)}
           className={`flex flex-col items-center justify-center overflow-hidden rounded border border-transparent text-ui-fg hover:border-ui-border hover:bg-ui-hover disabled:opacity-40 aria-pressed:border-ui-focus aria-pressed:bg-ui-active ${FOCUS_RING} ${itemClassName}`}
+          style={fill ? { width: "auto", minHeight: 44 } : undefined}
           onClick={() => onPick(it.id)}
           onContextMenu={
             onItemContextMenu
@@ -118,7 +124,10 @@ function GalleryGrid({
 export function RibbonGallery({
   label, items, selected, onSelect, columns, variant = "inline", icon, size = "large", disabled, itemClassName, hideLabels, autoFocus, onItemContextMenu,
 }: RibbonGalleryProps) {
-  if (variant === "inline") {
+  const compact = useCompact();
+  // The compact command bar has no room for a grid: an inline gallery opens as a sheet from a button.
+  const bar = useInCompactBar();
+  if (variant === "inline" && !bar) {
     return (
       <GalleryGrid
         label={label}
@@ -131,6 +140,7 @@ export function RibbonGallery({
         disabled={disabled}
         autoFocus={autoFocus}
         onItemContextMenu={onItemContextMenu}
+        fill={compact}
       />
     );
   }
@@ -154,6 +164,7 @@ export function RibbonGallery({
           hideLabels={hideLabels}
           autoFocus
           onItemContextMenu={onItemContextMenu}
+          fill={compact}
         />
       )}
     />

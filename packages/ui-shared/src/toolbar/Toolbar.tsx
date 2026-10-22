@@ -6,6 +6,8 @@ import { ColorPicker } from "./ColorPicker";
 import { OFFICE_THEME } from "./color";
 import { withLabel } from "../i18n/localized";
 import { useT } from "../i18n/react";
+import { useInCompactBar } from "../compact/useCompact";
+import { COMPACT_BUTTON } from "../ribbon/controls";
 import type {
   BorderSideView, CellStylePatch, CellStyleView, Color, HAlign, ThemePalette, VAlign,
 } from "./types";
@@ -70,6 +72,15 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
 export function Toggle({
   label, icon, pressed, disabled, onClick,
 }: { label: string; icon: IconName; pressed: boolean; disabled?: boolean; onClick: () => void }) {
+  // The compact command bar (P10-M2): a touch button with the label under the icon.
+  if (useInCompactBar()) {
+    return (
+      <button type="button" className={COMPACT_BUTTON} aria-label={label} aria-pressed={pressed} disabled={disabled} onClick={onClick}>
+        <Icon name={icon} size={20} />
+        <span className="whitespace-nowrap">{label}</span>
+      </button>
+    );
+  }
   return (
     <button type="button" className={BTN} aria-label={label} aria-pressed={pressed} disabled={disabled} onClick={onClick}>
       <Icon name={icon} />
