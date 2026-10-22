@@ -3,6 +3,7 @@
 //! `dispatch` command plus the native file dialogs and the recent-files /
 //! crash-recovery store (`SessionState`). No document logic lives here.
 
+pub mod mobile;
 pub mod smoke;
 
 use std::path::{Path, PathBuf};
@@ -56,6 +57,9 @@ pub enum FileError {
     Session(#[from] SessionError),
     #[error("not a recent file: {0}")]
     NotRecent(String),
+    /// The mobile document API (P10-M1).
+    #[error("{0}")]
+    Mobile(#[from] tauri_plugin_rusuite_mobile::Error),
 }
 
 impl Serialize for FileError {
@@ -140,8 +144,13 @@ impl SessionState {
         let name = Path::new(path)
             .file_name()
             .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned());
+        self.record_named(path, &name)
+    }
+
+    /// [`SessionState::record`] under a display name (mobile: `path` is a document handle, P10-M1).
+    pub fn record_named(&self, path: &str, name: &str) -> Result<Vec<RecentEntry>, FileError> {
         Ok(self.session().add_recent(RecentEntry {
-            name,
+            name: name.to_owned(),
             path: Some(path.to_owned()),
             blob_id: None,
             opened_at: now_ms(),
@@ -279,6 +288,7 @@ fn recent_list(state: tauri::State<'_, SessionState>) -> Result<Vec<RecentEntry>
 }
 
 /// Re-opens a file of the recent list → its contents (as `open_file_dialog`).
+#[cfg(desktop)]
 #[tauri::command]
 fn recent_open(
     path: String,
@@ -524,6 +534,7 @@ fn smoke_report(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_rusuite_mobile::init())
         .manage(smoke::Smoke::from_args())
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Finished
@@ -564,12 +575,20 @@ pub fn run() {
             open_file_dialog,
             save_file,
             recent_list,
+            #[cfg(desktop)]
             recent_open,
+            #[cfg(mobile)]
+            mobile::recent_open,
             recovery_list,
             recovery_get,
             recovery_put,
             recovery_remove,
             set_close_guard,
+            mobile::open_document,
+            mobile::save_document,
+            mobile::export_document,
+            mobile::share_document,
+            mobile::take_launch_document,
             print_webview,
             #[cfg(desktop)]
             connectors_tauri::connector_list,

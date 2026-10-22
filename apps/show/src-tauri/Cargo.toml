@@ -24,6 +24,8 @@ tauri-plugin-dialog = "=2.8.0"
 show-core = { path = "../core" }
 core-model = { path = "../../../crates/core-model" }
 app-common = { path = "../../../crates/app-common", features = ["fs"] }
+# Mobile document access (P10-M1): pickers, write-back, export, share sheet, Open with.
+tauri-plugin-rusuite-mobile = { path = "../../../crates/tauri-plugin-rusuite-mobile" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

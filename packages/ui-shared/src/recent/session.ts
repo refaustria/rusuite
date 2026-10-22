@@ -219,8 +219,27 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   // --- lifecycle ------------------------------------------------------------
 
   private onVisibility = () => {
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") void this.autosave();
+    if (typeof document === "undefined") return;
+    if (document.visibilityState === "hidden") void this.autosave();
+    // Mobile "Open with" while the app runs: the system brings it to the front with the document (P10-M1).
+    else if (document.visibilityState === "visible") void this.openLaunchDocument();
   };
+
+  /**
+   * Mobile shells (P10-M1): opens the document the app was launched with ("Open with", a tap in Files) through
+   * the app's Open, after the unsaved-changes question. The backend hands each document out once.
+   */
+  async openLaunchDocument(): Promise<boolean> {
+    if (!this.inner.takeLaunchDocument || !this.adapter) return false;
+    try {
+      const file = await this.inner.takeLaunchDocument();
+      if (!file || !(await this.confirmReplace())) return false;
+      return (await this.adapter.openFile(file)) !== false;
+    } catch (e) {
+      this.report(e);
+      return false;
+    }
+  }
 
   private onPageHide = () => {
     // A clean close leaves no recovery entry; a dirty one keeps the last
@@ -239,6 +258,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       void Promise.resolve(this.locks.request(LOCK_PREFIX + this.docId, () => held)).catch(() => undefined);
     }
     await this.refresh();
+    await this.openLaunchDocument();
   }
 
   /** Stops autosave (the stored entry stays). */
