@@ -1,0 +1,243 @@
+# Mobile builds (P10-M1, docs/mobile.md): Android App Bundles + APKs on Ubuntu and the iOS apps on macOS for Calc,
+# Write and Show, from the committed Tauri projects in apps/<app>/src-tauri/gen/{android,apple}.
+#
+# Unsigned by default, so the workflow runs on every branch and fork:
+# - Android: release build signed with the runner's debug key;
+# - iOS: a simulator build (proves the Xcode project, the Swift plugin and the Rust library compile and link).
+# Signed when these repository secrets exist (names only; the values never appear in logs):
+# - ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#   → release-signed AAB + APK (upload key for Play App Signing);
+# - IOS_CERTIFICATE (base64 .p12 Apple Distribution), IOS_CERTIFICATE_PASSWORD,
+#   IOS_MOBILE_PROVISION_CALC / _WRITE / _SHOW (base64 App Store .mobileprovision), APPLE_DEVELOPMENT_TEAM
+#   → an App Store Connect .ipa per app.
+# Version codes: Android versionCode and iOS CFBundleVersion = major·1 000 000 + minor·1 000 + patch of
+# tauri.conf.json `version` (3.141.0 → 3141000), CFBundleShortVersionString = the version itself.
+
+name: Mobile
+
+on:
+  workflow_dispatch:
+  push:
+    # The mobile task branches (p10/m*) and main; only changes that can affect the apps.
+    branches: [main, "p10/m*"]
+    paths:
+      - "apps/**"
+      - "crates/**"
+      - "packages/**"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/mobile.yml"
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [calc, write, show]
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-${{ matrix.app }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Version code
+        run: |
+          v=$(node -p 'require("./apps/${{ matrix.app }}/src-tauri/tauri.conf.json").version')
+          code=$(node -e 'const [a,b,c]=process.argv[1].split("-")[0].split(".").map(Number); console.log(a*1e6+b*1e3+c)' "$v")
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$code" >> "$GITHUB_ENV"
+          echo "$v → versionCode $code"
+      - name: Release keystore (secrets)
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          umask 077
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > apps/${{ matrix.app }}/src-tauri/gen/android/keystore.properties
+      - name: Build AAB + APK (arm64, x86_64)
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: pnpm --filter ${{ matrix.app }} tauri android build --ci --aab --apk --target aarch64 --target x86_64
+      - name: Smoke (aapt, apksigner)
+        run: |
+          set -euo pipefail
+          bt="$ANDROID_HOME/build-tools/36.0.0"
+          out=apps/${{ matrix.app }}/src-tauri/gen/android/app/build/outputs
+          apk=$(ls $out/apk/universal/release/*.apk | head -1)
+          aab=$(ls $out/bundle/universalRelease/*.aab | head -1)
+          ls -la "$apk" "$aab"
+          badging=$("$bt/aapt" dump badging "$apk")
+          echo "$badging" | grep -E "^(package|sdkVersion|targetSdkVersion|application-label|uses-permission|native-code):"
+          echo "$badging" | grep -q "^package: name='dev.rusuite.${{ matrix.app }}' versionCode='$VERSION_CODE' versionName='$VERSION'"
+          echo "$badging" | grep -q "^sdkVersion:'26'"
+          echo "$badging" | grep -q "^targetSdkVersion:'36'"
+          echo "$badging" | grep -q "native-code: 'arm64-v8a' 'x86_64'"
+          tree=$("$bt/aapt" dump xmltree "$apk" AndroidManifest.xml)
+          echo "$tree" | grep -E 'android.intent.action.(VIEW|EDIT)|mimeType|pathPattern' | sed 's/ (Raw.*//'
+          echo "$tree" | grep -q 'android.intent.action.VIEW'
+          echo "$tree" | grep -q 'android.intent.action.EDIT'
+          case ${{ matrix.app }} in
+            calc) mime=spreadsheetml.sheet ;;
+            write) mime=wordprocessingml.document ;;
+            show) mime=presentationml.presentation ;;
+          esac
+          echo "$tree" | grep -q "mimeType(0x01010026)=\"application/vnd.openxmlformats-officedocument.$mime\""
+          "$bt/apksigner" verify --print-certs "$apk" | grep -E "certificate DN"
+          if [ "$HAS_KEYSTORE" = true ]; then
+            ! "$bt/apksigner" verify --print-certs "$apk" | grep -q "CN=Android Debug"
+          fi
+          mkdir -p dist
+          cp "$apk" "dist/rusuite-${{ matrix.app }}-$VERSION-android.apk"
+          cp "$aab" "dist/rusuite-${{ matrix.app }}-$VERSION-android.aab"
+      - name: Remove the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" apps/${{ matrix.app }}/src-tauri/gen/android/keystore.properties
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.app }}
+          path: dist/*
+          retention-days: 7
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: calc
+            profile: IOS_MOBILE_PROVISION_CALC
+          - app: write
+            profile: IOS_MOBILE_PROVISION_WRITE
+          - app: show
+            profile: IOS_MOBILE_PROVISION_SHOW
+    env:
+      HAS_IOS_SIGNING: ${{ secrets.IOS_CERTIFICATE != '' && secrets.IOS_CERTIFICATE_PASSWORD != '' && secrets[matrix.profile] != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest Xcode
+        # macos-15 has several Xcodes; App Store uploads need the newest SDK.
+        run: |
+          latest=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$latest" ] || { echo "::error::no /Applications/Xcode_*.app"; exit 1; }
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios-${{ matrix.app }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Version code
+        run: |
+          v=$(node -p 'require("./apps/${{ matrix.app }}/src-tauri/tauri.conf.json").version')
+          code=$(node -e 'const [a,b,c]=process.argv[1].split("-")[0].split(".").map(Number); console.log(a*1e6+b*1e3+c)' "$v")
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$code" >> "$GITHUB_ENV"
+          echo "$v → CFBundleVersion $code"
+      - name: Xcode project (generate when not committed)
+        run: |
+          if [ ! -d apps/${{ matrix.app }}/src-tauri/gen/apple ]; then
+            brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+            pnpm --filter ${{ matrix.app }} tauri ios init --ci
+            echo "GENERATED_APPLE=true" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: env.GENERATED_APPLE == 'true'
+        with:
+          name: gen-apple-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/src-tauri/gen/apple
+          retention-days: 3
+      - name: Build for the simulator (unsigned)
+        if: env.HAS_IOS_SIGNING != 'true'
+        run: >
+          pnpm --filter ${{ matrix.app }} tauri ios build --ci --debug --target aarch64-sim
+          --config "{\"bundle\":{\"iOS\":{\"bundleVersion\":\"$VERSION_CODE\"}}}"
+      - name: Build the App Store .ipa (signed)
+        if: env.HAS_IOS_SIGNING == 'true'
+        env:
+          # Read by the Tauri CLI: it imports the certificate into a temporary keychain and installs the profile.
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets[matrix.profile] }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: >
+          pnpm --filter ${{ matrix.app }} tauri ios build --ci --export-method app-store-connect
+          --config "{\"bundle\":{\"iOS\":{\"bundleVersion\":\"$VERSION_CODE\"}}}"
+      - name: Smoke (plutil)
+        run: |
+          set -euo pipefail
+          gen=apps/${{ matrix.app }}/src-tauri/gen/apple
+          app=$(find "$gen/build" "$HOME/Library/Developer/Xcode/DerivedData" -name "*.app" -path "*${{ matrix.app }}*" -not -path "*/PlugIns/*" 2>/dev/null | head -1 || true)
+          [ -n "$app" ] || app=$(find "$gen/build" -name "*.app" | head -1)
+          echo "app bundle: $app"
+          plist="$app/Info.plist"
+          for key in CFBundleIdentifier CFBundleShortVersionString CFBundleVersion MinimumOSVersion; do
+            echo "$key: $(plutil -extract $key raw -o - "$plist")"
+          done
+          echo "CFBundleDocumentTypes: $(plutil -extract CFBundleDocumentTypes json -o - "$plist")"
+          echo "LSSupportsOpeningDocumentsInPlace: $(plutil -extract LSSupportsOpeningDocumentsInPlace raw -o - "$plist")"
+          [ "$(plutil -extract CFBundleIdentifier raw -o - "$plist")" = "dev.rusuite.${{ matrix.app }}" ]
+          [ "$(plutil -extract CFBundleShortVersionString raw -o - "$plist")" = "$VERSION" ]
+          [ "$(plutil -extract CFBundleVersion raw -o - "$plist")" = "$VERSION_CODE" ]
+          [ "$(plutil -extract LSSupportsOpeningDocumentsInPlace raw -o - "$plist")" = true ]
+          [ "$(plutil -extract UIFileSharingEnabled raw -o - "$plist")" = true ]
+          plutil -extract CFBundleDocumentTypes json -o - "$plist" | grep -q "org.openxmlformats"
+          mkdir -p dist
+          if [ "$HAS_IOS_SIGNING" = true ]; then
+            cp "$(find "$gen/build" -name '*.ipa' | head -1)" "dist/rusuite-${{ matrix.app }}-$VERSION-ios.ipa"
+          else
+            ditto -c -k --keepParent "$app" "dist/rusuite-${{ matrix.app }}-$VERSION-ios-simulator.zip"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ matrix.app }}
+          path: dist/*
+          retention-days: 7
