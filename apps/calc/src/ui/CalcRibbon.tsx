@@ -498,6 +498,7 @@ export function CalcRibbon({ store, session, onExportPdf, print, view, onViewCha
       activeTab={tab}
       rightSlot={<HelpMenu docStats={() => ({ cells: [...store.cache(store.getState().activeSheet).cells.values()].reduce((n, row) => n + row.size, 0) })} />}
       onTabChange={setTab}
+      undo={{ canUndo: !off && canUndo, canRedo: !off && canRedo, onUndo: run(() => store.undo()), onRedo: run(() => store.redo()) }}
       backstage={{
         session,
         onNew: () => triggerShortcut("Mod+N"),

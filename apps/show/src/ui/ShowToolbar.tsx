@@ -789,6 +789,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
         tabs={masterView ? [slideMasterTab(store, state, t), home, view] : [home, insert, design, transitions, animations, slideShow, view, ...contextual]}
         activeTab={state.ribbonTab}
         onTabChange={(id) => store.setRibbonTab(id)}
+        undo={{ canUndo, canRedo, onUndo: () => void store.undo(), onRedo: () => void store.redo() }}
         rightSlot={<>
           <HelpMenu docStats={() => ({ slides: store.getState().pres?.slides.length ?? 0 })} />
           <button
