@@ -1,6 +1,8 @@
 # Mobile and tablet (Android, iOS) – assessment and plan
 
-- Status: **considered, not scheduled** (owner, 2026-10-15: "once we publish the initial version")
+- Status: **in progress** (cycle 3.1415, [plan-3.1415.md](plan-3.1415.md) Block M): the mobile shells, mobile `Backend` and
+  mobile CI are in place (P10-M1, [mobile.md](mobile.md)); compact layout, touch editing, PDF and store publishing follow
+  (P10-M2 … M9). *Was: considered, not scheduled (owner, 2026-10-15).*
 - Owner of this document: PM. Revisit when v0.1.0 is published.
 
 ## What we already have that carries over
@@ -26,7 +28,8 @@ Total: roughly 10–16 weeks of focused work for all three apps, less if phones 
 3. Everything platform-specific stays behind `Backend` (no direct `@tauri-apps/api` imports in app code; already enforced by convention).
 4. Do not depend on `window.open` for core features (the presenter view has a single-window fallback – keep it).
 5. Keep the app crates free of desktop-only Rust dependencies outside `src-tauri`; `print_webview` and native dialogs are desktop-only commands and must degrade gracefully.
-6. Keep the generated icon sets: `tauri icon` already produces Android/iOS icons – stop deleting them once mobile is scheduled.
+6. Keep the generated icon sets: `tauri icon` already produces Android/iOS icons – **done (P10-M1)**: the Android mipmaps live in
+   `gen/android/app/src/main/res`, the iOS set in `src-tauri/icons/ios` and the Xcode asset catalog; nothing deletes them.
 7. Prefer PDF generation in Rust when printing is revisited, so mobile and desktop share it.
 
 ## Open questions for the owner (when scheduling)
