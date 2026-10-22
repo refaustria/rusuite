@@ -18,10 +18,17 @@ jobs:
   versions:
     name: version strings
     runs-on: ubuntu-22.04
+    outputs:
+      gpg: ${{ steps.signing.outputs.gpg }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
+      # P10-S1: `secrets` is not available in a job's `if`, so the GPG switch of `sign-linux` is passed on from here.
+      - id: signing
+        env:
+          HAS_GPG: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+        run: echo "gpg=${HAS_GPG}" >> "$GITHUB_OUTPUT"
       # A tag push must match every version string (scripts/set-version.sh); a manual run only checks they agree.
       - shell: bash
         run: |
@@ -210,6 +217,31 @@ jobs:
           path: smoke-bin/
           if-no-files-found: error
           retention-days: 3
+
+  # P10-S1: only with the GPG_PRIVATE_KEY secret – `<asset>.asc` for the Linux packages, SHA256SUMS over every
+  # installer + SHA256SUMS.asc, uploaded to the draft (scripts/signing/sign-release.sh, docs/signing.md).
+  sign-linux:
+    name: sign / GPG + SHA256SUMS
+    needs: [versions, release]
+    if: needs.versions.outputs.gpg == 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      fingerprint: ${{ steps.sign.outputs.fingerprint }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - id: sign
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          # Same tag as the `tag` step of the release job.
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || 'v0.0.0-test' }}
+        run: scripts/signing/sign-release.sh "$TAG"
 
   # P8-41: start each built app once per OS with `--smoke` (window + ping/dispatch IPC round trip + title + version,
   # apps/*/src-tauri/src/smoke.rs). It runs the binaries the release jobs built (the same ones the bundles contain).
