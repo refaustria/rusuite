@@ -1,7 +1,10 @@
 # Mobile and tablet (Android, iOS) – assessment and plan
 
-- Status: **considered, not scheduled** (owner, 2026-10-15: "once we publish the initial version")
-- Owner of this document: PM. Revisit when v0.1.0 is published.
+- Status: **in progress – cycle 3.1415** ([plan-3.1415.md](plan-3.1415.md), Block M). Done: **P10-M2** compact layout
+  under 900 px (top bar, bottom command bar from the ribbon definitions, bottom sheets, 44 px targets, soft-keyboard handling via
+  `visualViewport`, safe areas, long-press context menus; see [ui.md › Compact layout](ui.md#compact-layout-for-phones-p10-m2)).
+  Next: touch editing per app (M3–M5), PDF for mobile (M6).
+- Owner of this document: PM.
 
 ## What we already have that carries over
 - **Tauri 2 supports Android and iOS** with the same `src-tauri` crates (`tauri android init` / `tauri ios init` add the platform projects). Our Rust cores (`*-core`, models, formats, engine) are platform-neutral and already compile for wasm32, so they will compile for `aarch64-linux-android` and `aarch64-apple-ios` as well.
