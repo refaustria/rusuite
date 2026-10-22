@@ -42,6 +42,8 @@ jobs:
     # signing step is skipped and the builds are the unsigned ones of 3.141.
     env:
       HAS_APPLE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_WIN_PFX: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+      HAS_AZURE: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,6 +91,58 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
         run: scripts/signing/ci-macos-env.sh
+      # Windows: Authenticode with a PFX imported into the user store, else (no PFX) Azure Trusted Signing. Either way
+      # a config file merged with `tauri build --config` – tauri.conf.json itself stays unsigned.
+      - name: Windows signing certificate (PFX)
+        id: winpfx
+        if: runner.os == 'Windows' && env.HAS_WIN_PFX == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'rusuite-sign'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $pfx = Join-Path $dir 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String(($env:WINDOWS_CERTIFICATE -replace '\s', '')))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certs = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx -Force
+          $cert = $certs | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+          if (-not $cert) { throw 'WINDOWS_CERTIFICATE holds no certificate with a private key' }
+          $config = (Join-Path $dir 'tauri.sign.json') -replace '\\', '/'
+          node scripts/signing/tauri-sign-config.mjs pfx --thumbprint $cert.Thumbprint --out $config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+          "args=--config $config" >> $env:GITHUB_OUTPUT
+      - name: Windows signing via Azure Trusted Signing
+        id: winazure
+        if: runner.os == 'Windows' && env.HAS_WIN_PFX != 'true' && env.HAS_AZURE == 'true'
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+        run: |
+          source scripts/signing/lib.sh
+          need AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_ACCOUNT AZURE_CERT_PROFILE
+          # Tauri calls it once per file (app .exe, NSIS installer + uninstaller, MSI); it uses signtool + Azure CLI.
+          cargo install artifact-signing-cli --version 0.12.0 --locked
+          dir="$(cygpath -m "$RUNNER_TEMP")/rusuite-sign"
+          mkdir -p "$dir"
+          app="${{ matrix.app }}"
+          node scripts/signing/tauri-sign-config.mjs azure --endpoint "$AZURE_TRUSTED_SIGNING_ENDPOINT" \
+            --description "Rusuite ${app^}" --out "$dir/tauri.sign.json"
+          # artifact-signing-cli reads these from the environment of the tauri-action step.
+          put AZURE_TENANT_ID "$AZURE_TENANT_ID"
+          put AZURE_CLIENT_ID "$AZURE_CLIENT_ID"
+          put AZURE_CLIENT_SECRET "$AZURE_CLIENT_SECRET"
+          put AZURE_ARTIFACT_SIGNING_ACCOUNT "$AZURE_TRUSTED_SIGNING_ACCOUNT"
+          put AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE "$AZURE_CERT_PROFILE"
+          echo "args=--config $dir/tauri.sign.json" >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -99,7 +153,8 @@ jobs:
           releaseBody: "Rusuite ${{ steps.tag.outputs.public }} – unsigned builds: Windows SmartScreen and macOS Gatekeeper warn once (steps: https://rusuit.es/downloads.html). Release notes: https://github.com/refaustria/rusuite/blob/main/docs/release-notes/${{ steps.tag.outputs.public }}.md – paste that file here before publishing (docs/release.md)."
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.platform == 'macos-latest' && '--target aarch64-apple-darwin' || matrix.platform == 'macos-15-intel' && '--target x86_64-apple-darwin' || '' }}
+          # The Windows signing steps add `--config <file>`; skipped (no secrets) their outputs are empty.
+          args: ${{ matrix.platform == 'macos-latest' && '--target aarch64-apple-darwin' || matrix.platform == 'macos-15-intel' && '--target x86_64-apple-darwin' || '' }}${{ steps.winpfx.outputs.args }}${{ steps.winazure.outputs.args }}
       - name: Verify the macOS signature
         if: runner.os == 'macOS' && env.HAS_APPLE == 'true'
         shell: bash
@@ -107,6 +162,22 @@ jobs:
           scripts/signing/verify-macos.sh
           "target/${{ matrix.platform == 'macos-latest' && 'aarch64' || 'x86_64' }}-apple-darwin/release/bundle/macos"
           "signing-record/${{ matrix.app }}-${{ matrix.platform }}.json" "${{ steps.apple.outputs.notarize }}"
+      - name: Verify the Windows signatures
+        if: runner.os == 'Windows' && (env.HAS_WIN_PFX == 'true' || env.HAS_AZURE == 'true')
+        shell: pwsh
+        run: |
+          $method = if ($env:HAS_WIN_PFX -eq 'true') { 'pfx' } else { 'azure' }
+          $files = @(Get-ChildItem target/release/bundle/msi/*.msi) + @(Get-ChildItem target/release/bundle/nsis/*-setup.exe) +
+            @(Get-Item target/release/app-${{ matrix.app }}.exe)
+          if ($files.Count -lt 3) { throw "expected an .msi, an NSIS -setup.exe and the app .exe, found $($files.Count)" }
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature -FilePath $f.FullName
+            if ($sig.Status -ne 'Valid') { throw "$($f.Name): signature $($sig.Status) – $($sig.StatusMessage)" }
+            if (-not $sig.TimeStamperCertificate) { throw "$($f.Name): signature without timestamp" }
+            "$($f.Name): signed by $($sig.SignerCertificate.Subject)"
+          }
+          New-Item -ItemType Directory -Force -Path signing-record | Out-Null
+          "{`"os`":`"windows`",`"signed`":true,`"method`":`"$method`"}" | Out-File -Encoding ascii "signing-record/${{ matrix.app }}-${{ matrix.platform }}.json"
       - name: Keep the signing record for the manifest
         if: hashFiles('signing-record/*.json') != ''
         uses: actions/upload-artifact@v4
@@ -118,6 +189,10 @@ jobs:
         if: always() && runner.os == 'macOS' && env.HAS_APPLE == 'true'
         shell: bash
         run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+      - name: Remove the signing certificate
+        if: always() && steps.winpfx.outputs.thumbprint != ''
+        shell: pwsh
+        run: Remove-Item -Path "Cert:\CurrentUser\My\${{ steps.winpfx.outputs.thumbprint }}" -DeleteKey -ErrorAction SilentlyContinue
       - name: Keep the binary for the smoke job
         shell: bash
         run: |
