@@ -243,6 +243,39 @@ jobs:
           TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || 'v0.0.0-test' }}
         run: scripts/signing/sign-release.sh "$TAG"
 
+  # P10-S1: `signing.json` on the draft – per OS whether the builds are signed, from the build legs' verified signing
+  # records and sign-linux's outputs (scripts/signing/manifest.mjs); the Downloads page reads it (docs/signing.md).
+  # Runs after a partly failed or skipped sign-linux too (that OS then counts as unsigned); not when the builds never ran.
+  signing-manifest:
+    name: sign / signing.json
+    needs: [release, sign-linux]
+    if: ${{ always() && needs.release.result != 'skipped' && needs.release.result != 'cancelled' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/download-artifact@v4
+        # Unsigned builds leave no records; a pattern without matches must not fail the job.
+        continue-on-error: true
+        with:
+          pattern: signing-*
+          path: signing-records
+          merge-multiple: true
+      - name: Write and upload signing.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.tag || 'v0.0.0-test' }}
+          FINGERPRINT: ${{ needs.sign-linux.outputs.fingerprint }}
+          LINUX_RESULT: ${{ needs.sign-linux.result }}
+        run: |
+          node scripts/signing/manifest.mjs --records signing-records --fingerprint "$FINGERPRINT" \
+            --linux-result "$LINUX_RESULT" --out signing.json
+          gh release upload "$TAG" signing.json --clobber
+
   # P8-41: start each built app once per OS with `--smoke` (window + ping/dispatch IPC round trip + title + version,
   # apps/*/src-tauri/src/smoke.rs). It runs the binaries the release jobs built (the same ones the bundles contain).
   # Blocking since 2026-10-16: the workflow_dispatch test run 38911314761 passed on all four runners (docs/release.md).
