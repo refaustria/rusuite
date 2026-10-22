@@ -56,8 +56,10 @@ agents cannot dispatch workflows, so the owner/PM clicks:
 1. <https://github.com/refaustria/rusuite/actions/workflows/release.yml> → **Run workflow** (top right of the run list).
 2. *Use workflow from*: `main` (or the branch to test). *Git ref to build*: leave empty (= that branch) or a tag/commit.
    *Release tag name for the draft release*: keep `v0.0.0-test` (the draft is thrown away afterwards).
-3. **Run workflow**. The run has 17 jobs: `version strings`, 12 builds (`calc|write|show / <runner>`) and
-   `smoke / <runner>` for `ubuntu-22.04`, `windows-latest`, `macos-latest`, `macos-15-intel`. It takes ~25 minutes.
+3. **Run workflow**. The run has 19 jobs: `version strings`, 12 builds (`calc|write|show / <runner>`),
+   `sign / GPG + SHA256SUMS` (skipped without the `GPG_PRIVATE_KEY` secret), `sign / signing.json` and
+   `smoke / <runner>` for `ubuntu-22.04`, `windows-latest`, `macos-latest`, `macos-15-intel`. It takes ~25 minutes
+   (signing and notarization add a few minutes, [signing.md](signing.md)).
 4. Every `smoke / …` job must be green: its log ends with `ok   calc: --smoke start: Rusuite Calc <version> | …`
    (and write, show) and `all passed`. While `continue-on-error: true` is set on the smoke job, a failing smoke job is
    shown red but the run is still green – look at the jobs, not only at the run.
@@ -94,7 +96,9 @@ reply, that the native window title names the app and that `ping` reports the ve
 
 ## 4. Review and publish
 1. Open the draft. Check the asset list (per app: `.deb`, `.rpm`, `.AppImage`, `.msi`, `.exe`, two `.dmg`, two
-   `.app.tar.gz`) and download one installer per OS for a last start.
+   `.app.tar.gz`; once per release `signing.json`; with the GPG key also `SHA256SUMS`, `SHA256SUMS.asc` and a
+   `<file>.asc` per Linux package) and download one installer per OS for a last start. `signing.json` must say
+   `true` for every OS whose secrets are set ([signing.md](signing.md)).
 2. Replace the release text with `docs/release-notes/<public name>.md` (adapt the heading for an rc). Keep **Set as a
    pre-release** ticked for alpha/rc builds; untick it for a cycle release such as 3.141.
 3. **Publish release**. The SHA-256 digests of the assets then show under *Assets*.
@@ -102,7 +106,8 @@ reply, that the native window title names the app and that `ping` reports the ve
 ## 5. Portal downloads page
 The portal's `downloads.html` is static and generated at deploy time from the newest **published** release:
 `scripts/deploy-web.sh` runs `scripts/gen-downloads.sh --out /var/www/resuite/downloads.html`, which reads
-`gh release view <tag> --json …` and the asset digests (`gh api`), so the page itself never contacts GitHub (ADR 0009).
+`gh release view <tag> --json …`, the asset digests (`gh api`) and the release's `signing.json` (per-OS signed state,
+[signing.md](signing.md); absent = unsigned), so the page itself never contacts GitHub (ADR 0009).
 After publishing, the PM redeploys from `main` (`scripts/deploy-web.sh`). `DOWNLOADS_TAG=<tag>` picks a specific release;
 without `gh` or without a published release the page says "no release yet" and links to GitHub Releases (that page is
 also the committed `apps/portal/downloads.html`). Preview locally:
@@ -117,22 +122,20 @@ release build to point a build at another relay (`REPORT_RELAY_URL=https://examp
 tauri build`). The web builds always use the relative `/api/report` of the site they are served from. The relay
 itself is deployed separately (`scripts/deploy-relay.sh`, docs/setup.md "Report relay").
 
-## Signing caveats
-Builds are **not code-signed**; the downloads page (notice box plus per-OS steps next to the buttons) and the release notes
-say so plainly:
-- **macOS 15 Sequoia and later**: opening the app shows "Not Opened" – click *Done* (not "Move to Bin"), then System
-  Settings › Privacy & Security › Security › *Open Anyway* › password › *Open*. Alternative in Terminal:
-  `xattr -dr com.apple.quarantine "/Applications/Rusuite Calc.app"` (likewise Write, Show).
-- **macOS 14 and earlier**: right-click the app › *Open* › *Open*.
-- **Windows SmartScreen**: "Windows protected your PC" – *More info* › *Run anyway*.
-- **Linux**: no warning; make the AppImage executable (`chmod +x`), install deb/rpm as usual.
+## Signing
+Signing is conditional on repository secrets: **[signing.md](signing.md)** lists them, how the PM produces them and
+how a download is verified. Without them the builds are unsigned as up to 3.141, and the Downloads page shows the
+Gatekeeper/SmartScreen steps (macOS 15+: *Done*, then System Settings › Privacy & Security › *Open Anyway*; macOS 14:
+right-click › *Open*; Windows: *More info* › *Run anyway*). The release adds these assets beside the installers:
 
-Code signing, notarization and auto-update are on the ROADMAP. State at 3.141 (2026-10-18): the repository has no
-Apple signing secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
-`APPLE_PASSWORD`, `APPLE_TEAM_ID`; the owner has not enrolled in the Apple Developer Program yet), so 3.141 ships
-unsigned and the notes above stay. Once they exist: pass them as `env` to the `tauri-action` step for the macOS runners
-(tauri-action/Tauri read them from the environment and sign + notarize), then replace the Gatekeeper steps on the
-Downloads page (`portal.dl.mac15.*`, `portal.dl.unsigned.*`) and in the release notes.
+| Asset | When | Content |
+| --- | --- | --- |
+| `signing.json` | every release from 3.1415 on | per OS `signed`/`notarized`/`method`, the GPG fingerprint, `sha256sums` – read by `scripts/gen-downloads.sh` |
+| `SHA256SUMS`, `SHA256SUMS.asc` | GPG key set | `sha256sum` lines for every installer of every OS, and its detached signature |
+| `<file>.asc` | GPG key set | detached signature of each `.deb`, `.rpm`, `.AppImage` |
+
+The default release text (`releaseBody`) still speaks of unsigned builds; it is replaced by the release notes anyway
+(section 4) – say there which platforms are signed.
 
 ## Known risks of pre-release versions in bundles
 - **RPM**: RPM versions cannot contain `-`; the bundler has to map `0.1.0-rc.1` to an RPM version/release. If the
