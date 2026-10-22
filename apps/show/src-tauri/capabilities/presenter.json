@@ -2,6 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "presenter",
   "description": "Presenter view (P7-8): the main window opens the slide show window",
+  "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
   "permissions": ["core:webview:allow-create-webview-window"]
 }

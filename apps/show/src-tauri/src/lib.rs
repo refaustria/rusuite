@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(desktop)]
 use app_common::connectors_tauri;
 use app_common::session::{
     DirStorage, RecentEntry, RecoveryEntry, RecoveryInfo, Session, SessionError,
@@ -317,9 +318,18 @@ fn recovery_remove(id: String, state: tauri::State<'_, SessionState>) -> Result<
 /// thread, so it returns once the dialog is closed), `NSPrintOperation` on
 /// macOS, `window.print()` in WebView2. The page shows only the print view
 /// under `@media print`.
+#[cfg(desktop)]
 #[tauri::command]
 fn print_webview(window: tauri::WebviewWindow) -> Result<(), String> {
     window.print().map_err(|e| e.to_string())
+}
+
+/// Mobile webviews have no print operation (P10-M6 adds PDF + share sheet): `Backend.print` rejects and the UI
+/// hides Print (`Backend.capabilities.print`).
+#[cfg(mobile)]
+#[tauri::command]
+fn print_webview() -> Result<(), String> {
+    Err("unsupported".to_owned())
 }
 
 /// Health check: `"Rusuite Show <version>"`.
@@ -358,7 +368,7 @@ fn pptx_dialog(
     text: Option<DialogText>,
 ) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
     let text = text.unwrap_or_default();
-    let dialog = window.dialog().file().set_parent(window).add_filter(
+    let dialog = parented(window.dialog().file(), window).add_filter(
         text.filter_name
             .as_deref()
             .unwrap_or("PowerPoint presentation"),
@@ -368,6 +378,23 @@ fn pptx_dialog(
         Some(title) => dialog.set_title(title),
         None => dialog,
     }
+}
+
+/// The dialog's parent window (desktop; the mobile pickers are always modal).
+#[cfg(desktop)]
+fn parented(
+    dialog: tauri_plugin_dialog::FileDialogBuilder<tauri::Wry>,
+    window: &tauri::Window,
+) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    dialog.set_parent(window)
+}
+
+#[cfg(mobile)]
+fn parented(
+    dialog: tauri_plugin_dialog::FileDialogBuilder<tauri::Wry>,
+    _window: &tauri::Window,
+) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    dialog
 }
 
 /// Runs a blocking dialog off the async runtime's worker threads.
@@ -479,10 +506,7 @@ async fn export_file(
     filter_name: String,
     extension: String,
 ) -> Result<Option<String>, FileError> {
-    let dialog = window
-        .dialog()
-        .file()
-        .set_parent(&window)
+    let dialog = parented(window.dialog().file(), &window)
         .add_filter(filter_name, &[extension.as_str()])
         .set_file_name(suggested_name);
     blocking(move || {
@@ -522,6 +546,7 @@ pub struct MonitorInfo {
 type PhysRect = (i32, i32, u32, u32);
 
 /// The monitor (index into `rects`) containing the point `p`.
+#[cfg_attr(mobile, allow(dead_code))]
 fn monitor_at(rects: &[PhysRect], p: (i32, i32)) -> Option<usize> {
     rects.iter().position(|&(x, y, w, h)| {
         p.0 >= x
@@ -534,6 +559,7 @@ fn monitor_at(rects: &[PhysRect], p: (i32, i32)) -> Option<usize> {
 /// Swap displays: where the presenter view (`main`) and the slide show
 /// (`audience`) go – each to the other's monitor; `None` when they share
 /// one (nothing to swap) or a monitor is unknown.
+#[cfg_attr(mobile, allow(dead_code))]
 fn swap_plan(main: Option<usize>, audience: Option<usize>) -> Option<(usize, usize)> {
     match (main, audience) {
         (Some(m), Some(a)) if m != a => Some((a, m)),
@@ -572,6 +598,7 @@ fn show_monitors(window: tauri::WebviewWindow) -> Vec<MonitorInfo> {
 /// Presenter view › Swap displays: the slide show window moves to the
 /// presenter view's monitor (full screen) and the main window to the
 /// show's. Returns whether anything moved.
+#[cfg(desktop)]
 #[tauri::command]
 fn show_swap_displays(app: tauri::AppHandle) -> bool {
     let (Some(main), Some(show)) = (
@@ -621,10 +648,18 @@ fn show_swap_displays(app: tauri::AppHandle) -> bool {
     true
 }
 
+/// Mobile: one display, nothing to swap (the presenter view is desktop-only for now).
+#[cfg(mobile)]
+#[tauri::command]
+fn show_swap_displays() -> bool {
+    false
+}
+
 /// Builds and runs the Tauri application.
 ///
 /// # Panics
 /// Panics if the Tauri runtime fails to start.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -655,6 +690,8 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("rusuite-show"));
             // Cloud connections (P8-36): records next to the session files, passwords in the OS keyring.
+            // Desktop only (owner rule): mobile builds have neither connections nor the AI assistant.
+            #[cfg(desktop)]
             app.manage(connectors_tauri::ConnectorState::new(&dir));
             app.manage(SessionState::new(dir));
             Ok(())
@@ -676,17 +713,30 @@ pub fn run() {
             show_monitors,
             show_swap_displays,
             export_file,
+            #[cfg(mobile)]
+            #[cfg(desktop)]
             connectors_tauri::connector_list,
+            #[cfg(desktop)]
             connectors_tauri::connector_stat,
+            #[cfg(desktop)]
             connectors_tauri::connector_read,
+            #[cfg(desktop)]
             connectors_tauri::connector_write,
+            #[cfg(desktop)]
             connectors_tauri::connector_mkdir,
+            #[cfg(desktop)]
             connectors_tauri::connector_delete,
+            #[cfg(desktop)]
             connectors_tauri::connector_rename,
+            #[cfg(desktop)]
             connectors_tauri::connector_store_load,
+            #[cfg(desktop)]
             connectors_tauri::connector_store_save,
+            #[cfg(desktop)]
             connectors_tauri::connector_secret_get,
+            #[cfg(desktop)]
             connectors_tauri::connector_secret_set,
+            #[cfg(desktop)]
             connectors_tauri::connector_secret_delete
         ])
         .run(tauri::generate_context!())
