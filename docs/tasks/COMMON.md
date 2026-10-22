@@ -27,3 +27,10 @@ Claude-Session: https://claude.ai/code/session_01YGiiEDN1zSPaDE4h1jA1hU
 ## Cycle 3.141 (added 2026-10-17)
 - Task ids `P9-C<n>` (Calc), `P9-S<n>` (Show), `P9-W<n>` (Write), `P9-L<n>` (languages), `P9-A<n>` (AI). e2e ports: Calc 491n, Show 492n, Write 493n, languages 494n, AI 495n (n = batch number). Screenshots `shots/<task-id>-*.png`.
 - No version bumps, tags or release builds during the cycle (owner rule, docs/versioning.md); the PM does the release at the end.
+
+## Cycle 3.1415 (added 2026-10-22)
+- Task ids `P10-S<n>` (signing), `P10-M<n>` (mobile), `P10-R<n>` (release). e2e ports: signing 502n, mobile 501n (n = task number, e.g. P10-M2 → 5012), release 5030. Screenshots `shots/<task-id>-*.png`. Plan: `docs/plan-3.1415.md`.
+- No version bumps, tags or release builds during the cycle; the PM releases at the end. Version strings stay `3.141.0` until P10-R1.
+- Secrets: never commit, print or log a key, password, keystore, certificate or token. Signing material lives in `~/rusuite-signing/` (PM only) and in GitHub repository secrets; scripts and workflows read them from the environment and must work (unsigned) when they are absent.
+- Mobile CI: iOS cannot be built on this server. A task whose brief says so may push its own branch to `origin` (only its branch, `git push -u origin <branch>`) to run `.github/workflows/mobile.yml`; never push `main` or tags. Watch runs with `gh run list --branch <branch>` / `gh run view <id> --log-failed`.
+- Android builds locally: SDK `/home/bojan/android-sdk` (platforms 34–36, build-tools 36, NDK 28.2.13676358, no emulator – no `/dev/kvm`), Java 21 at `/usr/bin/java`. Export `ANDROID_HOME=/home/bojan/android-sdk NDK_HOME=/home/bojan/android-sdk/ndk/28.2.13676358 JAVA_HOME=$(dirname $(dirname $(readlink -f /usr/bin/java)))` and add the Rust targets you need with `rustup target add`.
