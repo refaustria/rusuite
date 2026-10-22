@@ -26,6 +26,8 @@ val releaseSigned = !keystoreProperties.isEmpty
 
 android {
     compileSdk = 36
+    // The NDK the Rust library is built with; AGP needs it to strip the release library.
+    ndkVersion = "28.2.13676358"
     namespace = "dev.rusuite.calc"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -51,11 +53,15 @@ android {
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
-            packaging {
-                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
-                jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
-                jniLibs.keepDebugSymbols.add("*/x86/*.so")
-                jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
+            // `packaging` is global, not per build type: keep the symbols only when a debug variant is built, so
+            // release builds are stripped (Calc's library: 26 → 17 MB per ABI).
+            if (gradle.startParameter.taskNames.any { it.contains("Debug") }) {
+                packaging {
+                    jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
+                    jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
+                    jniLibs.keepDebugSymbols.add("*/x86/*.so")
+                    jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
+                }
             }
         }
         getByName("release") {

@@ -10,6 +10,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build",
+    "ios:build": "tauri ios build",
     "build:wasm": "wasm-pack build src-wasm --target web --release --out-dir pkg",
     "build:web": "pnpm build:wasm && vite build --mode web",
     "dev:web": "pnpm build:wasm && vite --mode web"
