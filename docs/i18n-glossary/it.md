@@ -400,3 +400,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | relazione non valida | reader warnings |
 | Custom show (PowerPoint) | Presentazione personalizzata | `reader.pptx.customShow.*` |
 | Pivot cache | cache pivot | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | toccare ("Tocca …") | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | tocco prolungato | (context menu as a sheet; no catalog text yet) |
+| pinch | pizzicare | (zoom; no catalog text yet) |
+| swipe | scorrere | (no catalog text yet) |
+| selection handle | quadratino di selezione | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | pannello (mai "foglio" = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | impronta digitale | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | chiave di rilascio | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notarizzata | `portal.dl.signed.macos` |
+| More | Altro | `compact.more` |
+| More commands | Altri comandi | `compact.moreSheet` |
+| Fill | Riempimento | `calc.touch.fill` |
+| Fill series | Riempi serie | `calc.touch.fillSeries` |
+| Copy cells | Copia celle | `calc.touch.copyCells` |
+| Ref | Rif. | `calc.keys.refShort` |
+| Share as PDF… | Condividi come PDF… | `backstage.sharePdf` |
+| Export PDF | Esporta PDF | `print.exportPdf` |
+| Multi-select | Selezione multipla | `show.touch.multiSelect` |

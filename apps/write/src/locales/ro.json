@@ -1349,5 +1349,9 @@
   "write.notes.sep.line": "Linie",
   "write.notes.sep.none": "Fără",
   "write.notes.sep.text": "Text",
-  "write.notes.sep.reset": "Resetare"
+  "write.notes.sep.reset": "Resetare",
+  "write.touch.selectionBar": "Selecție",
+  "write.touch.more": "Mai multe",
+  "write.touch.handleStart": "Începutul selecției",
+  "write.touch.handleEnd": "Sfârșitul selecției"
 }
