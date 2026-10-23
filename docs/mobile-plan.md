@@ -5,6 +5,10 @@
   the ribbon definitions, bottom sheets, 44 px targets, soft-keyboard handling via `visualViewport`, safe areas, long-press
   context menus; see [ui.md › Compact layout](ui.md#compact-layout-for-phones-p10-m2)). Next: touch editing per app (M3–M5),
   PDF for mobile (M6), store assets and publishing (M7–M9). *Was: considered, not scheduled (owner, 2026-10-15).*
+- **P10-M4 (Write touch): done** – fit-width page with pinch and double tap, long-press word selection with selection
+  handles and a floating format bar, 44 px picture handles, column border strips and table gutters, the caret kept above
+  the keyboard, sheets and the find bar; the same touch handling on tablets with the ribbon
+  ([ui.md › Write touch](ui.md#write-touch-p10-m4)).
 - Owner of this document: PM.
 
 ## What we already have that carries over

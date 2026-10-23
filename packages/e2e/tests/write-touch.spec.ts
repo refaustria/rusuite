@@ -290,6 +290,31 @@ test.describe("Write touch in German @mobile", () => {
   });
 });
 
+test.describe("Write touch on a tablet @tablet", () => {
+  test("ribbon + touch: long press, the bar and the handles", async ({ page }) => {
+    await selectionFlow(page, "tablet");
+  });
+  test("ribbon + touch: tables", async ({ page }) => {
+    await tableFlow(page, "tablet");
+  });
+  test("ribbon + touch: pictures", async ({ page }) => {
+    await pictureFlow(page, "tablet");
+  });
+  test("ribbon + touch: pinch zooms between 50 and 200 %", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openFixture(page, "provisional-41-long-document.docx");
+    expect(await zoomOf(page)).toBe(1);
+    const s = (await page.getByTestId("write-scroll").boundingBox())!;
+    await pinch(page, s.x + s.width / 2, s.y + 200, 300, 150);
+    await expect.poll(() => zoomOf(page)).toBeLessThan(0.75);
+    await pinch(page, s.x + s.width / 2, s.y + 200, 100, 400);
+    await expect.poll(() => zoomOf(page)).toBeGreaterThan(1.2);
+    expect(await zoomOf(page)).toBeLessThanOrEqual(2);
+    await page.screenshot({ path: `${SHOTS}/P10-M4-tablet.png` });
+    errors.expectNone();
+  });
+});
+
 /** Items 3 (and 5): the table fixture by touch. */
 async function tableFlow(page: Page, project: string) {
   const errors = trackErrors(page);
