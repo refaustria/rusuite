@@ -1,6 +1,6 @@
 // Rusuite's mobile document access on iOS (P10-M1): the document picker opening in place, coordinated write-back
 // through a bookmark, export with UIDocumentPickerViewController(forExporting:), the share sheet and reading the
-// documents the app is opened with. The Rust half is `crates/tauri-plugin-rusuite-mobile/src/lib.rs`; every reply
+// documents the app is opened with; PDF export (P10-M6) through the webview's print formatter. The Rust half is `crates/tauri-plugin-rusuite-mobile/src/lib.rs`; every reply
 // is `{ document?: … }` (missing = cancelled).
 
 import Foundation
@@ -26,6 +26,17 @@ struct ExportArgs: Decodable {
   let name: String
   let uti: String?
   let bytesBase64: String
+}
+
+struct PaperArgs: Decodable {
+  let widthMm: Double
+  let heightMm: Double
+  let landscape: Bool?
+}
+
+struct PdfArgs: Decodable {
+  let name: String
+  let paper: PaperArgs
 }
 
 struct Doc: Encodable {
@@ -75,6 +86,12 @@ class PickerDelegate: NSObject, UIDocumentPickerDelegate {
 
 class RusuiteMobilePlugin: Plugin {
   private let delegate = PickerDelegate()
+  /// The app's webview (its print media is the page's print root while a PDF is made).
+  private var webView: WKWebView?
+
+  override func load(webview: WKWebView) {
+    self.webView = webview
+  }
 
   private func present(_ vc: UIViewController) {
     guard let root = self.manager.viewController else { return }
@@ -230,6 +247,110 @@ class RusuiteMobilePlugin: Plugin {
   /// Android only (iOS launch documents arrive as `RunEvent::Opened` in Rust and are read with `readDocument`).
   @objc public func takeLaunchDocument(_ invoke: Invoke) throws {
     invoke.resolve(DocReply<Doc>(document: nil))
+  }
+  // ------------------------------------------------------------------ PDF (P10-M6)
+
+  private func pdfName(_ name: String) -> String {
+    let safe = name.replacingOccurrences(of: "/", with: "_")
+    let base = safe.isEmpty ? "document.pdf" : safe
+    return base.lowercased().hasSuffix(".pdf") ? base : base + ".pdf"
+  }
+
+  /// The webview's print media (the mounted print root) as a PDF: `UIPrintPageRenderer` with the webview's
+  /// `viewPrintFormatter()` paginated on the page's paper (no margins – the pages carry theirs), drawn into a PDF
+  /// context, so text stays text. `createPDF(configuration:)` would render the screen media as one long page.
+  /// Main thread only.
+  private func renderPdf(_ paper: PaperArgs) throws -> Data {
+    guard let webView = self.webView else { throw RusuiteError.message("the webview is not ready") }
+    let mm = 72.0 / 25.4
+    guard paper.widthMm > 1, paper.heightMm > 1 else { throw RusuiteError.message("invalid paper size") }
+    let rect = CGRect(x: 0, y: 0, width: paper.widthMm * mm, height: paper.heightMm * mm)
+    let renderer = UIPrintPageRenderer()
+    renderer.addPrintFormatter(webView.viewPrintFormatter(), startingAtPageAt: 0)
+    // `paperRect` / `printableRect` are read-only properties; KVC is the documented-by-practice way to set them.
+    renderer.setValue(NSValue(cgRect: rect), forKey: "paperRect")
+    renderer.setValue(NSValue(cgRect: rect), forKey: "printableRect")
+    let pages = renderer.numberOfPages
+    guard pages > 0 else { throw RusuiteError.message("nothing to print") }
+    let data = NSMutableData()
+    UIGraphicsBeginPDFContextToData(data, rect, nil)
+    renderer.prepare(forDrawingPages: NSRange(location: 0, length: pages))
+    let bounds = UIGraphicsGetPDFContextBounds()
+    for page in 0..<pages {
+      UIGraphicsBeginPDFPage()
+      renderer.drawPage(at: page, in: bounds)
+    }
+    UIGraphicsEndPDFContext()
+    return data as Data
+  }
+
+  /// Renders the PDF on the main thread and writes it to a temporary file named `name`.
+  private func renderPdfFile(_ args: PdfArgs, _ invoke: Invoke, _ then: @escaping (URL) -> Void) {
+    DispatchQueue.main.async {
+      do {
+        let data = try self.renderPdf(args.paper)
+        let file = try self.temporaryCopy(self.pdfName(args.name), data.base64EncodedString())
+        then(file)
+      } catch {
+        invoke.reject(error.localizedDescription)
+      }
+    }
+  }
+
+  @objc public func exportPdf(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(PdfArgs.self)
+    renderPdfFile(args, invoke) { source in
+      let picker = UIDocumentPickerViewController(forExporting: [source], asCopy: true)
+      picker.delegate = self.delegate
+      self.delegate.done = { urls in
+        try? FileManager.default.removeItem(at: source)
+        // No handle: the apps cannot open a PDF, so it never enters the recent list.
+        invoke.resolve(DocReply(document: urls?.first.map { Exported(handle: nil, name: $0.lastPathComponent) }))
+      }
+      self.present(picker)
+    }
+  }
+
+  @objc public func sharePdf(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(PdfArgs.self)
+    renderPdfFile(args, invoke) { file in
+      let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+      sheet.completionWithItemsHandler = { _, _, _, _ in
+        try? FileManager.default.removeItem(at: file)
+        invoke.resolve()
+      }
+      self.present(sheet)
+    }
+  }
+
+  @objc public func printPdf(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(PdfArgs.self)
+    DispatchQueue.main.async {
+      do {
+        let data = try self.renderPdf(args.paper)
+        let info = UIPrintInfo(dictionary: nil)
+        info.outputType = .general
+        info.jobName = self.pdfName(args.name)
+        let controller = UIPrintInteractionController.shared
+        controller.printInfo = info
+        controller.printingItem = data
+        let done: UIPrintInteractionController.CompletionHandler = { _, _, error in
+          if let error = error {
+            invoke.reject(error.localizedDescription)
+          } else {
+            invoke.resolve()
+          }
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad, let view = self.manager.viewController?.view {
+          let anchor = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+          controller.present(from: anchor, in: view, animated: true, completionHandler: done)
+        } else {
+          controller.present(animated: true, completionHandler: done)
+        }
+      } catch {
+        invoke.reject(error.localizedDescription)
+      }
+    }
   }
 }
 

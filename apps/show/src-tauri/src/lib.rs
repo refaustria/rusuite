@@ -4,6 +4,7 @@
 //! crash-recovery store (`SessionState`). No document logic lives here.
 
 pub mod mobile;
+mod pdf;
 pub mod smoke;
 
 use std::path::{Path, PathBuf};
@@ -495,13 +496,24 @@ async fn save_file(
 
 /// `--smoke` (P8-41, [`smoke`]): the page's report of its IPC round trip;
 /// prints the result and exits. Ignored unless started with `--smoke`.
+/// With `RUSUITE_SMOKE_PDF` it also prints the page to that PDF first ([`pdf::smoke_pdf`], P10-M6).
 #[tauri::command]
-fn smoke_report(
+async fn smoke_report(
     window: tauri::WebviewWindow,
     smoke: tauri::State<'_, smoke::Smoke>,
     report: smoke::Report,
-) {
+) -> Result<(), ()> {
+    if !smoke.enabled() {
+        return Ok(());
+    }
+    let mut report = report;
+    if report.error.is_none() {
+        if let Err(e) = pdf::smoke_pdf(window.clone()).await {
+            report.error = Some(e);
+        }
+    }
     smoke.finish("Rusuite Show", &window.title().unwrap_or_default(), &report);
+    Ok(())
 }
 
 /// Design › Save Current Theme (P9-S5): writes a file that is not the
@@ -730,6 +742,9 @@ pub fn run() {
             mobile::share_document,
             mobile::take_launch_document,
             print_webview,
+            pdf::export_pdf,
+            pdf::print_pdf,
+            pdf::share_pdf,
             show_monitors,
             show_swap_displays,
             #[cfg(desktop)]

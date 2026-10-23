@@ -4518,11 +4518,13 @@ dependencies = [
 name = "tauri-plugin-rusuite-mobile"
 version = "3.141.0"
 dependencies = [
+ "gtk",
  "serde",
  "serde_json",
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.21",
+ "webkit2gtk",
 ]
 
 [[package]]
