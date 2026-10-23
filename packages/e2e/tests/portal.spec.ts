@@ -59,26 +59,26 @@ test.describe("Portal", () => {
     errors.expectNone();
   });
 
-  test("P8-49/P9-R1: New in 3.141 and Coming soon sections (EN, DE, English for pending keys) and the footer link on the Downloads page", async ({ page }) => {
+  test("P8-49/P10-R1: New in 3.1415 and Coming soon sections (EN, DE, English for pending keys) and the footer link on the Downloads page", async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto("./");
     const fresh = page.locator("#new");
-    await expect(fresh.getByRole("heading", { name: "New in 3.141" })).toBeVisible();
-    await expect(fresh.locator("li")).toHaveCount(5);
-    await expect(fresh).toContainText("Sheet protection, slicers, sparklines, Flash Fill");
-    await expect(fresh.getByRole("link", { name: "release notes" })).toHaveAttribute("href", /docs\/release-notes\/3\.141\.md$/);
+    await expect(fresh.getByRole("heading", { name: "New in 3.1415" })).toBeVisible();
+    await expect(fresh.locator("li")).toHaveCount(4);
+    await expect(fresh).toContainText("Calc, Write and Show for Android and iOS");
+    await expect(fresh.getByRole("link", { name: "release notes" })).toHaveAttribute("href", /docs\/release-notes\/3\.1415\.md$/);
     const soon = page.locator("#soon");
     await expect(soon.getByRole("heading", { name: "Coming soon" })).toBeVisible();
-    await expect(soon.locator("li")).toHaveCount(3);
-    await expect(soon.locator("li").first()).toContainText("Android and iOS");
-    await expect(soon).toContainText("Signed desktop builds");
-    await expect(soon).not.toContainText("Slicers");
+    await expect(soon.locator("li")).toHaveCount(2);
+    await expect(soon.locator("li").first()).toContainText("Google Drive");
+    await expect(soon).toContainText("Signed Windows builds");
+    await expect(soon).not.toContainText("Android and iOS apps for Calc, Write and Show are planned");
     await expect(soon).toContainText("Your feedback shapes the order");
     await page.getByTestId("portal-language").selectOption("de");
-    await expect(fresh.getByRole("heading", { name: "Neu in 3.141" })).toBeVisible();
-    await expect(fresh).toContainText("Blattschutz, Datenschnitte, Sparklines, Blitzvorschau");
+    await expect(fresh.getByRole("heading", { name: "Neu in 3.1415" })).toBeVisible();
+    await expect(fresh).toContainText("Calc, Write und Show für Android und iOS");
     await expect(soon.getByRole("heading", { name: "Demnächst" })).toBeVisible();
-    await expect(soon).toContainText("Signierte Desktop-Versionen");
+    await expect(soon).toContainText("Signierte Windows-Versionen");
     await expect(soon).toContainText("Dein Feedback bestimmt die Reihenfolge");
     // A language whose catalog lacks a key yet shows the English text, never the key name.
     await page.getByTestId("portal-language").selectOption("fr");
@@ -182,6 +182,12 @@ test.describe("Downloads page", () => {
     await expect(calc.getByRole("link", { name: /Debian, Ubuntu \(\.deb\)/ })).toHaveAttribute("href", /Rusuite\.Calc_0\.1\.0-rc\.1_amd64\.deb$/);
     await expect(calc.getByRole("link", { name: /\.rpm/ })).toBeVisible();
     await expect(calc.getByRole("link", { name: /\.AppImage/ })).toBeVisible();
+    // P10-R1: phones and tablets – store links come from docs/store/links.json; empty = "coming soon" (not an `os` section).
+    const phones = page.getByTestId("mobile-apps");
+    await expect(phones.getByRole("heading", { name: "Phones and tablets" })).toBeVisible();
+    await expect(phones.locator("li.dl-app")).toHaveCount(3);
+    await expect(phones.locator('[data-soon="true"]')).toHaveCount(6);
+    await expect(phones.locator("a")).toHaveCount(0);
     await sections.first().getByText("SHA-256 checksums").click();
     await expect(sections.first().locator("dd code").first()).toHaveText(/^[0-9a-f]{64}$/);
     await page.getByTestId("portal-language").selectOption("de");

@@ -37,7 +37,7 @@ privacy declarations are "no data collected".
 ## Block R – Release 3.1415
 | Task | Content | Model |
 |---|---|---|
-| **P10-R1** | `wix_version` mapping for MINOR > 255 (`3.1415.0` → `3.1.4159.0`-style, documented), `set-version.sh 3.1415.0`, release notes/CHANGELOG/NOTICE, Office check pack, portal "New in 3.1415", release.yml body without the unsigned note where signed | Sonnet |
+| **P10-R1** | `wix_version` mapping for MINOR > 255 (`3.1415.0` → `3.14.15.0`, documented; the MSI does not upgrade 3.141), `set-version.sh 3.1415.0`, release notes/CHANGELOG/NOTICE, Office check pack, portal "New in 3.1415", release.yml body without the unsigned note where signed | Sonnet |
 | PM | Tag `v3.1415.0`, release run, publish, deploy web, `mobile-release.yml`, store submissions (with the owner's explicit go per store) | – |
 
 ## Order
@@ -55,3 +55,18 @@ submission.
    and App Store Connect, or follow `docs/store/checklist-*.md` yourself.
 4. Decisions assumed: both platforms at once; tablets ≥ 900 px get the desktop layout; free apps, no in-app purchases,
    age rating "Everyone"/4+, category Productivity/Business.
+
+## Closing status (P10-R1, 2026-10-23)
+| Task | Result | Open points (carried into the release notes) |
+|---|---|---|
+| P10-S1 | merged: signing workflow, every path off without secrets; `signing.json` read by the Downloads page | Windows signing needs the Azure Trusted Signing account (or a PFX); macOS notarization needs the App Store Connect API key |
+| P10-S2 (PM) | material in `~/rusuite-signing/` (Android keystore, GPG key, Developer ID CSR) | public GPG key to `keys/rusuite-release-key.asc` before the deploy |
+| P10-M1 | merged: Android/iOS shells, mobile Backend, `mobile.yml` | nothing has run on a device or emulator |
+| P10-M2 | merged: compact layout below 900 px, mobile/tablet e2e projects | – |
+| P10-M3 / M4 / M5 | merged: Calc, Write, Show touch editing | Write fit-width is small on a phone; Show pinch only in Fit mode; no presenter second window |
+| P10-M6 | merged: PDF export/print/share on mobile, Linux desktop without dialog, Report a problem hidden on mobile | Windows/macOS desktop PDF still use the print dialog |
+| P10-M7 | merged: listings in 24 languages, release notes, review notes, screenshots, graphics | native review wanted for mt/ga/et/lv |
+| P10-M8 | merged: `play.mjs`, `asc.mjs`, `mobile-release.yml` | Play takes 22/24 languages (no ga, mt), App Store 18/24 (also no bg, et, lt, lv) |
+| P10-M9 (PM/owner) | console registration, questionnaires, submission | store links into `docs/store/links.json` after approval |
+| P10-X1 / X2 / LF | merged: polish, touch e2e stability, 22 languages strict | native checks wanted: mt, ga, et, lv, hu/el wording |
+| P10-R1 | versions 3.1415.0 (MSI 3.14.15.0), notes, CHANGELOG, NOTICE (+ Android/iOS section), portal and Downloads (store buttons), check pack | PM steps: docs/release.md "Release 3.1415" |

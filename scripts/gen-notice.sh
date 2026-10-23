@@ -66,6 +66,19 @@ out.push("  PowerPoint writes them, taken from the extraction published with Dew
 out.push("  cross-checked with LibreOffice's predefined-table-styles.cxx (Mozilla Public License 2.0, The Document");
 out.push("  Foundation). The 74 built-in table style GUIDs are identifiers published by Microsoft; the looks Rusuite");
 out.push("  generates from them are its own.");
+// Android and iOS apps (P10, docs/legal-notes.md "Mobile apps"): Gradle/Swift dependencies are not in Cargo or npm.
+out.push("");
+out.push("Android and iOS apps");
+out.push("--------------------");
+out.push("");
+out.push("The Android apps (Gradle projects under apps/*/src-tauri/gen/android and the Kotlin plugin in");
+out.push("crates/tauri-plugin-rusuite-mobile) additionally include, all under the Apache License 2.0 (Google / JetBrains):");
+out.push("- AndroidX: appcompat 1.7.1, core-ktx 1.9.0, activity-ktx 1.10.1, webkit 1.14.0, lifecycle-process 2.10.0");
+out.push("- Material Components for Android 1.12.0");
+out.push("- Kotlin standard library (Kotlin Gradle plugin 2.2.10); build only: Android Gradle plugin 9.3.1");
+out.push("- The Tauri Android/iOS runtime (tauri-android, Tauri Swift API), MIT or Apache-2.0, as for the Rust crates");
+out.push("The iOS apps use no CocoaPods or other Swift packages besides the Tauri Swift API; Apple system frameworks are");
+out.push("not redistributed.");
 section(`Rust crates (${rust.length})`, rust, (c) => `${c.name} ${c.version}${c.repository ? ` – ${c.repository}` : ""}`);
 section(`npm packages (${npm.length})`, npm, (p) => `${p.name} ${p.version}${p.url ? ` – ${p.url}` : ""}`);
 out.push("");

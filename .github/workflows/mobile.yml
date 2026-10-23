@@ -12,7 +12,7 @@
 #   → an App Store Connect .ipa per app.
 # Shared steps (also used by mobile-release.yml, P10-M8): scripts/mobile/*.sh.
 # Version codes: Android versionCode and iOS CFBundleVersion = major·1 000 000 + minor·1 000 + patch of
-# tauri.conf.json `version` (3.141.0 → 3141000), CFBundleShortVersionString = the version itself.
+# tauri.conf.json `version` (3.1415.0 → 4415000), CFBundleShortVersionString = the version itself.
 
 name: Mobile
 
