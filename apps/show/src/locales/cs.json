@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Motiv Office",
   "show.master.phText": "Text",
   "show.prompt.picture": "Kliknutím na ikonu přidáš obrázek",
-  "show.insertPictureInto": "Vložit obrázek"
+  "show.insertPictureInto": "Vložit obrázek",
+  "show.touch.layoutMenu": "Rozložení…",
+  "show.touch.transitionMenu": "Přechod…",
+  "show.touch.timing": "Časování…",
+  "show.touch.multiSelect": "Vícenásobný výběr",
+  "show.touch.showMenu": "Nabídka prezentace",
+  "show.touch.backToShow": "Zpět do prezentace",
+  "show.touch.goToSlide": "Přejít na snímek…",
+  "show.touch.tapToPlay": "Klepnutím přehraješ"
 }

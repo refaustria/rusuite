@@ -1357,5 +1357,9 @@
   "write.notes.sep.line": "Čiara",
   "write.notes.sep.none": "Žiadny",
   "write.notes.sep.text": "Text",
-  "write.notes.sep.reset": "Obnoviť"
+  "write.notes.sep.reset": "Obnoviť",
+  "write.touch.selectionBar": "Výber",
+  "write.touch.more": "Viac",
+  "write.touch.handleStart": "Začiatok výberu",
+  "write.touch.handleEnd": "Koniec výberu"
 }
