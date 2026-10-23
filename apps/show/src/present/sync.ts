@@ -3,7 +3,7 @@
 // `BroadcastChannel` on the web and Tauri events on the desktop; both are
 // behind `SyncChannel`, so the show logic is tested with `fakeSyncPair`.
 
-import { isTauri } from "@rusuite/ui-shared";
+import { isMobile, isTauri } from "@rusuite/ui-shared";
 import type { DeckContext } from "../canvas/SlideView";
 import type { ShapePaths } from "../generated/ShapePaths";
 import type { Slide } from "../generated/Slide";
@@ -215,6 +215,16 @@ function presentationFallback(url: string): Promise<AudienceWindow | null> | nul
  * Opens the audience window. On the web `window.open` runs synchronously, so call this straight from the key or
  * click handler (popup blockers allow windows opened by a user gesture); a blocked popup tries the Presentation API.
  */
+/**
+ * Whether the presenter view can open its slide show window (P10-M5): not in the mobile shells (one display, no
+ * window permission) and not where `window.open` is missing.
+ */
+export function presenterWindowAvailable(): boolean {
+  if (isMobile()) return false;
+  if (isTauri()) return true;
+  return typeof window !== "undefined" && typeof window.open === "function";
+}
+
 export function launchAudience(): AudienceLink {
   const id = Math.random().toString(36).slice(2, 10) || "show";
   const sync = openSync(id, "presenter");

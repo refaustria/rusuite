@@ -27,6 +27,7 @@ import {
 import { formatPath, parsePath, reversePath } from "../anim/motion";
 import { findShape } from "../model";
 import type { ShowState, ShowStore } from "../state/store";
+import { SheetButton, SheetCheck, SheetRow, TimingSheetButton, TouchSpin } from "./TimingSheet";
 
 type T = TFunction;
 
@@ -333,7 +334,8 @@ export function SoundInput({ store }: { store: ShowStore }) {
 /** The ECMA kinds shown inline in the ribbon (the others under More Transitions). */
 const INLINE_KINDS: TransitionKind[] = ["none", "fade", "push", "wipe", "cover", "split", "cut", "zoom"];
 
-export function transitionsTab(store: ShowStore, state: ShowState, t: T): RibbonTab {
+/** `compact`: the Timing group is one "Timing…" button with a sheet (P10-M5). */
+export function transitionsTab(store: ShowStore, state: ShowState, t: T, compact = false): RibbonTab {
   const slide = state.pres?.slides.find((s) => s.id === state.current) ?? null;
   const tr = slide?.transition;
   const kind = tr?.kind ?? "none";
@@ -391,7 +393,55 @@ export function transitionsTab(store: ShowStore, state: ShowState, t: T): Ribbon
       },
       {
         label: t("show.timing"),
-        items: (
+        items: compact ? (
+          <TimingSheetButton
+            label={t("show.touch.timing")}
+            body={() => (
+              <>
+                <SheetRow label={t("show.sound")}>
+                  <select
+                    aria-label={t("show.sound")}
+                    className="min-h-11 rounded border border-ui-border bg-ui-bg px-2 text-ui-fg"
+                    disabled={!slide}
+                    value={sound?.kind === "play" ? "file" : sound?.kind === "stopPrevious" ? "stop" : "none"}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "none") void store.setTransitionSound(null);
+                      else if (v === "stop") void store.setTransitionSound({ stop: true });
+                      else document.querySelector<HTMLInputElement>('[data-testid="sound-input"]')?.click();
+                    }}
+                  >
+                    <option value="none">{t("show.sound.none")}</option>
+                    <option value="stop">{t("show.sound.stop")}</option>
+                    <option value="file">{t("show.sound.file")}</option>
+                  </select>
+                </SheetRow>
+                <SheetCheck
+                  label={t("show.sound.loop")}
+                  disabled={sound?.kind !== "play"}
+                  checked={sound?.kind === "play" && !!sound.value.loop}
+                  onChange={(on) => void store.setTransitionSoundLoop(on)}
+                />
+                <SheetRow label={t("show.durationS")}>
+                  <TouchSpin label={t("show.durationS")} ms={tr?.durationMs ?? 0} min={0} disabled={!tr || kind === "none" || kind === "cut"} onCommit={(ms) => void store.setTransition({ durationMs: ms })} />
+                </SheetRow>
+                <SheetCheck label={t("show.onMouseClick")} disabled={!slide} checked={tr?.advanceOnClick ?? true} onChange={(on) => void store.setTransition({ advanceOnClick: on })} />
+                <SheetRow label={t("show.after")}>
+                  <input
+                    type="checkbox"
+                    aria-label={t("show.after")}
+                    className="h-11 w-11"
+                    disabled={!slide}
+                    checked={after !== undefined}
+                    onChange={(e) => void store.setTransition({ advanceAfterMs: e.target.checked ? (after ?? 0) : null })}
+                  />
+                  <CommitField label={t("show.afterTime")} value={msToMmss(after ?? 0)} parse={parseMmss} width="w-24 min-h-11" disabled={!slide} onCommit={(ms) => void store.setTransition({ advanceAfterMs: ms })} />
+                </SheetRow>
+                <SheetButton label={t("show.applyToAll")} disabled={!slide} onClick={() => void store.applyTransitionToAll()} />
+              </>
+            )}
+          />
+        ) : (
           <>
             <RibbonStack>
               <Field label={t("show.sound")}>
@@ -539,7 +589,8 @@ function triggerMenu(store: ShowStore, state: ShowState, t: T, a: Animation | un
   return out;
 }
 
-export function animationsTab(store: ShowStore, state: ShowState, t: T): RibbonTab {
+/** `compact`: the Timing group is one "Timing…" button with a sheet (P10-M5). */
+export function animationsTab(store: ShowStore, state: ShowState, t: T, compact = false): RibbonTab {
   const slide = state.pres?.slides.find((s) => s.id === state.current) ?? null;
   const all = slide?.animations ?? [];
   const targets = store.targetAnimations();
@@ -626,7 +677,45 @@ export function animationsTab(store: ShowStore, state: ShowState, t: T): RibbonT
       },
       {
         label: t("show.timing"),
-        items: (
+        items: compact ? (
+          <TimingSheetButton
+            label={t("show.touch.timing")}
+            body={() => (
+              <>
+                <SheetRow label={t("show.start")}>
+                  <select
+                    aria-label={t("show.start")}
+                    className="min-h-11 rounded border border-ui-border bg-ui-bg px-2 text-ui-fg"
+                    disabled={!first}
+                    value={first?.trigger ?? "onClick"}
+                    onChange={(e) => void store.updateAnimations({ trigger: e.target.value as Trigger })}
+                  >
+                    {TRIGGERS.map((tr) => (
+                      <option key={tr} value={tr}>
+                        {t(triggerKey(tr))}
+                      </option>
+                    ))}
+                  </select>
+                </SheetRow>
+                <SheetRow label={t("show.durationS")}>
+                  <TouchSpin
+                    label={t("show.animDuration")}
+                    ms={first?.durationMs ?? 0}
+                    min={MIN_DURATION_MS}
+                    disabled={!first || first.effect === "appear" || first.kind === "media"}
+                    onCommit={(ms) => void store.updateAnimations({ durationMs: clampDuration(ms) })}
+                  />
+                </SheetRow>
+                <SheetRow label={t("show.delayS")}>
+                  <TouchSpin label={t("show.delayS")} ms={first?.delayMs ?? 0} min={0} disabled={!first} onCommit={(ms) => void store.updateAnimations({ delayMs: clampDelay(ms) })} />
+                </SheetRow>
+                <SheetButton label={t("show.timingDialog")} disabled={!first} onClick={() => store.openDialog({ kind: "animTiming", tab: "timing" })} />
+                <SheetButton label={t("show.moveEarlier")} disabled={!sel || !store.canMoveAnimation(-1)} onClick={() => void store.moveAnimation(-1)} />
+                <SheetButton label={t("show.moveLater")} disabled={!sel || !store.canMoveAnimation(1)} onClick={() => void store.moveAnimation(1)} />
+              </>
+            )}
+          />
+        ) : (
           <>
             <RibbonStack>
               <Field label={t("show.start")}>

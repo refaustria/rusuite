@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office-Design",
   "show.master.phText": "Text",
   "show.prompt.picture": "Bild hinzufügen",
-  "show.insertPictureInto": "Bild einfügen"
+  "show.insertPictureInto": "Bild einfügen",
+  "show.touch.layoutMenu": "Layout…",
+  "show.touch.transitionMenu": "Übergang…",
+  "show.touch.timing": "Anzeigedauer…",
+  "show.touch.multiSelect": "Mehrfachauswahl",
+  "show.touch.showMenu": "Menü der Bildschirmpräsentation",
+  "show.touch.backToShow": "Zurück zur Präsentation",
+  "show.touch.goToSlide": "Gehe zu Folie…",
+  "show.touch.tapToPlay": "Zum Abspielen tippen"
 }

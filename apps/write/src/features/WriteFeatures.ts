@@ -222,6 +222,8 @@ export class WriteFeatures {
   readonly ui = new WriteUi();
   readonly painter = new FormatPainter();
   editor: Editor | null = null;
+  /** The band between pages in layout px (P10-M4: phones keep it at 8 px on the screen); null = `PAGE_GAP_PX`. */
+  pageGap: number | null = null;
   /** Live field values: pages from the pagination, the clock, the document name. */
   readonly fields: FieldContext;
 
@@ -508,6 +510,7 @@ export class WriteFeatures {
             onPages: (pages) => ui.set({ pages }),
             flow: (node) => features.flow(node),
             hideWhiteSpace: () => ui.getState().hideWhiteSpace,
+            pageGap: () => features.pageGap,
             endnotesAtSectionEnd: () => !!ctl.settings.endnotesAtSectionEnd,
             onLayout: (l) => {
               const f = ui.getState().frame;

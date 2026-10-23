@@ -1,0 +1,5 @@
+New in 3.1415
+• Phone and tablet apps with a touch-friendly layout
+• Touch editing: selection handles, pinch to zoom, gestures
+• Export as PDF
+• Signed desktop apps for Windows, macOS and Linux

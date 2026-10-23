@@ -179,6 +179,35 @@ export function thumbnailMenu(store: ShowStore, id: NodeId): ContextMenuItem[] {
   ];
 }
 
+/**
+ * The compact layout's slide sheet (a long press on a thumbnail of the strip, P10-M5): New, Duplicate, Delete,
+ * Hide, Layout… (`onLayouts` swaps the sheet for the layouts) and Transition… (the Transitions tab of the bar).
+ */
+export function compactThumbnailMenu(store: ShowStore, id: NodeId, onLayouts: () => void): ContextMenuItem[] {
+  const st = store.getState();
+  const slide = st.pres?.slides.find((s) => s.id === id);
+  const count = st.pres?.slides.length ?? 0;
+  return [
+    { id: "newSlide", label: t("show.newSlide"), onSelect: () => void store.addSlide("titleContent") },
+    { id: "duplicateSlide", label: t("show.duplicateSlide"), onSelect: () => void store.duplicateSlides([id]) },
+    { id: "deleteSlide", label: t("show.deleteSlide"), disabled: count <= 1, onSelect: () => void store.deleteSlides([id]) },
+    { id: "hide", label: slide?.hidden ? t("show.showSlide") : t("show.hideSlide"), onSelect: () => void store.toggleHidden([id]) },
+    { separator: true },
+    { id: "layouts", label: t("show.touch.layoutMenu"), onSelect: onLayouts },
+    { id: "transition", label: t("show.touch.transitionMenu"), onSelect: () => store.setRibbonTab("transitions") },
+  ];
+}
+
+/** The layouts of the presentation as a sheet for slide `id` (the current one is ticked). */
+export function layoutMenu(store: ShowStore, id: NodeId): ContextMenuItem[] {
+  const slide = store.getState().pres?.slides.find((s) => s.id === id);
+  return layoutEntries(store).map((l) => ({
+    id: `layout-${l.id}`,
+    label: `${t("show.layoutPrefix", { layout: l.label })}${slide?.layout === l.id ? " ✓" : ""}`,
+    onSelect: () => void store.setSlideLayout(l.id, [id]),
+  }));
+}
+
 /** Right-click inside a selected table: the Layout tab's row, column and cell commands. */
 export function tableMenu(store: ShowStore): ContextMenuItem[] {
   const table = store.selectedTable();

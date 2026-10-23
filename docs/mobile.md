@@ -149,7 +149,10 @@ files or the workflow (one path filter for both). Matrix over the three apps:
 
 The workflow passes the certificate and the app's profile to the Tauri CLI as `IOS_CERTIFICATE`,
 `IOS_CERTIFICATE_PASSWORD`, `IOS_MOBILE_PROVISION`, which imports them into a temporary keychain. Uploading to Play /
-TestFlight is P10-M8 (`mobile-release.yml`).
+TestFlight: **`mobile-release.yml`** on version tags (P10-M8) – the same build steps (shared in
+`scripts/mobile/*.sh`: version code, keystore, smoke tests), then `scripts/store/play.mjs upload` and `xcrun altool`;
+store listings, screenshots, review and submission: **[store/README.md](store/README.md)** and the console checklists
+next to it.
 
 ## Known limitations
 - Nothing has run on a device or emulator yet (no KVM on the server, no macOS): CI proves that the projects compile,

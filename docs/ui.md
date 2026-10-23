@@ -45,6 +45,8 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
 - [Compact layout for phones (P10-M2)](#compact-layout-for-phones-p10-m2)
 - [Calc with touch (P10-M3)](#calc-with-touch-p10-m3)
+- [Write touch (P10-M4)](#write-touch-p10-m4)
+- [Show with touch (P10-M5)](#show-with-touch-p10-m5)
 
 ## Write
 
@@ -1995,3 +1997,89 @@ touch (tablets) everything below applies except the formula keys and the compact
   out). Colour grids in sheets have 40 px tall cells (ui-shared, all apps).
 - **Tests**: `packages/e2e/tests/calc-touch.spec.ts` (projects `mobile` and `tablet`).
 
+## Write touch (P10-M4)
+
+Write's touch handling (`apps/write/src/touch/`) works on phones (compact layout) and on touch tablets with the ribbon
+alike; it is keyed to **touch mode** (`touchMode.ts`: the last pointer was a finger or pen, a mouse click switches back;
+starts from `(any-pointer: coarse)` without a fine pointer), mirrored as `data-touch` on Write's root. With a mouse nothing
+changes; at 900 px and wider without touch the desktop is as before.
+
+- **Page fits the phone** (compact only). Print layout starts at **fit-width**: the app's zoom (CSS `zoom` on
+  `.write-zoom`, so ProseMirror's hit testing and the caret stay right) is `(scroll area width − 16 px) / widest page`,
+  recomputed on resize and rotation while fit-width is on; the page area has 8 px padding and never scrolls sideways at
+  fit-width. **Pinch** (two fingers on the page area) previews with a transform and commits the zoom when a finger lifts
+  (range fit-width … 200 %; tablets 50 … 200 %), keeping the point between the fingers in place; ending near fit-width
+  snaps to it. **Double tap** toggles fit-width ↔ 100 % at the tapped point; on a header or footer it opens the header/footer
+  editor as before. A zoom chosen in View › Zoom leaves fit-width; a zoom between the levels is listed as it is. The band
+  between pages is **8 px on the screen** at any zoom (`WriteFeatures.pageGap`, the pagination's `pageGap` option). View ›
+  Print layout / Draft is remembered on phones (`localStorage` `rusuite.write.compactView`); the desktop keeps starting in
+  Print layout. Body text at fit-width is small (11 pt ≈ 7 CSS px on a 412 px phone, ~19 device px): Draft view or a pinch
+  is the reading alternative.
+- **Caret and selection.** A tap places the caret (the browser's own; nothing of Write intercepts it). A **long press on a
+  word** selects the word (`wordAt`: letters, digits, marks, inner apostrophes and hyphens) instead of opening the context
+  menu; in a table, or where there is no word, the long press opens the context menu (a sheet on phones) as in P10-M2, with
+  the word selected. In touch mode a text selection gets two **selection handles** (24 px knobs below its ends, 44 px hit
+  areas, `touch-action: none`); dragging one moves that end character by character (`posAtCoords` at the line the finger
+  holds) and scrolls the page within 40 px of the visible area's edges. The **floating selection bar**
+  (`data-testid="selection-bar"`, `role="toolbar"`) sits centred above the selection (below it and its handles when there
+  is no room), inside the visible area between the top and the command bar or keyboard; it follows scrolling and
+  re-layout, hides while a handle is dragged and while a sheet, dialog or menu is open. Buttons (44 px; the row scrolls
+  sideways when it is wider than the phone, "⋯" always visible): Bold, Italic, Underline (Word's toggles relative to the
+  style, pressed for the selection's first character), Highlight (yellow, again: none), Link…, Copy / Cut / Paste (the
+  context menu's commands), New Comment, "⋯" = the full desktop context menu for the selection. The buttons never take the
+  focus, so the keyboard stays open.
+- **Pictures.** In touch mode a selected picture's 8 handles have 44 px hit areas (a 14 px round knob; sizes divided by
+  the zoom, so 44 px on the screen at any zoom); dragging a handle resizes (corners proportional) and dragging a selected
+  floating picture moves it, as with the mouse. The **Layout Options** button is 44 px with 44 px rows, kept on the screen
+  and opening to the left near the right edge. Insert › Pictures keeps `<input type="file">` (png, jpeg, gif): on Android
+  the mobile shells' webview (wry's `onShowFileChooser`) opens the system picker with those types, on iOS WKWebView offers
+  the photo library and the camera and hands HEIC photos over as JPEG; the M1 `openFile` stays for documents.
+- **Tables.** A column border is a **44 px strip** for a finger (±22 px; mouse ±6 px as before): a sideways drag moves the
+  border (guide line, `SetTableProps { colWidths }` on release), a tap there still places the caret and a vertical swipe
+  scrolls. While the caret is in a table, **gutters** (44 px, outside the table: one segment per column above it, one per
+  row left of it) select the column or row with a tap (cell selection, as Table Layout › Select). The contextual Table
+  Design / Table Layout tabs are chips of the command bar as on the desktop ribbon.
+- **Keyboard** (compact). The caret stays at least **60 px above the command bar** when the keyboard opens (the
+  `visualViewport` shrinks), after selection changes and while typing (ProseMirror's scroll margin is 60 px at the bottom),
+  and clear of an open sheet (Paragraph, Font, menus) and of the **find bar**, which sits above the command bar at full
+  width on phones (`keepCaretVisible.ts`; the scroll area gets the room below the last line it needs). Sheet rows are 44 px
+  (the Styles gallery's items included); font sizes are inputs with the browser's own size list (the OS picker on phones),
+  44 px in the strip and in the Font sheet.
+- **Tablets** (≥ 900 px, ribbon, touch): long press, the selection bar and handles, the picture handles, the column
+  border strips, the gutters and pinch work the same; double tap and fit-width are phone-only.
+- **Tests**: `packages/e2e/tests/write-touch.spec.ts` (`mobile` 412 × 915: fit-width, pinch, double tap, gaps, Draft
+  remembered, header double tap, long press + bar + handle drag + "⋯", table, picture, keyboard, sheet rows, German;
+  `tablet` 1024 × 768: selection, table, picture, pinch); the projects run every `*-touch.spec.ts`.
+## Show with touch (P10-M5)
+
+- **Compact chrome** (under 900 px): the slide list is a horizontal **thumbnail strip** (72 px, `sidebar/SlideStrip.tsx`)
+  under the top bar – it stays put when the keyboard pushes the command bar up, and thumbs on the bar do not hit it. Tap
+  selects (current slide outlined and scrolled into view); a long press opens the slide sheet (New slide, Duplicate,
+  Delete, Hide, Layout… – the layouts as a second sheet –, Transition… – the Transitions tab); a long press followed by a
+  drag carries the slide to a new place (insertion line; a mouse drag works too). The slide fits the width (8 px
+  padding, letterboxed). The speaker notes are a sheet from the **Notes** chip of the status footer. The Timing groups of
+  Transitions and Animations are one **Timing…** button (`data-compact-sheet`) whose sheet has the group's controls under
+  the ribbon's names (Sound, Duration, On mouse click, After, Apply to all; Start, Duration, Delay, Timing…, Move Earlier
+  / Later) with − / + buttons, so the command bar has one height on every tab. Home › Editing has a **Multi-select**
+  toggle: taps then add shapes to the selection or remove them (Shift-click).
+- **Canvas** (`canvas/Stage.tsx`, pure parts `canvas/touch.ts`): tap selects, tap on the empty slide deselects, a tap on
+  the shape that was already selected edits its text (the overlay editor over the shape, kept in view above the keyboard
+  through `visualViewport`); a long press opens the shape's context menu (a sheet on phones). One finger drags shapes and
+  handles. On touch screens the eight resize handles and the rotate handle have **44 px hit areas** (outwards and along
+  the edge; inwards at most a quarter of the box so a small shape can still be dragged; under 88 px only the corner
+  handles). **Two fingers on the selection** scale it (pinch, about its centre, which follows the fingers) and turn it
+  (twist; snaps to 0 / 90 / 180 / 270° within 3°) – one `SetTransform`. Two fingers elsewhere **zoom** the fitted slide
+  50–300 % (`data-touch-zoom` on the canvas area; the status bar shows the real zoom), one finger on the empty slide
+  **pans** a zoomed slide. Smart guides and snapping stay. Test hooks: `data-selection-box` (x, y, w, h, rotation of the
+  one selected shape, EMU), `data-selection-count`, `data-touch`.
+- **Slide show** (`present/TouchShow.tsx`): Present runs in the same window. Swipe left / right = next / previous (also
+  animation steps), a tap on the left third goes back, elsewhere on (mouse clicks keep the halves); a long press opens the
+  show menu – slide number, **Go to slide…** grid, Pen and Laser Pointer (the show's ink tool, one finger draws; swipes
+  do not navigate then), Back to the show, End show. Landscape is requested (`screen.orientation.lock`, refusals
+  ignored), the Fullscreen API is used where it exists, clips refused by the autoplay rules show **Tap to play**. The
+  compact command bar is hidden while a show runs (`html[data-presenting]`).
+- **Presenter view**: offered only where a second window can open (`presenterWindowAvailable()`: not in the mobile shells,
+  not without `window.open`). On compact layouts, in the shells and without `window.open`, Alt+F5 runs the single-window
+  fallback (the slide with the speaker notes toggle); nothing calls `window.open`.
+- **Tablets** (≥ 900 px, touch): the ribbon stays; transforms, the 44 px handles, long press and the show gestures work
+  the same. Tests: `packages/e2e/tests/show-touch.spec.ts` (projects `mobile` and `tablet`).
