@@ -103,7 +103,9 @@ test.describe("Portal", () => {
 
 // P8-41: the static Downloads page (generated at deploy time by scripts/gen-downloads.sh; never fetches anything).
 test.describe("Downloads page", () => {
-  const generate = (): string => {
+  // P10-S1: `signing` = the release's signing.json; a GPG-signed release also carries the .asc files and SHA256SUMS.
+  type Signing = { macos: boolean; windows: boolean; linux: boolean };
+  const generate = (signing?: Signing): string => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rusuite-dl-"));
     const names = ["Calc", "Write", "Show"].flatMap((app) =>
       ["_0.1.0-rc.1_x64-setup.exe", "_0.1.0-rc.1_x64_en-US.msi", "_0.1.0-rc.1_aarch64.dmg", "_0.1.0-rc.1_x64.dmg",
@@ -111,10 +113,19 @@ test.describe("Downloads page", () => {
         (suffix) => `Rusuite.${app}${suffix}`,
       ),
     );
+    if (signing?.linux) names.push(...names.filter((n) => /\.(deb|rpm|AppImage)$/.test(n)).map((n) => `${n}.asc`), "SHA256SUMS", "SHA256SUMS.asc");
     const release = {
       tagName: "v0.1.0-rc.1",
       publishedAt: "2026-10-20T10:00:00Z",
       isPrerelease: true,
+      ...(signing && {
+        signing: {
+          macos: { signed: signing.macos, notarized: signing.macos },
+          windows: { signed: signing.windows, method: signing.windows ? "azure" : null },
+          linux: { gpg: signing.linux, fingerprint: signing.linux ? "0123456789ABCDEF0123456789ABCDEF01234567" : null },
+          sha256sums: signing.linux,
+        },
+      }),
       assets: names.map((name, i) => ({
         name,
         size: 4_200_000 + i,
@@ -196,6 +207,46 @@ test.describe("Downloads page", () => {
     // Windows first for a Windows visitor.
     await page.goto("./downloads.html?os=windows");
     await expect(sections.first()).toHaveAttribute("data-os", "windows");
+    const host = new URL(page.url()).origin;
+    expect(requests.filter((u) => !u.startsWith(host))).toEqual([]);
+    errors.expectNone();
+  });
+
+  test("P10-S1: a signed release says so per OS instead of the Gatekeeper/SmartScreen steps (EN, DE)", async ({ page }) => {
+    const errors = trackErrors(page);
+    let html = generate({ macos: true, windows: true, linux: true });
+    await page.route("**/downloads.html*", (route) => route.fulfill({ contentType: "text/html; charset=utf-8", body: html }));
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(r.url()));
+    await page.goto("./downloads.html?os=macos");
+    await expect(page.locator("aside.unsigned")).toHaveCount(0);
+    const mac = page.locator('section[data-os="macos"]');
+    await expect(mac.locator('[data-signed="macos"]')).toHaveText(/Signed and notarized by Rusuite \(Apple Developer ID\)/);
+    await expect(mac.locator("[data-steps]")).toHaveCount(0);
+    await expect(page.locator('section[data-os="windows"] [data-signed="windows"]')).toContainText("Signed with an Authenticode certificate");
+    await expect(page.locator('section[data-os="windows"] [data-steps]')).toHaveCount(0);
+    const linux = page.locator('section[data-os="linux"]');
+    await expect(linux.locator('[data-signed="linux"]')).toContainText("fingerprint 0123 4567 89AB CDEF");
+    await expect(linux.locator('[data-steps="linux"]')).toBeVisible();
+    await linux.getByText("SHA-256 checksums").click();
+    await expect(linux.locator("a.asc").first()).toHaveAttribute("href", /releases\/download\/v0\.1\.0-rc\.1\/Rusuite\.Calc_0\.1\.0-rc\.1_amd64\.deb\.asc$/);
+    const sums = page.getByTestId("sha256sums");
+    await expect(sums.getByRole("link", { name: "SHA256SUMS.asc" })).toHaveAttribute("href", /\/SHA256SUMS\.asc$/);
+    await expect(sums.getByRole("link", { name: "Rusuite release key" })).toHaveAttribute("href", "rusuite-release-key.asc");
+    await page.getByTestId("portal-language").selectOption("de");
+    await expect(mac.locator('[data-signed="macos"]')).toContainText("Signiert und notarisiert von Rusuite");
+    await expect(linux.locator('[data-signed="linux"]')).toContainText("Fingerabdruck 0123 4567");
+    await expect(sums.getByRole("heading", { name: "Download prüfen" })).toBeVisible();
+    await page.getByTestId("portal-language").selectOption("en");
+    // Partly signed: the notice names only the unsigned OS, whose steps stay.
+    html = generate({ macos: false, windows: true, linux: true });
+    await page.goto("./downloads.html?os=windows");
+    await expect(page.locator("aside.unsigned h2")).toHaveText("Not signed yet: macOS");
+    await expect(mac.locator('[data-steps="macos15"]')).toContainText("Open Anyway");
+    await expect(page.locator('section[data-os="windows"] [data-steps]')).toHaveCount(0);
+    await page.getByTestId("portal-language").selectOption("de");
+    await expect(page.locator("aside.unsigned h2")).toHaveText("Noch nicht signiert: macOS");
+    await page.getByTestId("portal-language").selectOption("en");
     const host = new URL(page.url()).origin;
     expect(requests.filter((u) => !u.startsWith(host))).toEqual([]);
     errors.expectNone();

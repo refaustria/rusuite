@@ -9,6 +9,8 @@ import { useT } from "../../i18n/react";
 import { reportProblem, type ReportController } from "../controller";
 import type { DocStats } from "../types";
 import { ReportIcon } from "./hooks";
+import { useCompact } from "../../compact/useCompact";
+import { BottomSheet } from "../../compact/BottomSheet";
 
 /**
  * The "?" Help menu (Report a problem…, Keyboard shortcuts) for the ribbon's `rightSlot`. `docStats` gives the
@@ -21,6 +23,7 @@ export function HelpMenu({ docStats, controller = reportProblem }: { docStats?: 
   const btn = useRef<HTMLButtonElement>(null);
   const id = useId();
   const label = t("group.help");
+  const compact = useCompact();
   const close = () => {
     setOpen(false);
     btn.current?.focus();
@@ -54,7 +57,12 @@ export function HelpMenu({ docStats, controller = reportProblem }: { docStats?: 
       >
         ?
       </button>
-      {open && (
+      {open && compact && (
+        <BottomSheet id={id} label={label} role={null} onClose={close} testId="help-sheet">
+          <RibbonMenu label={label} items={items} onDone={close} />
+        </BottomSheet>
+      )}
+      {open && !compact && (
         <div id={id} className="absolute right-0 top-full z-50 mt-0.5 rounded border border-ui-border bg-ui-panel p-1 text-ui-fg shadow-lg">
           <RibbonMenu label={label} items={items} onDone={close} />
         </div>

@@ -160,7 +160,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
   }, [store, guard, name, dirty]);
 
   return (
-    <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
+    <main className="flex h-screen flex-col bg-ui-bg text-ui-fg" data-rs-app="">
       <RecoveryBanner session={session} />
       <CalcRibbon
         store={store}

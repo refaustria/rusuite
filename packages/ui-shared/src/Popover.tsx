@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCompact } from "./compact/useCompact";
+import { BottomSheet } from "./compact/BottomSheet";
 
 export const FOCUS_RING =
   "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ui-focus";
@@ -15,12 +17,13 @@ export interface PopoverProps {
   role?: "dialog" | "menu";
 }
 
-/** Button + floating panel; closes on Esc and outside click. */
+/** Button + floating panel; closes on Esc and outside click. In the compact layout (P10-M2) the panel is a bottom sheet. */
 export function Popover({ label, disabled, trigger, children, role = "dialog" }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
   const id = useId();
+  const compact = useCompact();
 
   const close = () => {
     setOpen(false);
@@ -64,7 +67,12 @@ export function Popover({ label, disabled, trigger, children, role = "dialog" }:
       >
         {trigger}
       </button>
-      {open && (
+      {open && compact && (
+        <BottomSheet id={id} label={label} role={role} onClose={close} testId="popover-sheet">
+          {children(close)}
+        </BottomSheet>
+      )}
+      {open && !compact && (
         <div
           id={id}
           role={role}

@@ -20,6 +20,10 @@ import { Backstage, type BackstageActions, type BackstagePage } from "./Backstag
 import { RibbonIcon } from "./icons";
 import { GroupBar } from "./groups";
 import { useT } from "../i18n/react";
+import { useCompact } from "../compact/useCompact";
+import { CompactRibbon } from "../compact/CompactRibbon";
+import { installLongPress } from "../compact/longPress";
+import type { CompactUndo } from "../compact/TopBar";
 
 export interface RibbonGroup {
   label: string;
@@ -95,6 +99,8 @@ export interface RibbonProps {
   accent?: string;
   /** Bind Alt and Ctrl+F1 on the window (default true). */
   globalKeys?: boolean;
+  /** Undo / Redo of the compact layout's top bar (P10-M2; the desktop has them on the Home tab). */
+  undo?: CompactUndo;
 }
 
 /** Window event that opens the File backstage on a page (`detail`: `BackstagePage`). */
@@ -117,7 +123,32 @@ export function visibleTabs(tabs: RibbonTab[]): RibbonTab[] {
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
-export function Ribbon({
+/**
+ * The app's ribbon. Below 900 px (`useCompact`, P10-M2) the same tabs render as the compact layout: a top bar, a
+ * bottom command bar and a full-screen backstage. A touch held still opens the context menus (`installLongPress`).
+ */
+export function Ribbon(props: RibbonProps) {
+  const compact = useCompact();
+  useEffect(() => installLongPress(), []);
+  if (!compact) return <DesktopRibbon {...props} />;
+  return (
+    <CompactRibbon
+      tabs={visibleTabs(props.tabs)}
+      activeTab={props.activeTab}
+      defaultTab={props.defaultTab}
+      onTabChange={props.onTabChange}
+      appName={props.appName}
+      documentTitle={props.documentTitle}
+      rightSlot={props.rightSlot}
+      backstage={props.backstage}
+      accent={props.accent ?? "var(--ui-focus)"}
+      undo={props.undo}
+      openEvent={OPEN_BACKSTAGE_EVENT}
+    />
+  );
+}
+
+function DesktopRibbon({
   tabs, activeTab, defaultTab, onTabChange, collapsed: collapsedProp, defaultCollapsed = false, onCollapsedChange,
   appName, documentTitle, rightSlot, backstage, accent = "var(--ui-focus)", globalKeys = true,
 }: RibbonProps) {

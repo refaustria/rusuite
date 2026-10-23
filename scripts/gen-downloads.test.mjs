@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { classify, loadCatalog, publicName, render, renderNone } from "./gen-downloads.mjs";
+import { classify, loadCatalog, publicName, render, renderNone, signingOf } from "./gen-downloads.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -91,7 +91,10 @@ test("the page explains Gatekeeper and SmartScreen next to the buttons, in Engli
 });
 
 test("the page loads nothing from other sites (ADR 0009)", () => {
-  const html = render(fixture());
+  for (const html of [render(fixture()), render(signedFixture({ macos: true, windows: true, linux: true }))]) checkNoExternal(html);
+});
+
+function checkNoExternal(html) {
   const srcs = [...html.replace(/<link rel="canonical"[^>]*>/, "").matchAll(/\b(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
   for (const s of srcs) {
     const external = /^https?:/.test(s);
@@ -99,7 +102,7 @@ test("the page loads nothing from other sites (ADR 0009)", () => {
   }
   // Scripts and styles are the portal's own files; GitHub links are only anchors.
   for (const m of html.replace(/<link rel="canonical"[^>]*>/, "").matchAll(/<(script|link)\b[^>]*\b(?:src|href)="([^"]+)"/g)) assert.doesNotMatch(m[2], /^https?:/);
-});
+}
 
 test("release data is escaped; missing assets and digests are handled", () => {
   const r = fixture();
@@ -151,4 +154,108 @@ test("the 3.141 release shows the public name; tag and file names keep the semve
     `Rusuite.${app}-3.141.0-1.x86_64.rpm`,
     `Rusuite.${app}_3.141.0_amd64.AppImage`,
   ]));
+});
+
+// P10-S1: the release's signing.json decides per OS between "signed" and the Gatekeeper/SmartScreen steps.
+const FPR = "0123456789ABCDEF0123456789ABCDEF01234567";
+export const signingManifest = ({ macos = false, windows = false, linux = false, notarized = macos } = {}) => ({
+  macos: { signed: macos, notarized },
+  windows: { signed: windows, method: windows ? "pfx" : null },
+  linux: { gpg: linux, fingerprint: linux ? FPR : null },
+  sha256sums: linux,
+});
+/** A release with signing.json and, when GPG-signed, the .asc files and SHA256SUMS(.asc) next to the installers. */
+export const signedFixture = (flags) => {
+  const r = fixture("v3.1415.0", NAMES.map((n) => n.replace("0.1.0", "3.1415.0")));
+  const extra = flags.linux
+    ? [...r.assets.filter((a) => classify(a.name)?.os === "linux").map((a) => `${a.name}.asc`), "SHA256SUMS", "SHA256SUMS.asc"]
+    : [];
+  for (const name of [...extra, "signing.json"]) {
+    r.assets.push({ name, size: 900, url: `https://github.com/refaustria/rusuite/releases/download/v3.1415.0/${name}`, digest: null });
+  }
+  r.signing = signingManifest(flags);
+  return r;
+};
+const section = (html, os) => {
+  const start = html.indexOf(`<section class="os" data-os="${os}"`);
+  return html.slice(start, html.indexOf("</section>", start));
+};
+
+test("signingOf: anything missing or malformed is unsigned; macOS needs notarization", () => {
+  assert.deepEqual(signingOf(undefined), { macos: false, windows: false, linux: false, fingerprint: null, sha256sums: false });
+  assert.deepEqual(signingOf("nope"), signingOf(undefined));
+  assert.equal(signingOf(signingManifest({ macos: true, notarized: false })).macos, false);
+  assert.equal(signingOf({ windows: { signed: true, method: "other" } }).windows, false);
+  assert.equal(signingOf({ linux: { gpg: true, fingerprint: "<b>" } }).linux, false);
+  assert.equal(signingOf(signingManifest({ linux: true })).fingerprint, "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567");
+});
+
+test("signing.json with everything false renders exactly the unsigned page", () => {
+  const r = fixture();
+  for (const locale of ["en", "de"]) {
+    assert.equal(render({ ...r, signing: signingManifest() }, loadCatalog(locale)), render(r, loadCatalog(locale)), locale);
+  }
+});
+
+test("all signed: no unsigned notice, signed lines instead of the Gatekeeper/SmartScreen steps, GPG + SHA256SUMS", () => {
+  for (const locale of ["en", "de"]) {
+    const html = render(signedFixture({ macos: true, windows: true, linux: true }), loadCatalog(locale));
+    assert.doesNotMatch(html, /class="unsigned"/, locale);
+    for (const id of ["windows", "macos15", "macos14"]) assert.doesNotMatch(html, new RegExp(`data-steps="${id}"`), locale);
+    assert.match(html, /data-steps="linux"/, "Linux install steps stay");
+    for (const os of ["windows", "macos", "linux"]) assert.match(section(html, os), new RegExp(`<p class="steps-block signed" data-signed="${os}"`), locale);
+    assert.equal(html.match(/<a class="button/g).length, 21, locale);
+    assert.equal(html.match(/<a class="asc" href="https:\/\/github\.com\/refaustria\/rusuite\/releases\/download\/v3\.1415\.0\/Rusuite\.\w+[^"]*\.asc"/g).length, 9, locale);
+    assert.match(html, /data-testid="sha256sums"/, locale);
+    assert.ok(html.includes('href="https://github.com/refaustria/rusuite/releases/download/v3.1415.0/SHA256SUMS.asc"'), locale);
+    assert.ok(html.includes("0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567"), locale);
+    assert.doesNotMatch(html, /xattr -dr/, locale);
+  }
+  const en = render(signedFixture({ macos: true, windows: true, linux: true }));
+  assert.match(en, /Signed and notarized by Rusuite \(Apple Developer ID\)/);
+  assert.match(en, /Signed with an Authenticode certificate/);
+  assert.match(en, /GPG-signed<\/strong> – fingerprint <code>0123 4567/);
+  assert.match(en, /<code>gpg --verify &lt;file&gt;\.asc &lt;file&gt;<\/code>/);
+  assert.match(en, /<code>sha256sum --check --ignore-missing SHA256SUMS<\/code>/);
+  assert.doesNotMatch(section(en, "macos"), /follow the steps for your macOS version/);
+  const de = render(signedFixture({ macos: true, windows: true, linux: true }), loadCatalog("de"));
+  assert.match(de, /Signiert und notarisiert von Rusuite/);
+  assert.match(de, /Mit einem Authenticode-Zertifikat signiert/);
+  assert.match(de, /GPG-signiert/);
+});
+
+test("macOS and Windows signed, Linux not: the notice names Linux only", () => {
+  const html = render(signedFixture({ macos: true, windows: true }));
+  assert.match(html, /<aside class="unsigned" role="note" data-unsigned="linux">/);
+  assert.match(html, /Not signed yet: Linux/);
+  assert.match(html, /The Linux builds are not signed yet/);
+  assert.doesNotMatch(html, /These builds are not signed yet/);
+  assert.doesNotMatch(html, /data-steps="(windows|macos15|macos14)"/);
+  assert.doesNotMatch(html, /data-signed="linux"|class="asc"|data-testid="sha256sums"/);
+  assert.match(render(signedFixture({ macos: true, windows: true }), loadCatalog("de")), /Noch nicht signiert: Linux/);
+});
+
+test("only Linux GPG-signed: the notice names Windows and macOS, their steps stay", () => {
+  const html = render(signedFixture({ linux: true }));
+  assert.match(html, /data-unsigned="windows macos"/);
+  assert.match(html, /Not signed yet: Windows, macOS/);
+  for (const id of ["windows", "macos15", "macos14", "linux"]) assert.match(html, new RegExp(`data-steps="${id}"`));
+  assert.match(html, /data-signed="linux"/);
+  assert.doesNotMatch(html, /data-signed="(windows|macos)"/);
+  assert.match(html, /data-testid="sha256sums"/);
+  // Signed but not notarized macOS still meets Gatekeeper: steps shown, macOS named.
+  const mac = render(signedFixture({ macos: true, notarized: false, windows: true, linux: true }));
+  assert.match(mac, /data-unsigned="macos"/);
+  assert.match(mac, /data-steps="macos15"/);
+});
+
+test("the generator CLI accepts --release with signing.json (and keeps --in)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const os = await import("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "p10-s1-dl-"));
+  fs.writeFileSync(path.join(dir, "release.json"), JSON.stringify(signedFixture({ macos: true, windows: true, linux: true })));
+  for (const flag of ["--release", "--in"]) {
+    execFileSync("node", [path.join(ROOT, "scripts/gen-downloads.mjs"), flag, path.join(dir, "release.json"), "--out", path.join(dir, "d.html")]);
+    assert.match(fs.readFileSync(path.join(dir, "d.html"), "utf8"), /data-signed="macos"/, flag);
+  }
 });

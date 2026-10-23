@@ -18,6 +18,7 @@ import { AiOverlay } from "../ai/ui/AiOverlay";
 import { ReportOverlay } from "../report/ui/ReportDialog";
 import { ReportBackstageItem } from "../report/ui/ribbon";
 import { publicVersion, RUSUITE_VERSION } from "../version";
+import { useCompact } from "../compact/useCompact";
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -161,12 +162,37 @@ function PrivacySection({ session }: { session: AnySession }) {
   );
 }
 
-/** Full-pane File view (Office "backstage"). */
+/**
+ * File › Options…: the shared options dialog when the session has the AI assistant (P8-37; the app's own options
+ * become its General page), else the app's options. Also the compact top bar's overflow menu.
+ */
+export function backstageOptions(session: AnySession | undefined, onOptions: (() => void) | undefined): (() => void) | undefined {
+  const ai = session?.ai ?? null;
+  return ai
+    ? () => {
+        ai.moreOptions = onOptions ?? null;
+        ai.openSettings();
+      }
+    : onOptions;
+}
+
+/** Whether the backend says it cannot print (mobile shells: `capabilities.print === false`); then Print and Export PDF are hidden. */
+export function cannotPrint(session: AnySession | undefined): boolean {
+  return (session?.backend as { capabilities?: { print?: boolean } } | undefined)?.capabilities?.print === false;
+}
+
+/** Full-pane File view (Office "backstage"). In the compact layout (P10-M2) a full-screen page with the commands on top. */
 export function Backstage({
-  open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf, onCloseDocument, onOptions,
-  session, fileDisabledReason, exportDisabled, info, infoPage, print, page: pageProp = "home", onPage, saveAsShortcut = "F12",
+  open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf: exportPdfProp, onCloseDocument, onOptions,
+  session, fileDisabledReason, exportDisabled, info, infoPage, print: printProp, page: pageProp = "home", onPage, saveAsShortcut = "F12",
 }: BackstageProps) {
   const t = useT();
+  const compact = useCompact();
+  const noPrint = cannotPrint(session);
+  const print = noPrint ? undefined : printProp;
+  const onExportPdf = noPrint ? undefined : exportPdfProp;
+  /** Command rows: 44 px touch targets in the compact layout. */
+  const row = compact ? "min-h-11 py-2.5" : "py-2";
   const connectors = session?.connectors ?? null;
   const page: BackstagePage =
     pageProp === "print" && print && !exportDisabled
@@ -206,12 +232,7 @@ export function Backstage({
     </>
   );
   // File › Options…: the shared options dialog (AI, P8-37); an app's own options become its General page.
-  const options = ai
-    ? () => {
-        ai.moreOptions = onOptions ?? null;
-        ai.openSettings();
-      }
-    : onOptions;
+  const options = backstageOptions(session, onOptions);
   if (!open) return overlay;
 
   /** Runs a command after leaving the backstage (dialogs it opens then get the focus). */
@@ -227,7 +248,7 @@ export function Backstage({
           type="button"
           disabled={disabled}
           title={disabled && fileOff ? fileDisabledReason : shortcut ? `${label} (${formatCombo(shortcut)})` : label}
-          className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 disabled:opacity-50 ${FOCUS_RING}`}
+          className={`flex w-full items-center gap-3 px-5 ${row} text-left text-sm hover:bg-white/15 disabled:opacity-50 ${FOCUS_RING}`}
           onClick={() => pick(fn)}
         >
           <RibbonIcon name={ic} size={18} />
@@ -244,7 +265,7 @@ export function Backstage({
         disabled={disabled}
         aria-current={page === id ? "page" : undefined}
         title={disabled && fileOff ? fileDisabledReason : `${label} (${formatCombo(shortcut)})`}
-        className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 disabled:opacity-50 ${page === id ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+        className={`flex w-full items-center gap-3 px-5 ${row} text-left text-sm hover:bg-white/15 disabled:opacity-50 ${page === id ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
         onClick={() => onPage?.(id)}
       >
         <RibbonIcon name={ic} size={18} />
@@ -265,7 +286,7 @@ export function Backstage({
       aria-modal="true"
       aria-label={t("ribbon.file")}
       data-testid="backstage"
-      className="fixed inset-0 z-40 flex bg-ui-bg text-ui-fg"
+      className={compact ? "fixed inset-0 z-40 flex flex-col overflow-y-auto bg-ui-bg pb-[env(safe-area-inset-bottom)] text-ui-fg" : "fixed inset-0 z-40 flex bg-ui-bg text-ui-fg"}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -286,12 +307,17 @@ export function Backstage({
         }
       }}
     >
-      <nav aria-label={t("backstage.commands")} className="flex w-52 shrink-0 flex-col py-3 text-white" style={{ background: accent }}>
+      <nav
+        aria-label={t("backstage.commands")}
+        className={compact ? "flex w-full shrink-0 flex-col pb-2 pt-[max(env(safe-area-inset-top),0.25rem)] text-white" : "flex w-52 shrink-0 flex-col py-3 text-white"}
+        style={{ background: accent }}
+      >
         <button
           type="button"
           aria-label={t("backstage.back")}
           title={t("backstage.backTip")}
-          className={`mx-3 mb-3 flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15 ${FOCUS_RING}`}
+          data-testid="backstage-back"
+          className={`${compact ? "mx-1 mb-1 h-11 w-11" : "mx-3 mb-3 h-9 w-9"} flex items-center justify-center rounded-full hover:bg-white/15 ${FOCUS_RING}`}
           onClick={() => onCloseRef.current()}
         >
           <RibbonIcon name="back" size={24} />
@@ -302,7 +328,7 @@ export function Backstage({
               <button
                 type="button"
                 aria-current={page === "home" ? "page" : undefined}
-                className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 ${page === "home" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+                className={`flex w-full items-center gap-3 px-5 ${row} text-left text-sm hover:bg-white/15 ${page === "home" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
                 onClick={() => onPage?.("home")}
               >
                 <RibbonIcon name="home" size={18} />
@@ -315,7 +341,7 @@ export function Backstage({
               <button
                 type="button"
                 aria-current={page === "info" ? "page" : undefined}
-                className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 ${page === "info" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+                className={`flex w-full items-center gap-3 px-5 ${row} text-left text-sm hover:bg-white/15 ${page === "info" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
                 onClick={() => onPage?.("info")}
               >
                 <RibbonIcon name="options" size={18} />
@@ -336,7 +362,7 @@ export function Backstage({
                 disabled={!!exportDisabled}
                 aria-current={page === "print" ? "page" : undefined}
                 title={`${t("backstage.print")} (${formatCombo("Mod+P")})`}
-                className={`flex w-full items-center gap-3 px-5 py-2 text-left text-sm hover:bg-white/15 disabled:opacity-50 ${page === "print" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
+                className={`flex w-full items-center gap-3 px-5 ${row} text-left text-sm hover:bg-white/15 disabled:opacity-50 ${page === "print" ? "bg-white/20 font-semibold" : ""} ${FOCUS_RING}`}
                 onClick={() => onPage?.("print")}
               >
                 <RibbonIcon name="print" size={18} />
@@ -351,12 +377,12 @@ export function Backstage({
           {item("options", t("backstage.options"), "options", options)}
           <ReportBackstageItem pick={pick} />
         </ul>
-        <LanguageSelect className="px-5 pb-1 pt-2 text-xs [&_span]:text-white/90" />
+        <LanguageSelect className={`px-5 pb-1 pt-2 ${compact ? "text-sm [&_select]:min-h-11" : "text-xs"} [&_span]:text-white/90`} />
         <p className="px-5 pt-1 text-xs text-white/80" data-testid="backstage-version" title={RUSUITE_VERSION}>
           {appName} {publicVersion(RUSUITE_VERSION)}
         </p>
       </nav>
-      <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-auto p-8">
+      <div className={compact ? "flex min-w-0 flex-col gap-4 p-4" : "flex min-w-0 flex-1 flex-col gap-4 overflow-auto p-8"}>
         <header>
           <p className="text-sm text-ui-muted">{appName}</p>
           <h1 className="truncate text-2xl font-semibold">{documentTitle ?? t("doc.untitled")}</h1>

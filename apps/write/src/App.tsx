@@ -308,7 +308,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   }, [editor, ctl, backend, printOptions, pushError, flowOf]);
 
   return (
-    <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
+    <main className="flex h-screen flex-col bg-ui-bg text-ui-fg" data-rs-app="">
       <TitleSync ctl={ctl} backend={backend} guard={guard} />
       <RecoveryBanner session={session} />
       {editor && (

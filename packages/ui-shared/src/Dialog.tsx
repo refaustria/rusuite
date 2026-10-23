@@ -1,7 +1,9 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useCompact } from "./compact/useCompact";
+import { SheetFrame } from "./compact/BottomSheet";
 
 const FOCUSABLE =
-  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  'a[href],button:not([disabled]):not([data-sheet-handle]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
 export interface DialogProps {
   open: boolean;
@@ -10,11 +12,12 @@ export interface DialogProps {
   children: ReactNode;
 }
 
-/** Modal dialog: focus trap, Esc closes, focus restored on close. */
+/** Modal dialog: focus trap, Esc closes, focus restored on close. In the compact layout (P10-M2) a bottom sheet. */
 export function Dialog({ open, title, onClose, children }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const compact = useCompact();
 
   // Layout effect: the focus moves in and back synchronously with the commit that opens/closes the dialog, so a key
   // pressed right after OK/Cancel/Esc reaches the element that opened it (P9-Q1). If the close handler already moved
@@ -24,16 +27,62 @@ export function Dialog({ open, title, onClose, children }: DialogProps) {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const el = ref.current;
+    // A bottom sheet's drag handle sits outside the dialog element but inside the sheet.
+    const sheet = el?.closest<HTMLElement>("[data-bottom-sheet]") ?? el;
     const first = el?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? el)?.focus();
     return () => {
       const active = document.activeElement;
-      const stranded = !active || active === document.body || (el?.contains(active) ?? false);
+      const stranded = !active || active === document.body || (sheet?.contains(active) ?? false);
       if (stranded && previous?.isConnected) previous.focus?.();
     };
   }, [open]);
 
   if (!open) return null;
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      onCloseRef.current();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const items = Array.from(ref.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+    if (items.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === ref.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  if (compact) {
+    return (
+      <SheetFrame onClose={() => onCloseRef.current()} closeOnBackdrop={false} testId="dialog-sheet">
+        <div
+          ref={ref}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          tabIndex={-1}
+          data-sheet-body=""
+          className="min-h-0 flex-1 overflow-auto px-4 focus:outline-none"
+          onKeyDown={onKeyDown}
+        >
+          <h2 className="mb-3 text-base font-semibold">{title}</h2>
+          {children}
+        </div>
+      </SheetFrame>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -44,29 +93,7 @@ export function Dialog({ open, title, onClose, children }: DialogProps) {
         aria-label={title}
         tabIndex={-1}
         className="min-w-72 rounded-lg border border-ui-border bg-ui-panel p-4 text-ui-fg shadow-xl focus:outline-none"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            onCloseRef.current();
-            return;
-          }
-          if (e.key !== "Tab") return;
-          const items = Array.from(ref.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-          if (items.length === 0) {
-            e.preventDefault();
-            return;
-          }
-          const first = items[0]!;
-          const last = items[items.length - 1]!;
-          const active = document.activeElement;
-          if (e.shiftKey && (active === first || active === ref.current)) {
-            e.preventDefault();
-            last.focus();
-          } else if (!e.shiftKey && active === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }}
+        onKeyDown={onKeyDown}
       >
         <h2 className="mb-3 text-base font-semibold">{title}</h2>
         {children}
