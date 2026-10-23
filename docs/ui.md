@@ -46,6 +46,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Compact layout for phones (P10-M2)](#compact-layout-for-phones-p10-m2)
 - [Calc with touch (P10-M3)](#calc-with-touch-p10-m3)
 - [Write touch (P10-M4)](#write-touch-p10-m4)
+- [Show with touch (P10-M5)](#show-with-touch-p10-m5)
 
 ## Write
 
