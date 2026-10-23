@@ -57,8 +57,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 3.141.0
-        CFBundleVersion: "3.141.0"
+        CFBundleShortVersionString: 3.1415.0
+        CFBundleVersion: "3.1415.0"
     entitlements:
       path: app-calc_iOS/app-calc_iOS.entitlements
     scheme:

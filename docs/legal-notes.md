@@ -56,6 +56,18 @@ modified files must be offered under MPL-2.0. Two crates are offered under LGPL-
 (we take the permissive option). No GPL component. Ship `NOTICE` and `LICENSE` with the release (the release notes
 link them).
 
+## Mobile apps (added 2026-10-23, P10-R1)
+The Android and iOS apps (cycle 3.1415) share the Rust crates and npm packages of `NOTICE`. Their native parts are not
+Cargo or npm packages and have no lock file (the generated Gradle projects pin versions in
+`apps/*/src-tauri/gen/android/**/build.gradle.kts`; the Podfiles of `gen/apple` have no pods; the plugin's
+`ios/Package.swift` depends only on the Tauri Swift API). The Gradle dependencies are AndroidX (appcompat, core-ktx,
+activity-ktx, webkit, lifecycle-process), Material Components for Android and the Kotlin standard library – all
+**Apache License 2.0** – plus the Android Gradle and Kotlin Gradle plugins (build time only). They are listed in the
+"Android and iOS apps" section of `NOTICE` (`scripts/gen-notice.sh`); update that list when `build.gradle.kts` changes.
+Apache-2.0 asks for the licence and the attribution to travel with the app; `NOTICE` and `LICENSE` are linked from the
+release notes and the repository. Play Store and App Store terms do not conflict with MIT + Apache-2.0 components; no GPL/LGPL
+code is linked into the mobile apps.
+
 ## Data fixtures from third-party projects (added 2026-10-17, P9-S2)
 - `crates/fmt-pptx/src/tablestyle_powerpoint.xml` holds six `a:tblStyle` definitions exactly as PowerPoint writes them
   into `ppt/tableStyles.xml`. They were taken from the extraction published with *Dewiride PPTX Studio* (Apache-2.0),

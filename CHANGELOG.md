@@ -6,7 +6,42 @@ versions follow [Semantic Versioning](https://semver.org/). One section per app;
 
 ## [Unreleased]
 
-## [3.141] – tag `v3.141.0`, not yet published
+## [3.1415] – tag `v3.1415.0`
+
+Second release with π version numbers (docs/versioning.md): public name **3.1415**, semver `3.1415.0`. Release text:
+[docs/release-notes/3.1415.md](docs/release-notes/3.1415.md). No new file features: the cycle is about phones, tablets
+and signed builds.
+
+### Phones and tablets (Android, iOS)
+- Tauri 2 shells for Calc, Write and Show (`dev.rusuite.<app>`; Android 8.0+, iOS 15+): document picker, write-back to
+  the opened document, export and share through the system sheet, "Open with" for `.xlsx`, `.docx`, `.pptx`.
+- **Compact layout** below 900 px: top bar and bottom command bar built from the ribbon definitions, bottom-sheet
+  dialogs and menus, 44 px targets, safe areas, soft-keyboard handling (also in the web app on a phone).
+- **Touch editing:** Calc – selection handles, pan versus select, pinch zoom, fill handle, formula keyboard row with
+  reference picking; Write – fit-width page, long-press selection with floating bar and handles, picture and table
+  handles; Show – thumbnail strip, pinch/twist transforms, same-window presentation with swipe, Timing sheet.
+- **PDF:** export, print and share as PDF on Android and iOS; Linux desktop writes the PDF without the print dialog
+  (Windows and macOS desktop still use the print dialog). "Report a problem" is hidden on mobile.
+- **Stores:** listings in 24 languages (Play accepts 22, the App Store 18), release notes, screenshots, graphics,
+  review notes; `scripts/store/play.mjs` and `asc.mjs`; `mobile-release.yml` uploads signed AABs to the Play internal
+  track and IPAs to TestFlight on tags.
+
+### Signing (desktop)
+- macOS Developer ID signing and notarization, Windows Authenticode (PFX or Azure Trusted Signing), Linux GPG
+  signatures (`.asc`, `SHA256SUMS(.asc)`), each switched on by its repository secrets; `signing.json` records what was
+  signed and the Downloads page shows it (docs/signing.md).
+
+### All apps
+- The interface texts of the compact layout, touch and PDF in all 24 languages (strict i18n gate green).
+- Downloads page: a "Phones and tablets" block with Play Store / App Store badges (`docs/store/links.json`); the
+  portal's "New in 3.1415" and "Coming soon" sections.
+
+### Versioning and release
+- `wix_version` maps MINOR > 255 (`3.1415.0` → MSI `3.14.15.0`); the MSI of 3.1415 does not upgrade 3.141 (NSIS
+  installer does). `check-versions.sh` asserts the Android `versionCode` / iOS build number (4415000) is above the
+  earlier releases'.
+
+## [3.141] – 2026-10-18, tag `v3.141.0`
 
 First release with π version numbers (docs/versioning.md): public name **3.141**, semver `3.141.0`. Release text:
 [docs/release-notes/3.141.md](docs/release-notes/3.141.md).

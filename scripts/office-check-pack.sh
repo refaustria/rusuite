@@ -7,7 +7,8 @@
 # plus basic/image) read and written back by fmt-xlsx / fmt-docx (examples/rewrite), a slicer workbook built by
 # fmt-xlsx's tests, every testdata/pptx deck written back by fmt-pptx, the decks the fmt-pptx examples build in code
 # (10 slides, animations, charts, design, links, shapes) and the Harbor theme (.thmx). README.txt lists what each
-# file checks; the 3.141 features are marked "new in 3.141".
+# file checks. 3.1415 has no new file features (it is about phones, signing and PDF): the pack re-validates the files of
+# 3.141, whose features stay listed first.
 set -euo pipefail
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -40,7 +41,11 @@ Every file here was written by Rusuite. Open each one in Microsoft Excel, Word o
 - save it in Office and reopen it in Rusuite (https://rusuit.es/) without warnings.
 Report problems with the file name and a screenshot.
 
-New in 3.141 – please look at these first:
+3.1415 adds no new file features and changes no file format: the Calc, Write and Show writers are the ones of 3.141.
+This pack therefore re-validates 3.141's files with the 3.1415 build. Nothing in it is specific to phones, signing
+or PDF export (look at PDF export separately: File › Export PDF in the apps, open the PDF in any viewer).
+
+Features of 3.141 – please look at these first:
 Excel
 - excel/provisional-protection.xlsx: sheet and workbook protection – try editing a locked cell, then Review ›
   Unprotect Sheet with password "test" (both sheets: the legacy and the SHA-512 hash) and Protect Workbook with "wb".

@@ -120,3 +120,9 @@ The single source is `scripts/store/lib.mjs` (`PLAY_LOCALES`, `ASC_LOCALES`).
 `node --test scripts/store/*.test.mjs` – every command against a mocked `fetch` (request shapes, the edit lifecycle,
 `--dry-run`, retries, the screenshot reserve/upload/commit, the build poll), with the small fixtures in
 `scripts/store/testdata/store/` (same layout as `docs/store/`). Google and Apple are never called.
+
+## Store links on the website (`links.json`)
+`docs/store/links.json` – `{ "calc": { "play": "", "appstore": "" }, "write": …, "show": … }` – holds the public store
+URLs. `scripts/gen-downloads.mjs` reads it (default path, `--links <file>` overrides) and renders the Downloads page's
+"Phones and tablets" section: a Google Play / App Store button per app where the URL is an `https://` link, the text
+"coming soon" where it is an empty string. Fill it after each store approves the app, merge, redeploy the web.

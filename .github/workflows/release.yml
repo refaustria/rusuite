@@ -157,7 +157,7 @@ jobs:
           projectPath: apps/${{ matrix.app }}
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: "Rusuite ${{ steps.tag.outputs.public }}"
-          releaseBody: "Rusuite ${{ steps.tag.outputs.public }} – unsigned builds: Windows SmartScreen and macOS Gatekeeper warn once (steps: https://rusuit.es/downloads.html). Release notes: https://github.com/refaustria/rusuite/blob/main/docs/release-notes/${{ steps.tag.outputs.public }}.md – paste that file here before publishing (docs/release.md)."
+          releaseBody: "Rusuite ${{ steps.tag.outputs.public }} – signing status per system (signing.json) and the steps for remaining Windows SmartScreen / macOS Gatekeeper warnings: https://rusuit.es/downloads.html. Release notes: https://github.com/refaustria/rusuite/blob/main/docs/release-notes/${{ steps.tag.outputs.public }}.md – paste that file here before publishing (docs/release.md)."
           releaseDraft: true
           prerelease: true
           # The Windows signing steps add `--config <file>`; skipped (no secrets) their outputs are empty.

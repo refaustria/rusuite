@@ -29,13 +29,27 @@ lock_version() {
   awk -v n="$1" '$0=="name = \""n"\""{getline; gsub(/.*= *"|".*/,""); print; exit}' Cargo.lock
 }
 
-# The MSI version WiX accepts (major.minor.patch.build, numbers only): the trailing number of a pre-release
-# (`0.1.0-rc.1` → `0.1.0.1`), nothing for a release (`0.1.0`).
+# The MSI version WiX accepts (major.minor.build[.rev], numbers only; MINOR ≤ 255, BUILD ≤ 65535):
+#  - a pre-release maps to the trailing number of the pre-release (`0.1.0-rc.1` → `0.1.0.1`), a release stays as is;
+#  - π versions (docs/versioning.md): MINOR > 255 is split after its first two digits, MINOR' = `14`, BUILD = the rest,
+#    REV = PATCH: `3.1415.0` → `3.14.15.0`, `3.14159.0` → `3.14.159.0`, `3.141592.0` → `3.14.1592.0`; `3.141.0` stays.
 wix_version() {
-  case "$1" in
-    *-*) local core=${1%%-*} pre=${1#*-}; local n; n=$(grep -oE '[0-9]+$' <<<"$pre" || echo 0); echo "$core.$n" ;;
-    *) echo "$1" ;;
-  esac
+  local core=${1%%-*} pre="" n=0
+  [[ "$1" == *-* ]] && pre=${1#*-}
+  if [ -n "$pre" ]; then n=$(grep -oE '[0-9]+$' <<<"$pre" || echo 0); fi
+  if [[ "$core" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] && [ "${BASH_REMATCH[2]}" -gt 255 ]; then
+    local major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+    echo "$major.${minor:0:2}.${minor:2}.$patch"
+  elif [ -n "$pre" ]; then
+    echo "$core.$n"
+  else
+    echo "$1"
+  fi
+}
+
+# Android versionCode / iOS CFBundleVersion (Tauri formula, scripts/mobile/version-code.sh): major·1 000 000 + minor·1 000 + patch.
+version_code() {
+  node -e 'const [a,b,c]=process.argv[1].split("-")[0].split(".").map(Number); console.log(a*1e6+b*1e3+c)' "$1"
 }
 
 # The public name of a version (docs/versioning.md): a trailing `.0` patch dropped (`3.141.0` → `3.141`); hotfixes and

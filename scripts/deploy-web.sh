@@ -47,7 +47,7 @@ rsync -a apps/portal/index.html apps/portal/privacy.html apps/portal/styles.css 
 # DOWNLOADS_TAG picks the release (default: the newest published one); without gh it is the "no release yet" page.
 scripts/gen-downloads.sh --out "$TARGET/downloads.html"
 # The public release signing key (P10-S1, keys/README.md), once the PM has added it.
-if [ -f keys/rusuite-release-key.asc ]; then rsync -a keys/rusuite-release-key.asc "$TARGET/rusuite-release-key.asc"; fi
+if [ -f keys/rusuite-release-key.asc ]; then rsync -a --chmod=F644 keys/rusuite-release-key.asc "$TARGET/rusuite-release-key.asc"; fi
 rsync -a --delete apps/portal/logos/ "$TARGET/logos/"
 rsync -a --delete apps/portal/locales/ "$TARGET/locales/"
 # The release version (semver from Cargo.toml; the portal shows its public name, docs/versioning.md).

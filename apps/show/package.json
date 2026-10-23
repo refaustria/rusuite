@@ -1,6 +1,6 @@
 {
   "name": "show",
-  "version": "3.141.0",
+  "version": "3.1415.0",
   "private": true,
   "type": "module",
   "scripts": {
