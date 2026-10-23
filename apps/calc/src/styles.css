@@ -46,3 +46,12 @@ body,
   background: #217346;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
+
+/* The formula key row (P10-M3): the app leaves room for it; while the on-screen keyboard is open it takes the
+   command bar's place right above the keyboard. */
+html[data-compact][data-formula-keys] [data-rs-app] {
+  padding-bottom: calc(var(--rs-command-bar-h, 0px) + var(--rs-formula-keys-h, 0px));
+}
+html[data-compact][data-formula-keys][data-keyboard] [data-testid="command-bar"] {
+  display: none;
+}

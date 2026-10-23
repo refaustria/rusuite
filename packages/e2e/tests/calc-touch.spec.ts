@@ -39,6 +39,15 @@ async function centre(page: Page, testId: string) {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 }
 
+/** The centre of a selection handle once it stands on the corner `at` (the grid redraws on the next frame). */
+async function handleOn(page: Page, testId: string, at: { x: number; y: number }) {
+  await expect.poll(async () => {
+    const c = await centre(page, testId).catch(() => null);
+    return !!c && Math.abs(c.x - at.x) <= 2 && Math.abs(c.y - at.y) <= 2;
+  }).toBe(true);
+  return centre(page, testId);
+}
+
 /** Long press (touch held 800 ms) through the DevTools touch events. */
 async function longPress(page: Page, x: number, y: number) {
   const cdp = await page.context().newCDPSession(page);
@@ -66,6 +75,10 @@ const scrollTop = (page: Page) => page.getByTestId("grid").evaluate((el) => el.s
 /** Sheet px start of the text drawn for column `col` (the last frame's text ops). */
 const textX = (page: Page, col: number) =>
   page.evaluate((c) => ((window as unknown as { __calcTexts?: { col: number; clipX: number }[] }).__calcTexts ?? []).find((t) => t.col === c)?.clipX ?? -1, col);
+
+/** The text the last frame drew in a cell (phones: the scratch cell of `Grid.display` is off screen). */
+const shown = (page: Page, row: number, col: number) =>
+  page.evaluate(([r, c]) => ((window as unknown as { __calcTexts?: { row: number; col: number; text: string }[] }).__calcTexts ?? []).find((t) => t.row === r && t.col === c)?.text ?? "", [row, col]);
 
 /** The context menu items the desktop shows at a cell (1400 × 900, right click). */
 async function desktopCellMenu(page: Page): Promise<string[]> {
@@ -188,7 +201,7 @@ test.describe("calc touch @mobile", () => {
     await grid.type(2, 1, "2");
     const b2 = await grid.pos(1, 1);
     await page.touchscreen.tap(b2.x, b2.y);
-    await drag(page, await centre(page, "selection-handle-end"), await grid.pos(2, 1, 32, 10));
+    await drag(page, await handleOn(page, "selection-handle-end", await grid.pos(1, 1, 32, 10)), await grid.pos(2, 1, 32, 10));
     await expect(address(page)).toHaveValue("B2:B3");
     const fill = page.getByTestId("fill-handle-touch");
     await expect(fill).toBeVisible();
@@ -197,13 +210,13 @@ test.describe("calc touch @mobile", () => {
     const from = await centre(page, "fill-handle-touch");
     await drag(page, from, { x: from.x, y: from.y + 2 * 20 });
     await expect(address(page)).toHaveValue("B2:B5");
-    await expect.poll(() => grid.display(4, 1)).toBe("4");
-    expect(await grid.display(3, 1)).toBe("3");
+    await expect.poll(() => shown(page, 4, 1)).toBe("4");
+    expect(await shown(page, 3, 1)).toBe("3");
     // C2 = 1, C2:C5 selected; a tap on the fill handle → Fill series.
     await grid.type(1, 2, "1");
     const c2 = await grid.pos(1, 2);
     await page.touchscreen.tap(c2.x, c2.y);
-    await drag(page, await centre(page, "selection-handle-end"), await grid.pos(4, 2, 32, 10));
+    await drag(page, await handleOn(page, "selection-handle-end", await grid.pos(1, 2, 32, 10)), await grid.pos(4, 2, 32, 10));
     await expect(address(page)).toHaveValue("C2:C5");
     const at = await centre(page, "fill-handle-touch");
     await ptr(page, "pointerdown", at.x, at.y);
@@ -215,8 +228,87 @@ test.describe("calc touch @mobile", () => {
     await page.screenshot({ path: `${SHOTS}/P10-M3-fill-sheet.png` });
     await sheet.getByRole("menuitem", { name: "Fill series" }).click();
     await expect(sheet).toHaveCount(0);
-    await expect.poll(() => grid.display(4, 2)).toBe("4");
-    expect(await grid.display(2, 2)).toBe("2");
+    await expect.poll(() => shown(page, 4, 2)).toBe("4");
+    expect(await shown(page, 2, 2)).toBe("2");
+    errors.expectNone();
+  });
+
+  test("the formula keys: =SUM( with Ref mode taps and the handle, ↵ commits, ✕ cancels, pinned above the keyboard", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    for (let r = 1; r <= 4; r++) await grid.type(r, 1, String(r));
+    await expect(page.getByTestId("formula-keys")).toHaveCount(0);
+    // Locator taps scroll the key into view in the row's strip first.
+    const tapKey = (id: string) => page.getByTestId(id).tap();
+    // A double tap on B6 starts editing.
+    const b6 = await grid.pos(5, 1);
+    await page.touchscreen.tap(b6.x, b6.y);
+    await page.touchscreen.tap(b6.x, b6.y);
+    const editor = page.getByTestId("cell-editor");
+    await expect(editor).toBeVisible();
+    const keys = page.getByTestId("formula-keys");
+    await expect(keys).toBeVisible();
+    for (const b of await keys.getByRole("button").all()) {
+      if (!(await b.isVisible())) continue;
+      const box = (await b.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+    }
+    // The key row sits right above the command bar.
+    const kb = (await keys.boundingBox())!;
+    const cb = (await page.getByTestId("command-bar").boundingBox())!;
+    expect(Math.abs(kb.y + kb.height - cb.y)).toBeLessThanOrEqual(1);
+    await tapKey("key-=");
+    await expect(editor).toBeFocused();
+    await page.keyboard.type("SUM");
+    await tapKey("key-(");
+    await expect(editor).toHaveValue("=SUM(");
+    await tapKey("key-ref");
+    await expect(page.getByTestId("key-ref")).toHaveAttribute("aria-pressed", "true");
+    const b2 = await grid.pos(1, 1);
+    await page.touchscreen.tap(b2.x, b2.y);
+    await expect(editor).toHaveValue("=SUM(B2");
+    await expect(page.getByTestId("selection-handle-end")).toBeVisible();
+    await drag(page, await handleOn(page, "selection-handle-end", await grid.pos(1, 1, 32, 10)), await grid.pos(4, 1, 32, 10));
+    await expect(editor).toHaveValue("=SUM(B2:B5");
+    // ⇤ ⇥ step over the tokens.
+    await tapKey("key-prev");
+    await tapKey("key-prev");
+    await tapKey("key-)");
+    await expect(editor).toHaveValue("=SUM(B2):B5");
+    await page.keyboard.press("Backspace");
+    await tapKey("key-next");
+    await tapKey("key-next");
+    await expect(editor).toHaveValue("=SUM(B2:B5");
+    await tapKey("key-)");
+    await expect(editor).toHaveValue("=SUM(B2:B5)");
+    // The on-screen keyboard (simulated): the key row on the visual viewport's bottom, the command bar hidden.
+    await page.evaluate(() => {
+      (window as unknown as { __RUSUITE_VISUAL_VIEWPORT__: unknown }).__RUSUITE_VISUAL_VIEWPORT__ = { height: 500, offsetTop: 0 };
+      window.dispatchEvent(new Event("rusuite:visualviewport"));
+    });
+    await expect.poll(async () => Math.round(((await keys.boundingBox())!.y + (await keys.boundingBox())!.height))).toBe(500);
+    await expect(page.getByTestId("command-bar")).toBeHidden();
+    await page.screenshot({ path: `${SHOTS}/P10-M3-keys.png` });
+    await tapKey("key-commit");
+    await expect(editor).toHaveCount(0);
+    await expect(keys).toHaveCount(0);
+    await page.evaluate(() => {
+      (window as unknown as { __RUSUITE_VISUAL_VIEWPORT__?: unknown }).__RUSUITE_VISUAL_VIEWPORT__ = undefined;
+      window.dispatchEvent(new Event("rusuite:visualviewport"));
+    });
+    await expect(page.getByTestId("command-bar")).toBeVisible();
+    await expect.poll(() => shown(page, 5, 1)).toBe("10");
+    // ✕ cancels an edit without changing the cell.
+    await page.touchscreen.tap(b2.x, b2.y);
+    await page.touchscreen.tap(b2.x, b2.y);
+    await expect(editor).toBeVisible();
+    await page.keyboard.type("9");
+    await expect(editor).toHaveValue("19");
+    await tapKey("key-cancel");
+    await expect(editor).toHaveCount(0);
+    expect(await grid.input(1, 1)).toBe("1");
     errors.expectNone();
   });
 });

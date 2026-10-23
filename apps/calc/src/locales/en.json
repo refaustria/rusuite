@@ -2160,5 +2160,12 @@
   "calc.touch.fillDown": "Fill down",
   "calc.touch.fillRight": "Fill right",
   "calc.touch.fillSeries": "Fill series",
-  "calc.touch.copyCells": "Copy cells"
+  "calc.touch.copyCells": "Copy cells",
+  "calc.keys.label": "Formula keys",
+  "calc.keys.ref": "Reference mode: tap cells to insert their reference",
+  "calc.keys.refShort": "Ref",
+  "calc.keys.prevToken": "Caret one part to the left",
+  "calc.keys.nextToken": "Caret one part to the right",
+  "calc.keys.cancel": "Cancel the entry",
+  "calc.keys.commit": "Confirm the entry"
 }

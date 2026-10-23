@@ -647,8 +647,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   useEffect(() => {
     // While an edit is open (e.g. after a toolbar click) the focus belongs to its editor.
+    // On touch devices the editor is not focused again by a command (that would pop the on-screen keyboard up, P10-M3):
+    // only a tap on the cell, the formula bar or typing focuses it.
     store.focusGrid = () => {
-      if (store.getState().edit) store.focusEditor();
+      const active = document.activeElement;
+      const inEditor = !!active?.closest?.('[data-testid="cell-editor"], [data-formula-bar]');
+      if (store.getState().edit && (!touchUiRef.current || inEditor)) store.focusEditor();
       else scroller.current?.focus({ preventScroll: true });
     };
     const unsub = store.subscribe(schedule);
@@ -1070,7 +1074,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     const point = st.edit && store.touchRef ? st.edit.point : null;
     const range = point ? normalize({ anchor: point.anchor, focus: point.focus }) : src;
     const fixed: Cell = which === "start" ? { row: range.r1, col: range.c1 } : { row: range.r0, col: range.c0 };
-    const x0 = e.clientX, y0 = e.clientY;
+    const x0 = e.clientX, y0 = e.clientY, t0 = performance.now();
     let last = { x: e.clientX, y: e.clientY };
     let moved = false;
     const update = () => {
@@ -1111,15 +1115,25 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      // A tap (not a long press: that opens the context menu) …
+      const tap = !moved && ev.type === "pointerup" && performance.now() - t0 < LONG_PRESS_MS;
       if (which === "fill") {
         const dst = fillPreview.current;
         fillPreview.current = null;
         schedule();
         if (moved && dst) void store.fill(dst, "auto");
-        else if (!moved && ev.type === "pointerup") openFillSheet();
+        // … on the fill handle offers the fill commands,
+        else if (tap) openFillSheet();
         return;
       }
       if (moved && !point) void store.selectionDone();
+      // … on a selection handle is a tap on the cell under it (the handle overlaps its neighbours).
+      if (tap) {
+        const h = hitTest(ev.clientX, ev.clientY, true);
+        if (h.kind !== "cell") return;
+        if (point) store.pointRange(h.cell, h.cell);
+        else tapCell(h.cell);
+      }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -2016,10 +2030,10 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         {touchUi && (
           <>
             {/* Selection handles (touch): drag to resize the range (in Ref mode: the reference). */}
-            <div ref={startHandle} data-testid="selection-handle-start" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("start", e)} />
-            <div ref={endHandle} data-testid="selection-handle-end" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("end", e)} />
+            <div ref={startHandle} data-testid="selection-handle-start" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("start", e)} onContextMenu={onContextMenu} />
+            <div ref={endHandle} data-testid="selection-handle-end" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("end", e)} onContextMenu={onContextMenu} />
             {/* The fill handle (touch): drag fills like the mouse's; a tap offers the fill commands. */}
-            <div ref={touchFill} data-testid="fill-handle-touch" aria-hidden="true" className="rs-fill-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("fill", e)} />
+            <div ref={touchFill} data-testid="fill-handle-touch" aria-hidden="true" className="rs-fill-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("fill", e)} onContextMenu={onContextMenu} />
           </>
         )}
         <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />

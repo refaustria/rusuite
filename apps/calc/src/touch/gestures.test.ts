@@ -23,3 +23,18 @@ describe("touch gestures (P10-M3)", () => {
     expect(edgeScroll(5, 40, 20)).toBe(0);
   });
 });
+
+describe("tokenStep", async () => {
+  const { tokenStep } = await import("./gestures");
+  const { tokenize } = await import("../formula/tokenize");
+  it("moves the caret over whole tokens", () => {
+    const text = "=SUM(B2:B5)";
+    const toks = tokenize(text).tokens;
+    expect(tokenStep(toks, text.length, text.length, -1)).toBe(10);
+    expect(tokenStep(toks, text.length, 10, -1)).toBe(8);
+    expect(tokenStep(toks, text.length, 8, -1)).toBe(7);
+    expect(tokenStep(toks, text.length, 1, 1)).toBe(4);
+    expect(tokenStep(toks, text.length, 0, -1)).toBe(0);
+    expect(tokenStep(toks, text.length, text.length, 1)).toBe(text.length);
+  });
+});

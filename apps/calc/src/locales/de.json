@@ -2160,5 +2160,12 @@
   "calc.touch.fillDown": "Nach unten ausfüllen",
   "calc.touch.fillRight": "Nach rechts ausfüllen",
   "calc.touch.fillSeries": "Reihe ausfüllen",
-  "calc.touch.copyCells": "Zellen kopieren"
+  "calc.touch.copyCells": "Zellen kopieren",
+  "calc.keys.label": "Formeltasten",
+  "calc.keys.ref": "Bezugsmodus: tippe auf Zellen, um ihren Bezug einzufügen",
+  "calc.keys.refShort": "Bezug",
+  "calc.keys.prevToken": "Cursor einen Teil nach links",
+  "calc.keys.nextToken": "Cursor einen Teil nach rechts",
+  "calc.keys.cancel": "Eingabe abbrechen",
+  "calc.keys.commit": "Eingabe bestätigen"
 }

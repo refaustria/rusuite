@@ -22,6 +22,7 @@ import { t, useT } from "./i18n";
 import { AssistantPane } from "@rusuite/ui-shared";
 import { calcAiAdapter } from "./ai/calcAi";
 import { lockIcon } from "./protection/icons";
+import { FormulaKeys } from "./touch/FormulaKeys";
 
 function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySession; zoom: number }) {
   const revision = useCalc(store, (s) => s.revision);
@@ -182,6 +183,7 @@ export default function App({ backend }: { backend: CalcBackend }) {
       </div>
       <SheetTabs store={store} />
       <StatusBar store={store} session={session} zoom={view.zoom} />
+      <FormulaKeys store={store} />
       <Toasts store={store} />
       <ShortcutLayer store={store} guard={guard} />
       <ConfirmDiscard guard={guard} />
