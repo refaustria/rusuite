@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – neliels biroja komplekts ar Rust kodolu: Calc, Write un Show, pārlūkprogrammā un darbvirsmā.",
   "portal.downloads": "Darbvirsmas lejupielādes",
   "portal.dl.title": "Lejupielādes – Rusuite",
-  "portal.dl.heading": "Darbvirsmas lejupielādes",
+  "portal.dl.heading": "Lejupielādes",
   "portal.dl.nav": "Lejupielādes",
   "portal.dl.lead": "Rusuite {tag} operētājsistēmām Windows, macOS un Linux",
   "portal.dl.none": "Darbvirsmas versija vēl nav publicēta. Būvējumi parādās <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

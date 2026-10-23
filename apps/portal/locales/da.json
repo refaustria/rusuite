@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – en lille office-pakke med en Rust-kerne: Calc, Write og Show, i din browser og på skrivebordet.",
   "portal.downloads": "Skrivebordsdownloads",
   "portal.dl.title": "Downloads – Rusuite",
-  "portal.dl.heading": "Skrivebordsdownloads",
+  "portal.dl.heading": "Downloads",
   "portal.dl.nav": "Downloads",
   "portal.dl.lead": "Rusuite {tag} til Windows, macOS og Linux",
   "portal.dl.none": "Der er endnu ikke udgivet nogen skrivebordsversion. Builds vises på <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

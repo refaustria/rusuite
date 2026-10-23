@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – mali uredski paket s jezgrom u Rustu: Calc, Write i Show, u pregledniku i na stolnom računalu.",
   "portal.downloads": "Preuzimanja za stolna računala",
   "portal.dl.title": "Preuzimanja – Rusuite",
-  "portal.dl.heading": "Preuzimanja za stolna računala",
+  "portal.dl.heading": "Preuzimanja",
   "portal.dl.nav": "Preuzimanja",
   "portal.dl.lead": "Rusuite {tag} za Windows, macOS i Linux",
   "portal.dl.none": "Još nije objavljeno nijedno izdanje za stolna računala. Inačice se pojavljuju na <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

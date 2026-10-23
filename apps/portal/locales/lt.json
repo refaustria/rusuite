@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – nedidelis raštinės programų rinkinys su Rust branduoliu: Calc, Write ir Show, naršyklėje ir darbalaukyje.",
   "portal.downloads": "Darbalaukio atsisiuntimai",
   "portal.dl.title": "Atsisiuntimai – Rusuite",
-  "portal.dl.heading": "Darbalaukio atsisiuntimai",
+  "portal.dl.heading": "Atsisiuntimai",
   "portal.dl.nav": "Atsisiuntimai",
   "portal.dl.lead": "Rusuite {tag} sistemoms „Windows“, „macOS“ ir „Linux“",
   "portal.dl.none": "Darbalaukio versija dar nepaskelbta. Versijos atsiranda <a href=\"https://github.com/refaustria/rusuite/releases\">„GitHub“ leidimuose</a>.",

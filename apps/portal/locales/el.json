@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – μια μικρή σουίτα γραφείου με πυρήνα Rust: Calc, Write και Show, στο πρόγραμμα περιήγησης και στην επιφάνεια εργασίας.",
   "portal.downloads": "Λήψεις για την επιφάνεια εργασίας",
   "portal.dl.title": "Λήψεις – Rusuite",
-  "portal.dl.heading": "Λήψεις για την επιφάνεια εργασίας",
+  "portal.dl.heading": "Λήψεις",
   "portal.dl.nav": "Λήψεις",
   "portal.dl.lead": "Rusuite {tag} για Windows, macOS και Linux",
   "portal.dl.none": "Δεν έχει δημοσιευτεί ακόμη έκδοση για την επιφάνεια εργασίας. Οι εκδόσεις εμφανίζονται στις <a href=\"https://github.com/refaustria/rusuite/releases\">Εκδόσεις του GitHub</a>.",

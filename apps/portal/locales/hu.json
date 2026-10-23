@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – egy kis irodai programcsomag Rust-maggal: Calc, Write és Show, a böngésződben és az asztalon.",
   "portal.downloads": "Asztali letöltések",
   "portal.dl.title": "Letöltések – Rusuite",
-  "portal.dl.heading": "Asztali letöltések",
+  "portal.dl.heading": "Letöltések",
   "portal.dl.nav": "Letöltések",
   "portal.dl.lead": "Rusuite {tag} Windowsra, macOS-re és Linuxra",
   "portal.dl.none": "Még nem jelent meg asztali kiadás. A kiadások a <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a> oldalon jelennek meg.",
