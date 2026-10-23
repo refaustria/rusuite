@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { useShow, type ShowStore } from "../state/store";
 import { useT } from "../i18n";
 
-export function NotesPane({ store }: { store: ShowStore }) {
+/** `sheet`: the compact layout's notes sheet (P10-M5) – always shown, taller, the same commit rules. */
+export function NotesPane({ store, sheet = false }: { store: ShowStore; sheet?: boolean }) {
   const t = useT();
   const visible = useShow(store, (s) => s.notesVisible);
   const current = useShow(store, (s) => s.current);
@@ -29,9 +30,9 @@ export function NotesPane({ store }: { store: ShowStore }) {
     [current, store],
   );
 
-  if (!visible) return null;
+  if (!visible && !sheet) return null;
   return (
-    <div className="h-28 shrink-0 border-t border-ui-border bg-ui-panel p-1" data-testid="notes-pane">
+    <div className={sheet ? "h-48 pt-1" : "h-28 shrink-0 border-t border-ui-border bg-ui-panel p-1"} data-testid="notes-pane">
       <textarea
         aria-label={t("show.speakerNotes")}
         placeholder={t("show.addNotes")}

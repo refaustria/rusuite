@@ -46,6 +46,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Compact layout for phones (P10-M2)](#compact-layout-for-phones-p10-m2)
 - [Calc with touch (P10-M3)](#calc-with-touch-p10-m3)
 - [Write touch (P10-M4)](#write-touch-p10-m4)
+- [Show with touch (P10-M5)](#show-with-touch-p10-m5)
 
 ## Write
 
@@ -2026,3 +2027,36 @@ changes; at 900 px and wider without touch the desktop is as before.
 - **Tests**: `packages/e2e/tests/write-touch.spec.ts` (`mobile` 412 × 915: fit-width, pinch, double tap, gaps, Draft
   remembered, header double tap, long press + bar + handle drag + "⋯", table, picture, keyboard, sheet rows, German;
   `tablet` 1024 × 768: selection, table, picture, pinch); the projects run every `*-touch.spec.ts`.
+## Show with touch (P10-M5)
+
+- **Compact chrome** (under 900 px): the slide list is a horizontal **thumbnail strip** (72 px, `sidebar/SlideStrip.tsx`)
+  under the top bar – it stays put when the keyboard pushes the command bar up, and thumbs on the bar do not hit it. Tap
+  selects (current slide outlined and scrolled into view); a long press opens the slide sheet (New slide, Duplicate,
+  Delete, Hide, Layout… – the layouts as a second sheet –, Transition… – the Transitions tab); a long press followed by a
+  drag carries the slide to a new place (insertion line; a mouse drag works too). The slide fits the width (8 px
+  padding, letterboxed). The speaker notes are a sheet from the **Notes** chip of the status footer. The Timing groups of
+  Transitions and Animations are one **Timing…** button (`data-compact-sheet`) whose sheet has the group's controls under
+  the ribbon's names (Sound, Duration, On mouse click, After, Apply to all; Start, Duration, Delay, Timing…, Move Earlier
+  / Later) with − / + buttons, so the command bar has one height on every tab. Home › Editing has a **Multi-select**
+  toggle: taps then add shapes to the selection or remove them (Shift-click).
+- **Canvas** (`canvas/Stage.tsx`, pure parts `canvas/touch.ts`): tap selects, tap on the empty slide deselects, a tap on
+  the shape that was already selected edits its text (the overlay editor over the shape, kept in view above the keyboard
+  through `visualViewport`); a long press opens the shape's context menu (a sheet on phones). One finger drags shapes and
+  handles. On touch screens the eight resize handles and the rotate handle have **44 px hit areas** (outwards and along
+  the edge; inwards at most a quarter of the box so a small shape can still be dragged; under 88 px only the corner
+  handles). **Two fingers on the selection** scale it (pinch, about its centre, which follows the fingers) and turn it
+  (twist; snaps to 0 / 90 / 180 / 270° within 3°) – one `SetTransform`. Two fingers elsewhere **zoom** the fitted slide
+  50–300 % (`data-touch-zoom` on the canvas area; the status bar shows the real zoom), one finger on the empty slide
+  **pans** a zoomed slide. Smart guides and snapping stay. Test hooks: `data-selection-box` (x, y, w, h, rotation of the
+  one selected shape, EMU), `data-selection-count`, `data-touch`.
+- **Slide show** (`present/TouchShow.tsx`): Present runs in the same window. Swipe left / right = next / previous (also
+  animation steps), a tap on the left third goes back, elsewhere on (mouse clicks keep the halves); a long press opens the
+  show menu – slide number, **Go to slide…** grid, Pen and Laser Pointer (the show's ink tool, one finger draws; swipes
+  do not navigate then), Back to the show, End show. Landscape is requested (`screen.orientation.lock`, refusals
+  ignored), the Fullscreen API is used where it exists, clips refused by the autoplay rules show **Tap to play**. The
+  compact command bar is hidden while a show runs (`html[data-presenting]`).
+- **Presenter view**: offered only where a second window can open (`presenterWindowAvailable()`: not in the mobile shells,
+  not without `window.open`). On compact layouts, in the shells and without `window.open`, Alt+F5 runs the single-window
+  fallback (the slide with the speaker notes toggle); nothing calls `window.open`.
+- **Tablets** (≥ 900 px, touch): the ribbon stays; transforms, the 44 px handles, long press and the show gestures work
+  the same. Tests: `packages/e2e/tests/show-touch.spec.ts` (projects `mobile` and `tablet`).

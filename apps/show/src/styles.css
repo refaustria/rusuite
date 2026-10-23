@@ -23,3 +23,8 @@ body,
   white-space: pre;
   vertical-align: baseline;
 }
+
+/* A slide show covers the window (P10-M5): the compact command bar is hidden while it runs. */
+html[data-presenting] [data-testid="command-bar"] {
+  display: none;
+}

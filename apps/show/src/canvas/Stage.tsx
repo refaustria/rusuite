@@ -6,11 +6,18 @@
 // editing (also of a group's child) and the right-click menus. Drawing
 // guides are draggable lines (Ctrl+drag copies, off the slide deletes,
 // right-click: add / delete / colour).
+//
+// Touch (P10-M5): a tap selects (with the compact Home tab's Multi-select on it adds / removes, like Shift-click),
+// a tap on the empty slide deselects, a tap on the selected shape edits its text, a long press opens the context
+// menu (a sheet in the compact layout), one finger drags shapes and handles (44 px hit areas on touch screens),
+// two fingers on the selection scale it (pinch) and turn it (twist, snapping to 0 / 90 / 180 / 270° within 3°).
+// Two fingers elsewhere and one finger on the empty slide reach the canvas area (zoom and pan, App.tsx): the
+// touches the stage handles itself do not propagate.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Group, Layer, Line as KLine, Rect, Shape as KShape, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
-import { ContextMenu, formatNumber, useLocale, type ContextMenuItem } from "@rusuite/ui-shared";
+import { ContextMenu, formatNumber, trackVisualViewport, useCompact, useLocale, type ContextMenuItem } from "@rusuite/ui-shared";
 import type { NodeId } from "../generated/NodeId";
 import type { Shape } from "../generated/Shape";
 import { boundsPx, boxAttrs, EMU_PER_PX, fitScale, rectFromPoints, shapesInRect, slidePx, type Rect as R } from "../geometry";
@@ -40,6 +47,8 @@ import { AutofitButton } from "./AutofitButton";
 import { AnimBadges, StagePreview } from "./AnimOverlay";
 import { CustomPathDraw, MotionPathLayer } from "./MotionPaths";
 import { useT } from "../i18n";
+import { TAP_SLOP, TOUCH_ANCHOR_HIT, TOUCH_SMALL_BOX, angleDelta, pinchMetrics, pinchNodes, touchAnchorHit, touchDevice, touchSelectOn } from "./touch";
+import type { NodeAttrs } from "../geometry";
 
 /** Union of rectangles (slide px). */
 function union(rects: R[]): R | null {
@@ -83,6 +92,18 @@ function shapeTargets(target: Konva.Node): { top: NodeId | null; leaf: NodeId | 
     }
   }
   return { top, leaf };
+}
+
+const ALL_ANCHORS = ["top-left", "top-center", "top-right", "middle-right", "middle-left", "bottom-left", "bottom-center", "bottom-right"];
+const CORNER_ANCHORS = ["top-left", "top-right", "bottom-left", "bottom-right"];
+
+/** The stage's handlers of native touch events (P10-M5). */
+interface TouchApi {
+  /** Capture phase: the touch's start state, before Konva changes the selection. */
+  record: (e: TouchEvent) => void;
+  start: (e: TouchEvent) => void;
+  move: (e: TouchEvent) => void;
+  end: (e: TouchEvent) => void;
 }
 
 /** View › Gridlines: dotted lines every `step` slide px. */
@@ -170,6 +191,37 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const [sites, setSites] = useState<{ sites: SlideSite[]; active: SlideSite | null; line?: [Pt, Pt] } | null>(null);
   /** A shape drawn instead of the model's while a handle is dragged. */
   const [preview, setPreview] = useState<Shape | null>(null);
+  // ----- touch (P10-M5)
+  const compact = useCompact();
+  const touch = useMemo(() => compact || touchDevice(), [compact]);
+  /** The current one-finger touch: where it started, the selection then, whether it moved or opened a menu. */
+  const touchState = useRef<{ x: number; y: number; moved: boolean; menu: boolean; fingers: number; selection: NodeId[] } | null>(null);
+  /** A pinch / twist of the selection in progress: the nodes, their attributes at the start, the centre, the fingers. */
+  const pinch = useRef<{ nodes: Konva.Node[]; start: NodeAttrs[]; centre: Pt; m0: ReturnType<typeof pinchMetrics> } | null>(null);
+  const touchRef = useRef<TouchApi | null>(null);
+  /** The host element's native touch listeners (non-passive: a pinch must not scroll or zoom the page). */
+  const hostCleanup = useRef<(() => void) | null>(null);
+  const setHost = useCallback((el: HTMLDivElement | null) => {
+    hostCleanup.current?.();
+    hostCleanup.current = null;
+    if (!el) return;
+    const record = (e: TouchEvent) => touchRef.current?.record(e);
+    const start = (e: TouchEvent) => touchRef.current?.start(e);
+    const move = (e: TouchEvent) => touchRef.current?.move(e);
+    const end = (e: TouchEvent) => touchRef.current?.end(e);
+    el.addEventListener("touchstart", record, { capture: true, passive: true });
+    el.addEventListener("touchstart", start, { passive: false });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end, { passive: false });
+    el.addEventListener("touchcancel", end, { passive: false });
+    hostCleanup.current = () => {
+      el.removeEventListener("touchstart", record, { capture: true });
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end);
+    };
+  }, []);
 
   const masterView = useShow(store, (s) => s.masterView);
   const cropping = useShow(store, (s) => s.crop);
@@ -287,6 +339,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   /** One command per gesture: collects every changed node of the transformer. */
   const commitGesture = useCallback((dragged?: Konva.Node) => {
     endSnap();
+    // a drag stopped by a second finger: the pinch takes the node over and commits once at its end
+    if (pinch.current) return;
     if (commitPending.current) {
       if (dragged) commitPending.current.add(dragged);
       return;
@@ -342,7 +396,96 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     return () => window.removeEventListener("keydown", onKey, true);
   }, [drawingFree]);
 
+  // The text being edited stays in view when the on-screen keyboard takes part of the screen (touch).
+  const editingShape = editing?.shape ?? null;
+  useEffect(() => {
+    if (!touch || editingShape === null) return;
+    return trackVisualViewport(() => {
+      stageRef.current?.container().parentElement?.querySelector<HTMLElement>("[data-testid=text-overlay-box]")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    });
+  }, [touch, editingShape]);
+
   if (!pres || !slide || scale === 0) return null;
+
+  // ----- touch gestures on the host element (native listeners: Konva sees the same touches first)
+  /** A client point in slide px. */
+  const slidePoint = (t: { clientX: number; clientY: number }): Pt => {
+    const r = stageRef.current?.container().getBoundingClientRect();
+    return r ? { x: (t.clientX - r.left) / scale, y: (t.clientY - r.top) / scale } : { x: 0, y: 0 };
+  };
+  const touchApi: TouchApi = {
+    record: (e) => {
+      if (e.touches.length === 1) {
+        const t0 = e.touches[0]!;
+        touchState.current = { x: t0.clientX, y: t0.clientY, moved: false, menu: false, fingers: 1, selection: store.getState().selection };
+      } else if (touchState.current) touchState.current.fingers = Math.max(touchState.current.fingers, e.touches.length);
+    },
+    start: (e) => {
+      const stage = stageRef.current;
+      const tr = trRef.current;
+      if (!stage) return;
+      if (e.touches.length === 1) {
+        // the stage's own touches (shapes, handles) do not pan the canvas area; the empty slide does
+        const t0 = e.touches[0]!;
+        const r = stage.container().getBoundingClientRect();
+        const hit = stage.getIntersection({ x: t0.clientX - r.left, y: t0.clientY - r.top });
+        if (drawMode || (hit && !hit.hasName("slide-background"))) e.stopPropagation();
+        return;
+      }
+      if (e.touches.length !== 2 || pinch.current) return;
+      const nodes = tr?.nodes() ?? [];
+      const a = slidePoint(e.touches[0]!);
+      const b = slidePoint(e.touches[1]!);
+      const m0 = pinchMetrics(a, b);
+      // two fingers on (or around) the selection: scale and turn it
+      const box = nodes.length ? nodes.map((n) => n.getClientRect()).reduce((u, r) => {
+        const x = Math.min(u.x, r.x);
+        const y = Math.min(u.y, r.y);
+        return { x, y, width: Math.max(u.x + u.width, r.x + r.width) - x, height: Math.max(u.y + u.height, r.y + r.height) - y };
+      }) : null;
+      const inside = (p: Pt) => !!box && p.x * scale >= box.x - TOUCH_ANCHOR_HIT / 2 && p.x * scale <= box.x + box.width + TOUCH_ANCHOR_HIT / 2 && p.y * scale >= box.y - TOUCH_ANCHOR_HIT / 2 && p.y * scale <= box.y + box.height + TOUCH_ANCHOR_HIT / 2;
+      const onSelection = !!box && !drawMode && !cropping && !store.getState().editing && (inside(a) || inside(b) || inside(m0.mid));
+      for (const n of stage.find(".shape")) if (n.isDragging()) {
+        if (onSelection) pinch.current = pinch.current ?? { nodes, start: [], centre: m0.mid, m0 };
+        n.stopDrag();
+      }
+      if (tr?.isTransforming()) tr.stopTransform();
+      if (!onSelection || !box) {
+        pinch.current = null;
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      pinch.current = {
+        nodes,
+        start: nodes.map((n) => ({ x: n.x(), y: n.y(), rotation: n.rotation(), scaleX: n.scaleX(), scaleY: n.scaleY() })),
+        centre: { x: (box.x + box.width / 2) / scale, y: (box.y + box.height / 2) / scale },
+        m0,
+      };
+    },
+    move: (e) => {
+      const ts = touchState.current;
+      if (ts && e.touches.length === 1 && Math.hypot(e.touches[0]!.clientX - ts.x, e.touches[0]!.clientY - ts.y) > TAP_SLOP) ts.moved = true;
+      const p = pinch.current;
+      if (!p || e.touches.length < 2 || !p.start.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const m = pinchMetrics(slidePoint(e.touches[0]!), slidePoint(e.touches[1]!));
+      const next = pinchNodes(p.start, p.centre, { x: m.mid.x - p.m0.mid.x, y: m.mid.y - p.m0.mid.y }, m.dist / Math.max(1e-6, p.m0.dist), angleDelta(p.m0.angle, m.angle));
+      p.nodes.forEach((n, i) => n.setAttrs(next[i]!));
+      trRef.current?.forceUpdate();
+      trRef.current?.getLayer()?.batchDraw();
+    },
+    end: (e) => {
+      const p = pinch.current;
+      if (!p || e.touches.length >= 2) return;
+      e.stopPropagation();
+      pinch.current = null;
+      if (touchState.current) touchState.current.moved = true;
+      if (p.start.length) commitGesture();
+    },
+  };
+  touchRef.current = touchApi;
 
   const pointer = (): { x: number; y: number } | null => {
     const p = stageRef.current?.getPointerPosition();
@@ -470,8 +613,42 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
     if (hit) store.startEdit(hit.shape.id);
   };
 
+  // ----- touch: select on touch-down (a drag then moves the shape at once), decide the rest on the tap
+  const onTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    if (choice || e.evt.touches.length !== 1) return;
+    downPointer.current = stageRef.current?.getPointerPosition() ?? null;
+    const target = e.target;
+    if (target.getParent()?.className === "Transformer" || target.hasName?.("edit-handle")) return;
+    const { top } = shapeTargets(target);
+    if (store.getState().editing) void store.commitEdit();
+    if (top === null || touchSelectOn()) return;
+    if (!store.getState().selection.includes(top)) store.select([top]);
+  };
+  const onTap = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    const ts = touchState.current;
+    if (choice || !ts || ts.moved || ts.menu || ts.fingers > 1) return;
+    const target = e.target;
+    if (target.getParent()?.className === "Transformer" || target.hasName?.("edit-handle")) return;
+    const { top, leaf } = shapeTargets(target);
+    if (top === null) {
+      if (!touchSelectOn()) store.select([]);
+      return;
+    }
+    if (touchSelectOn()) {
+      store.select([top], "toggle");
+      return;
+    }
+    // a tap on the shape that was already selected alone: edit its text (also a group's child)
+    if (ts.selection.length === 1 && ts.selection[0] === top) {
+      const hit = findShape(slide.shapes, leaf ?? top);
+      if (hit) store.startEdit(hit.shape.id);
+    }
+  };
+
   const onContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
+    // a long press: its touch is no tap
+    if (touchState.current) touchState.current.menu = true;
     const { top } = shapeTargets(e.target);
     if (store.getState().editing) void store.commitEdit();
     if (top === null) store.select([]);
@@ -489,15 +666,36 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
   const pictures = sel.length > 0 && sel.every((s) => !!s.lockAspect);
   const m = marquee ? rectFromPoints(marquee.x0, marquee.y0, marquee.x1, marquee.y1) : null;
   const one = !drawMode && !editing && sel.length === 1 ? sel[0]! : null;
+  // touch screens: 44 px hit areas around the handles; a small box keeps only the corner handles (the side ones
+  // would cover the shape and leave no room to drag it)
+  const selBox = union(sel.map((x) => boundsPx(x.transform)));
+  const smallBox = touch && !!selBox && Math.min(selBox.width, selBox.height) * scale < TOUCH_SMALL_BOX;
+  const anchorStyle = (a: Konva.Rect) => {
+    const w = a.width();
+    const h = a.height();
+    const tr = a.getParent();
+    const hit = touchAnchorHit(a.name().split(" ")[0] ?? "", tr?.width() ?? 0, tr?.height() ?? 0);
+    a.hitFunc((ctx, shape) => {
+      ctx.beginPath();
+      ctx.rect(w / 2 + hit.x, h / 2 + hit.y, hit.width, hit.height);
+      ctx.closePath();
+      ctx.fillStrokeShape(shape);
+    });
+  };
+
   const overrides = new Map<NodeId, Shape>(preview ? [[preview.id, preview]] : []);
   // Table Design › Table Styles: the style under the pointer, shown on the selected table
   if (tablePreview && one?.kind.kind === "table") overrides.set(one.id, { ...one, kind: { kind: "table", value: { ...one.kind.value, styleId: tablePreview } } });
 
   return (
     <div
+      ref={setHost}
       className="relative"
-      style={{ width: size.width * scale, height: size.height * scale, cursor: drawMode ? "crosshair" : undefined }}
+      style={{ width: size.width * scale, height: size.height * scale, cursor: drawMode ? "crosshair" : undefined, touchAction: touch ? "none" : undefined }}
       data-testid="editor-stage"
+      data-touch={touch ? "true" : undefined}
+      data-selection-box={sel.length === 1 ? `${sel[0]!.transform.x},${sel[0]!.transform.y},${sel[0]!.transform.w},${sel[0]!.transform.h},${sel[0]!.transform.rotationDeg ?? 0}` : undefined}
+      data-selection-count={sel.length}
       data-guides={guides.v.length + guides.h.length}
       data-spacing-guides={guides.spacing?.length ?? 0}
       data-drawing-guides={view.showGuides ? guideSet.editable.length : 0}
@@ -523,6 +721,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
         onMouseUp={onMouseUp}
         onDblClick={onDblClick}
         onContextMenu={onContextMenu}
+        onTouchStart={onTouchStart}
+        onTap={onTap}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -611,6 +811,8 @@ export function EditorStage({ store, width, height }: { store: ShowStore; width:
             anchorDragBoundFunc={anchorBound}
             ignoreStroke
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
+            {...(touch ? { anchorSize: 14, anchorStyleFunc: anchorStyle } : {})}
+            enabledAnchors={smallBox ? CORNER_ANCHORS : ALL_ANCHORS}
             boundBoxFunc={(oldBox, newBox) => (newBox.width < 1 && newBox.height < 1 ? oldBox : newBox)}
             onTransformEnd={() => commitGesture()}
           />

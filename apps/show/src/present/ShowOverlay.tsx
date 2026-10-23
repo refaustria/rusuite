@@ -19,6 +19,7 @@ import { emuToPx, fitScale, slidePx } from "../geometry";
 import { themePalette } from "../model";
 import { linkRegions, safeUrl } from "../links/regions";
 import { mediaCommands, triggerSequences } from "../anim/playback";
+import { useT } from "../i18n";
 import { carryOver } from "./sounds";
 
 export interface ShowOverlayProps {
@@ -91,14 +92,35 @@ function Clip({ shape, clip, url, poster, scale, command, onBookmark, controls }
   command: "play" | "pause" | "stop" | undefined;
   onBookmark: (name: string) => void;
 }) {
+  const tr = useT();
   const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
+  /** The browser refused to start the clip without a gesture (mobile autoplay rules): a tap starts it (P10-M5). */
+  const [blocked, setBlocked] = useState(false);
   const lastTime = useRef(0);
   const trimStart = (clip.trimStartMs ?? 0) / 1000;
   const play = (el: HTMLMediaElement) => {
     if (el.currentTime < trimStart) el.currentTime = trimStart;
-    void el.play?.()?.catch(() => undefined);
+    void el.play?.()?.then(() => setBlocked(false), (e: unknown) => {
+      if ((e as { name?: string } | null)?.name === "NotAllowedError") setBlocked(true);
+    });
   };
+  const tapToPlay = blocked && (
+    <button
+      type="button"
+      data-testid={`tap-to-play-${shape.id}`}
+      className="absolute z-10 flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full bg-black/70 px-4 text-sm text-white"
+      style={{ left: emuToPx(shape.transform.x) * scale + (emuToPx(shape.transform.w) * scale) / 2, top: emuToPx(shape.transform.y) * scale + (emuToPx(shape.transform.h) * scale) / 2, transform: "translate(-50%, -50%)" }}
+      onPointerUp={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        const el = ref.current;
+        if (el) play(el);
+      }}
+    >
+      ▶ {tr("show.touch.tapToPlay")}
+    </button>
+  );
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -175,14 +197,22 @@ function Clip({ shape, clip, url, poster, scale, command, onBookmark, controls }
   if (clip.kind === "audio") {
     const w = Math.max(box.width, 220);
     return (
+      <>
+      {tapToPlay}
       <audio
         {...common}
         className="absolute"
         style={{ left: box.left + box.width / 2 - w / 2, top: box.top + box.height + 4, width: w, opacity: hidden ? 0 : 1 }}
       />
+      </>
     );
   }
-  return <video {...common} poster={poster} className="absolute bg-black object-contain" style={{ ...box, opacity: hidden ? 0 : 1 }} />;
+  return (
+    <>
+      <video {...common} poster={poster} className="absolute bg-black object-contain" style={{ ...box, opacity: hidden ? 0 : 1 }} />
+      {tapToPlay}
+    </>
+  );
 }
 
 export function ShowOverlay({ deck: given, slide, step = 0, media, width, height, onLink, fired = [], onTrigger, controls = true }: ShowOverlayProps) {
