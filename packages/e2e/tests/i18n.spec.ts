@@ -9,12 +9,14 @@
 // P9-LR3: pl/cs/sk/sl browsers with their region tags (pl-PL, cs-CZ, sk-SK, sl-SI).
 // P9-LR4: hr/hu/ro/bg browsers with their region tags (hr-HR, hu-HU, ro-RO, bg-BG).
 // P9-L11: ga/mt are translated (ga-IE, mt-MT browsers); the "language without catalogs" cases declare mt catalog-less.
+// P10-LF: the compact (phone) layout at 412 px in every language – no clipped label in the top bar, the command bar
+// (every tab chip and its strip) and the More sheet.
 // `I18N_SHOTS=<dir>` also saves screenshots of the German UI there.
 
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
 import { trackErrors } from "../support/common";
-import { clippedRibbonLabels, escapeRe, formalForms, msg } from "../support/i18n";
+import { clippedCompactLabels, clippedRibbonLabels, escapeRe, formalForms, msg } from "../support/i18n";
 
 const shots = process.env.I18N_SHOTS;
 const shot = async (page: Page, name: string) => {
@@ -202,6 +204,47 @@ for (const lang of TRANSLATED) {
     });
   });
 }
+
+// P10-LF: the compact layout (412 × 915, touch – the `mobile` project's Pixel 7 size) in every language: the labels
+// of the top bar, of every command-bar chip and its strip, and of the More sheet fit (short labels under the 44 px
+// buttons included). The same clipping rule as the ribbon scan above (support/i18n.ts).
+test.describe("compact layout at 412 px", () => {
+  for (const lang of ["en", ...TRANSLATED]) {
+    for (const { app, ready } of APPS) {
+      test(`${app}: ${lang} – no clipped label in the top bar, the command bar and the More sheet`, async ({ browser }) => {
+        test.setTimeout(120_000);
+        const ctx = await browser.newContext({
+          viewport: { width: 412, height: 915 },
+          isMobile: true,
+          hasTouch: true,
+          deviceScaleFactor: 2.625,
+          locale: BROWSER_TAG[lang] ?? (lang === "en" ? "en-US" : lang),
+        });
+        const page = await ctx.newPage();
+        const errors = trackErrors(page);
+        try {
+          await page.goto(`${app}/`);
+          await ready(page).first().waitFor();
+          await expect(page.locator("html")).toHaveAttribute("lang", lang);
+          await expect(page.getByTestId("compact-topbar")).toBeVisible();
+          const chips = page.getByTestId("command-tabs").getByRole("tab");
+          for (const label of (await chips.allInnerTexts()).map((s) => s.trim()).filter(Boolean)) {
+            await page.getByTestId("command-tabs").getByRole("tab", { name: label, exact: true }).click();
+            await expect.poll(() => clippedCompactLabels(page), { message: `${app} ${lang} compact tab ${label}` }).toEqual([]);
+            if (shots) await shot(page, `compact-${app}-${lang}-${label.replace(/[^\p{L}\p{N}]+/gu, "_")}`);
+          }
+          await page.getByTestId("compact-more").click();
+          await expect(page.getByTestId("compact-more-sheet")).toBeVisible();
+          await expect.poll(() => clippedCompactLabels(page, "compact-more-sheet"), { message: `${app} ${lang} More sheet` }).toEqual([]);
+          await page.keyboard.press("Escape");
+          errors.expectNone();
+        } finally {
+          await ctx.close();
+        }
+      });
+    }
+  }
+});
 
 test.describe("Language switch", () => {
   test("calc: View › Language switches without a reload and persists after one", async ({ page }) => {

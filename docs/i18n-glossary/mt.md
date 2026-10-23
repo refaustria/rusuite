@@ -397,3 +397,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | relazzjoni mitlufa | reader warnings |
 | Custom show (PowerPoint) | Preżentazzjoni personalizzata | `reader.pptx.customShow.*` |
 | Pivot cache | cache tal-PivotTable | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | agħfas ("Agħfas fuq …") | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | għafsa twila | (context menu as a sheet; no catalog text yet) |
+| pinch | oqros | (zoom; no catalog text yet) |
+| swipe | żerżaq | (no catalog text yet) |
+| selection handle | manku | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | pannell (mhux "folja" = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | marka tas-swaba' | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | ċavetta tar-rilaxx | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | innotarizzata | `portal.dl.signed.macos` |
+| More | Aktar | `compact.more` |
+| More commands | Aktar kmandi | `compact.moreSheet` |
+| Fill | Imla | `calc.touch.fill` |
+| Fill series | Imla serje | `calc.touch.fillSeries` |
+| Copy cells | Ikkopja ċ-ċelloli | `calc.touch.copyCells` |
+| Ref | Ref. | `calc.keys.refShort` |
+| Share as PDF… | Aqsam bħala PDF… | `backstage.sharePdf` |
+| Export PDF | Esporta PDF | `print.exportPdf` |
+| Multi-select | Għażla multipla | `show.touch.multiSelect` |
