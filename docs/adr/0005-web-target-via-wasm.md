@@ -22,3 +22,22 @@ The owner extended the scope: Rusuite must also run as a **web app**, in additio
 ## Alternatives rejected
 - Rust web server with HTTP/WebSocket transport: requires sessions, storage and auth; a second runtime to operate; scope creep relative to a single-user office suite.
 - Rewriting the core in TypeScript for the web: duplicates the engine and formats, contradicts ADR 0001.
+
+## Amendment 2026-10-22 – mobile apps are a third shell on the same `Backend` (P10-M1)
+- **Same Tauri shell, mobile build.** Android and iOS run the existing `apps/<app>/src-tauri` crates (`tauri android|ios
+  build`, projects committed in `gen/android` and `gen/apple`), i.e. the native Rust core as on the desktop – not
+  WASM. The frontend is the desktop bundle (`dist/`), unchanged.
+- **One `Backend`, a mobile mode.** `TauriBackend` detects a mobile shell (`isMobile()`: the page marker
+  `window.__RUSUITE_MOBILE__` set by `tauri-plugin-rusuite-mobile`) and swaps the native file dialogs for the
+  platform document pickers: `open_document`, `save_document` (write back to the picked document, otherwise the
+  system "save to" picker), `share_document`, `take_launch_document` ("Open with"). The shells keep the binding
+  (`DocPath`) with an opaque handle (Android content URI, iOS bookmark) instead of a path, so the core and the
+  dispatcher are untouched.
+- **Capabilities instead of platform checks in app code.** `Backend.capabilities` (`print`, `saveAs`, `share`) tells
+  the UI what to offer; mobile has no print until P10-M6 (`print()` rejects with `UnsupportedError`).
+- **Desktop-only features stay desktop-only.** Connections and the AI assistant are absent on mobile (owner rule):
+  `TauriBackend` creates neither, and the shells drop the connector commands and the OS keyring
+  (`app-common/tauri-connectors` is a desktop-only dependency).
+- Native code is limited to one project-local plugin (`crates/tauri-plugin-rusuite-mobile`, Kotlin + Swift) for what
+  Tauri's dialog plugin cannot do (persistable write access, export pickers, share sheet, launch intents).
+  Details: [docs/mobile.md](../mobile.md).

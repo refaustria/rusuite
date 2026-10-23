@@ -6,10 +6,10 @@ dist/
 /testdata/**/out/
 .insta-pending*
 *.snap.new
-apps/calc/src-tauri/gen/
+# Tauri's generated capability schemas; the Android/Xcode projects in gen/android and gen/apple are committed
+# (P10-M1), their build outputs and signing files are ignored by their own .gitignore files.
+apps/*/src-tauri/gen/schemas/
 apps/*/src-wasm/pkg/
 apps/*/dist-web/
-apps/write/src-tauri/gen/
-apps/show/src-tauri/gen/
 .task/
 shots/

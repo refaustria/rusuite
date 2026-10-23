@@ -1,0 +1,23 @@
+[package]
+name = "tauri-plugin-rusuite-mobile"
+description = "Rusuite's mobile document access (P10-M1): system document pickers, write-back, export, share sheet, Open with"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+# Tauri finds the plugin's Kotlin/Swift sources through the `links` metadata (DEP_TAURI_PLUGIN_RUSUITE_MOBILE_*).
+links = "tauri-plugin-rusuite-mobile"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-plugin = { version = "2.7.0", features = ["build"] }
+
+[dependencies]
+tauri = { version = "=2.12.0", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

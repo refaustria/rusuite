@@ -12,6 +12,9 @@ import { Connectors } from "./connectors/controller";
 import { extensionsOf, tauriConnectorPlatform, webConnectorPlatform } from "./connectors/platform";
 import { Assistant } from "./ai/controller";
 import { BrowserAiStore, TauriAiStore } from "./ai/settings";
+import { isMobile } from "./mobile/platform";
+
+export * from "./mobile/platform";
 
 export type { DispatchError };
 
@@ -67,6 +70,33 @@ export function savedName(result: SaveResult, suggested: string): string {
   return typeof result === "object" ? result.name : suggested;
 }
 
+/**
+ * What the platform offers beyond the core file commands (P10-M1). The UI hides a command whose capability is
+ * `false`; an absent `capabilities` (test fakes) means everything is available.
+ */
+export interface BackendCapabilities {
+  /** `Backend.print` opens a print dialog (mobile shells: no, until P10-M6 brings PDF + share sheet). */
+  print: boolean;
+  /** Save As can pick a new name and place (desktop dialog, mobile "save to" picker, web download name). */
+  saveAs: boolean;
+  /** `Backend.share` hands a copy to the system share sheet (mobile shells only). */
+  share: boolean;
+}
+
+/** `Backend.capabilities` with the defaults of an absent object (everything but `share`). */
+export function capabilitiesOf(backend: Pick<Backend, "capabilities">): BackendCapabilities {
+  return backend.capabilities ?? { print: true, saveAs: true, share: false };
+}
+
+/** A platform feature the backend does not have (`Backend.print` in the mobile shells). */
+export class UnsupportedError extends Error {
+  readonly code = "unsupported" as const;
+  constructor(readonly feature: string) {
+    super(`${feature} is not supported on this platform`);
+    this.name = "UnsupportedError";
+  }
+}
+
 /** The exports of an app's `wasm-pack` package. */
 export interface WasmModule {
   ping(): string;
@@ -117,9 +147,19 @@ export interface Backend<Req = unknown, Body = unknown> {
    * printer or "Save as PDF"). Web: `window.print()`. Desktop: the shell's
    * `print_webview` command (`WebviewWindow::print`: the native WebKitGTK /
    * WKWebView print operation, `window.print()` in WebView2), falling back
-   * to `window.print()` if the command fails.
+   * to `window.print()` if the command fails. Mobile shells: rejects with an `UnsupportedError` (hidden by
+   * `capabilities.print`).
    */
   print(): Promise<void>;
+  /** What the platform offers (P10-M1); absent in test fakes (= `capabilitiesOf`'s defaults). */
+  readonly capabilities?: BackendCapabilities;
+  /** Mobile shells: hands a copy of the document to the system share sheet (`capabilities.share`). */
+  share?(suggestedName: string, bytesBase64: string): Promise<void>;
+  /**
+   * Mobile shells: the document the app was opened with ("Open with", a tap in Files), once; `null` when there is
+   * none. The session asks on start and whenever the page becomes visible again.
+   */
+  takeLaunchDocument?(): Promise<OpenedFile | null>;
 }
 
 export { bytesToBase64, base64ToBytes } from "./base64";
@@ -153,13 +193,28 @@ export interface WasmFileOptions {
   ai?: boolean;
 }
 
-/** Desktop shell: the Tauri commands of `apps/<app>/src-tauri`. */
+/** The Tauri shells' file results (`open_file_dialog`, `open_document`, …). */
+interface ShellFile {
+  path: string;
+  name: string;
+  bytesBase64: string;
+}
+
+/**
+ * The Tauri shells (`apps/<app>/src-tauri`). Desktop: native file dialogs, print, connections and the AI assistant.
+ * Mobile (`mobile`, default `isMobile()`; P10-M1): the system document pickers through the shell's
+ * `open_document` / `save_document` / `share_document` / `take_launch_document` commands, no print, and – owner
+ * rule – neither connections nor the AI assistant (`connectors` / `ai` absent, so their settings never appear).
+ * Recent files and crash recovery stay in the app data directory on both.
+ */
 export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req, Body> {
   readonly kind = "tauri" as const;
   readonly storage: DocStorage = new TauriDocStorage();
-  readonly connectors: Connectors;
-  readonly ai: Assistant = new Assistant({ store: new TauriAiStore() });
-  private title = new TitleDecorator((title) => getCurrentWindow().setTitle(title));
+  readonly connectors?: Connectors;
+  readonly ai?: Assistant;
+  readonly capabilities: BackendCapabilities;
+  readonly mobile: boolean;
+  private title: TitleDecorator;
 
   /**
    * `fileTypeLabel`: the localized filter name of the native file dialogs (read when a dialog opens);
@@ -168,7 +223,20 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
   constructor(
     private readonly fileTypeLabel?: () => string,
     accept = ".xlsx",
+    options: { mobile?: boolean } = {},
   ) {
+    this.mobile = options.mobile ?? isMobile();
+    this.capabilities = { print: !this.mobile, saveAs: true, share: this.mobile };
+    // Mobile windows have no title bar: the page title is enough (and needs no window permission).
+    this.title = new TitleDecorator(
+      this.mobile
+        ? async (title) => {
+            document.title = title;
+          }
+        : (title) => getCurrentWindow().setTitle(title),
+    );
+    if (this.mobile) return;
+    this.ai = new Assistant({ store: new TauriAiStore() });
     this.connectors = new Connectors(tauriConnectorPlatform(extensionsOf(accept)));
     this.title.follow(this.connectors);
   }
@@ -189,28 +257,47 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
     return JSON.parse(reply) as Response<T>;
   }
 
+  /** Desktop: the native open dialog; mobile: the system document picker (`open_document`). */
   async openFile(): Promise<OpenedFile | null> {
-    const picked = await invoke<{
-      path: string;
-      name: string;
-      bytesBase64: string;
-    } | null>("open_file_dialog", this.dialogText(t("dialog.open.title")));
+    const picked = this.mobile
+      ? await invoke<ShellFile | null>("open_document")
+      : await invoke<ShellFile | null>("open_file_dialog", this.dialogText(t("dialog.open.title")));
     return picked ? { name: picked.name, bytesBase64: picked.bytesBase64 } : null;
   }
 
-  /** The shell's `save_file`: it keeps the document's file (`DocPath`) and asks only when needed. */
+  /**
+   * The shell's `save_file` (desktop) / `save_document` (mobile): it keeps the document's file or picked document
+   * (`DocPath`) and asks only when needed – mobile writes back to the picked document and otherwise (untitled,
+   * Save As, a read-only "Open with" document) shows the system "save to" picker.
+   */
   async saveFile(suggestedName: string, bytesBase64: string, options: SaveOptions = {}): Promise<SaveResult> {
-    const remote = await this.connectors.trySave(suggestedName, bytesBase64, options);
+    const remote = await this.connectors?.trySave(suggestedName, bytesBase64, options);
     if (remote !== undefined) return remote;
-    const saved = await invoke<{ path: string; name: string } | null>("save_file", {
-      suggestedName,
-      bytesBase64,
-      saveAs: options.saveAs === true,
-      ...this.dialogText(t("dialog.saveAs.title")),
-    });
+    const saveAs = options.saveAs === true;
+    const saved = this.mobile
+      ? await invoke<{ path: string; name: string } | null>("save_document", { suggestedName, bytesBase64, saveAs })
+      : await invoke<{ path: string; name: string } | null>("save_file", {
+          suggestedName,
+          bytesBase64,
+          saveAs,
+          ...this.dialogText(t("dialog.saveAs.title")),
+        });
     if (!saved) return false;
-    this.connectors.localSaved();
-    return { name: saved.name, path: saved.path };
+    this.connectors?.localSaved();
+    return saved.path ? { name: saved.name, path: saved.path } : { name: saved.name };
+  }
+
+  /** Mobile: the system share sheet with a copy (`share_document`); the desktop shells have none. */
+  async share(suggestedName: string, bytesBase64: string): Promise<void> {
+    if (!this.mobile) throw new UnsupportedError("share");
+    await invoke("share_document", { suggestedName, bytesBase64 });
+  }
+
+  /** Mobile: the "Open with" document, once (`take_launch_document`); the desktop shells: always `null`. */
+  async takeLaunchDocument(): Promise<OpenedFile | null> {
+    if (!this.mobile) return null;
+    const file = await invoke<ShellFile | null>("take_launch_document");
+    return file ? { name: file.name, bytesBase64: file.bytesBase64 } : null;
   }
 
   setTitle(title: string): Promise<void> {
@@ -218,6 +305,7 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
   }
 
   async print(): Promise<void> {
+    if (this.mobile) throw new UnsupportedError("print");
     try {
       await invoke("print_webview");
     } catch {
@@ -236,6 +324,7 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
   readonly storage?: DocStorage;
   readonly connectors?: Connectors;
   readonly ai?: Assistant;
+  readonly capabilities: BackendCapabilities = { print: true, saveAs: true, share: false };
   private title = new TitleDecorator(async (title) => {
     document.title = title;
   });

@@ -23,9 +23,14 @@ tauri = { version = "=2.12.0", features = [] }
 tauri-plugin-dialog = "=2.8.0"
 write-core = { path = "../core" }
 base64 = "=0.23.1"
-# `tauri-connectors`: the opt-in cloud connector commands (P8-36, ADR 0009 amendment).
-app-common = { path = "../../../crates/app-common", features = ["fs", "tauri-connectors"] }
+app-common = { path = "../../../crates/app-common", features = ["fs"] }
+# Mobile document access (P10-M1): pickers, write-back, export, share sheet, Open with.
+tauri-plugin-rusuite-mobile = { path = "../../../crates/tauri-plugin-rusuite-mobile" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# `tauri-connectors`: the opt-in cloud connector commands (P8-36, ADR 0009 amendment) – desktop only (owner rule,
+# P10-M1): no connections, OS keyring or AI keys in the mobile apps.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+app-common = { path = "../../../crates/app-common", features = ["fs", "tauri-connectors"] }

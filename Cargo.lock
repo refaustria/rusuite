@@ -70,6 +70,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-rusuite-mobile",
  "thiserror 2.0.21",
 ]
 
@@ -114,6 +115,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-rusuite-mobile",
  "thiserror 2.0.21",
 ]
 
@@ -137,6 +139,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-rusuite-mobile",
  "thiserror 2.0.21",
  "write-core",
 ]
@@ -4509,6 +4512,17 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-rusuite-mobile"
+version = "3.141.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

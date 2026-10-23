@@ -11,6 +11,7 @@ members = [
     "crates/engine-formula",
     "crates/model-show",
     "crates/app-common",
+    "crates/tauri-plugin-rusuite-mobile",
     "apps/calc/src-tauri",
     "apps/calc/core",
     "apps/calc/src-wasm",
