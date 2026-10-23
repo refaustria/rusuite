@@ -515,6 +515,18 @@ export class CalcStore {
   private toastSeq = 0;
   /** Moves the keyboard focus back to the grid (set by the grid component). */
   focusGrid: () => void = () => {};
+
+  /**
+   * Ref mode of the touch formula keys (P10-M3): taps and drags on cells insert or replace the reference at the caret,
+   * the selection handles extend it. Off again when the edit ends.
+   */
+  touchRef = false;
+
+  setTouchRef(on: boolean): void {
+    if (this.touchRef === on || (on && !this.state.edit)) return;
+    this.touchRef = on;
+    this.notify();
+  }
   /** Internal clipboard (TSV of the last copy), used when the system clipboard is unavailable. */
   clipboard = "";
   /** The last copied/cut block (inputs, style ids, source range). */
@@ -622,6 +634,8 @@ export class CalcStore {
   };
 
   private set(partial: Partial<CalcState>): void {
+    // Ref mode of the touch key row ends with the edit (P10-M3).
+    if (partial.edit === null) this.touchRef = false;
     this.state = { ...this.state, ...partial };
     for (const fn of this.listeners) fn();
   }

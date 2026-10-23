@@ -5,8 +5,8 @@
 // pointer positions map back per quadrant. Zoom, gridlines, headings and
 // the frozen panes are the active sheet's `SheetView`.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ContextMenu, type ContextMenuItem } from "@rusuite/ui-shared";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { ContextMenu, LONG_PRESS_MS, type ContextMenuItem } from "@rusuite/ui-shared";
 import { calcActions, cellMenu, colHeaderMenu, rowHeaderMenu } from "../calcActions";
 import type { Rect } from "../generated/Rect";
 import { fillTarget } from "../state/clipboard";
@@ -47,6 +47,8 @@ import { drawOutlineBar, gutterSize, outlineGroups, outlineHitAt, type BarLayout
 import { cropFor, paintPictures } from "../pictures/controller";
 import { filterButton as afButton, type FilterButton } from "../sortFilter/filter";
 import type { AxisGeometry } from "./geometry";
+import { noteTouch, useTouchUi } from "../touch/touchUi";
+import { clampZoom, edgeScroll, isDoubleTap, pinchDistance, TOUCH_FILL_OFFSET, TOUCH_HANDLE_HIT, type Tap } from "../touch/gestures";
 
 /** The totals cell dropdown: just right of the active cell (Excel), so the total stays readable. */
 function totalsButton(colGeo: AxisGeometry, rowGeo: AxisGeometry, row: number, col: number): FilterButton | null {
@@ -55,8 +57,9 @@ function totalsButton(colGeo: AxisGeometry, rowGeo: AxisGeometry, row: number, c
 }
 import { breakLineAt, drawBreakPreview, previewBreaks, withBreak, withoutBreak, type BreakLine } from "../datatools/pageBreaks";
 
-/** Hit zone around a header boundary for resizing, px. */
+/** Hit zone around a header boundary for resizing, px (a finger gets more, P10-M3). */
 const RESIZE_SLOP = 4;
+const RESIZE_SLOP_TOUCH = 10;
 /** Rows/cols prefetched beyond the viewport. */
 const PREFETCH = 8;
 /** Fill handle: square size and hit slop, px. */
@@ -165,6 +168,31 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const editing = useCalc(store, (s) => s.edit !== null && s.edit.sheet === s.activeSheet);
   const chartTextEdit = useCalc(store, () => store.charts.textEdit !== null);
   const lastPoint = useRef<Cell | null>(null);
+
+  // --- touch (P10-M3): selection handles, touch fill handle, pinch zoom ---
+  const touchUi = useTouchUi();
+  const touchUiRef = useRef(touchUi);
+  touchUiRef.current = touchUi;
+  const refMode = useCalc(store, () => store.touchRef);
+  const startHandle = useRef<HTMLDivElement>(null);
+  const endHandle = useRef<HTMLDivElement>(null);
+  const touchFill = useRef<HTMLDivElement>(null);
+  /** Tap on the touch fill handle: the Fill sheet. */
+  const [, setFillSheet] = useState(false);
+  /** The zoom shown while pinching (committed to the sheet view when the fingers lift). */
+  const [pinchZoom, setPinchZoom] = useState<number | null>(null);
+  const pinchZoomRef = useRef<number | null>(null);
+  pinchZoomRef.current = pinchZoom;
+  /** The previous tap on a header edge (double tap = autofit). */
+  const lastEdgeTap = useRef<Tap | null>(null);
+  /** The active pinch: its source, start distance and zoom, the grid point under the fingers' centre. */
+  const pinch = useRef<{ source: "pointer" | "touch"; d0: number; z0: number; sx: number; sy: number } | null>(null);
+  /** Counts pinches (a tap that was part of one does not select). */
+  const pinchSeq = useRef(0);
+  /** The selection when the last primary touch went down (restored when it turns into a pinch). */
+  const touchDownSel = useRef<Selection | null>(null);
+  /** Where the pinch keeps the grid point under the fingers (applied after the zoom renders). */
+  const pinchScroll = useRef<{ left: number; top: number } | null>(null);
 
   const sheetData = useCallback((): SheetData => {
     const sheet = store.getState().activeSheet;
@@ -495,6 +523,44 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       }
     }
 
+    {
+      // Touch: the selection handles at the active range's corners (in Ref mode: the pointed reference's), the fill
+      // handle diagonally off the bottom-right corner.
+      const edit = state.edit;
+      let range: Range | null = null;
+      if (touchUiRef.current && !chartSheet && store.charts.selected?.sheet !== state.activeSheet && !store.pictures.selected) {
+        if (!edit) range = sel;
+        else if (store.touchRef && edit.point && edit.sheet === state.activeSheet) range = normalize({ anchor: edit.point.anchor, focus: edit.point.focus });
+      }
+      const z = pinchZoomRef.current ?? zoomNow;
+      const size = TOUCH_HANDLE_HIT / z;
+      const inside = (x: number, y: number) => x >= hw - 1 && y >= hh - 1 && x <= hw + l.width + 1 && y <= hh + l.height + 1;
+      const place = (el: HTMLDivElement | null, x: number, y: number, show: boolean) => {
+        if (!el) return;
+        if (!show || !inside(x, y)) {
+          el.style.display = "none";
+          return;
+        }
+        el.style.display = "flex";
+        el.style.width = el.style.height = `${size}px`;
+        el.style.left = `${x - size / 2}px`;
+        el.style.top = `${y - size / 2}px`;
+        el.style.setProperty("--rs-hz", String(z));
+      };
+      if (range) {
+        const x0 = hw + screenX(l, data.colGeo.offset(range.c0)), y0 = hh + screenY(l, data.rowGeo.offset(range.r0));
+        const x1 = hw + screenX(l, data.colGeo.offset(range.c1 + 1)), y1 = hh + screenY(l, data.rowGeo.offset(range.r1 + 1));
+        // Whole rows or columns get no handles (their far corner is off the sheet).
+        const whole = isWholeCols(range) || isWholeRows(range);
+        place(startHandle.current, x0, y0, !whole);
+        place(endHandle.current, x1, y1, !whole);
+        const off = TOUCH_FILL_OFFSET / z;
+        place(touchFill.current, x1 + off, y1 + off, !edit && !whole && inside(x1, y1));
+      } else {
+        for (const el of [startHandle.current, endHandle.current, touchFill.current]) if (el) el.style.display = "none";
+      }
+    }
+
     const box = editorBox.current;
     if (box) {
       const at = state.edit?.cell ?? store.activeAnchor();
@@ -637,6 +703,126 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     return () => el.removeEventListener("wheel", wheel);
   }, [layout, headerSize, schedule]);
 
+  // --- pinch zoom (P10-M3) ------------------------------------------------
+
+  const pinchRoot = () => scroller.current?.parentElement?.getBoundingClientRect() ?? null;
+  const pinchStart = (source: "pointer" | "touch", a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const el = scroller.current;
+    const root = pinchRoot();
+    if (!el || !root) return;
+    const d0 = pinchDistance(a, b);
+    if (d0 < 1) return;
+    const z0 = pinchZoomRef.current ?? store.sheetView().zoom / 100;
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    if (!pinch.current) {
+      pinchSeq.current++;
+      // The first finger's press selected (a header, a drag): a pinch leaves the selection as it was.
+      const before = touchDownSel.current;
+      touchDownSel.current = null;
+      if (before && !store.getState().edit) store.select(before);
+    }
+    pinch.current = { source, d0, z0, sx: el.scrollLeft + (cx - root.left) / z0, sy: el.scrollTop + (cy - root.top) / z0 };
+    // The browser must not pan while the fingers zoom.
+    el.style.touchAction = "none";
+  };
+  const pinchMove = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const p = pinch.current;
+    const root = pinchRoot();
+    if (!p || !root) return;
+    const z = clampZoom((p.z0 * pinchDistance(a, b)) / p.d0);
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    pinchScroll.current = { left: Math.max(0, p.sx - (cx - root.left) / z), top: Math.max(0, p.sy - (cy - root.top) / z) };
+    setPinchZoom(z);
+  };
+  const pinchEnd = () => {
+    if (!pinch.current) return;
+    pinch.current = null;
+    if (scroller.current) scroller.current.style.touchAction = "";
+    const z = pinchZoomRef.current;
+    if (z === null) return;
+    const zoom = Math.round(z * 100);
+    void store.setSheetView({ zoom }).finally(() => {
+      pinchScroll.current = null;
+      setPinchZoom(null);
+    });
+  };
+  const pinchRef = useRef({ start: pinchStart, move: pinchMove, end: pinchEnd });
+  pinchRef.current = { start: pinchStart, move: pinchMove, end: pinchEnd };
+
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const at = pinchScroll.current;
+    if (pinchZoom === null || !el || !at) return;
+    el.scrollLeft = at.left;
+    el.scrollTop = at.top;
+    schedule();
+  }, [pinchZoom, schedule]);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    // Two touch pointers pinch (pointer events: hybrids and the tests) …
+    const pts = new Map<number, { x: number; y: number }>();
+    const two = () => [...pts.values()].slice(0, 2) as [{ x: number; y: number }, { x: number; y: number }];
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2 && !pinch.current) pinchRef.current.start("pointer", ...two());
+    };
+    const move = (e: PointerEvent) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch.current?.source === "pointer" && pts.size >= 2) pinchRef.current.move(...two());
+    };
+    const up = (e: PointerEvent) => {
+      if (!pts.delete(e.pointerId)) return;
+      if (pinch.current?.source === "pointer" && pts.size < 2) pinchRef.current.end();
+    };
+    // … and two touches (phones: the browser may cancel the pointers when it starts panning; the touches go on).
+    const pt = (t: Touch) => ({ x: t.clientX, y: t.clientY });
+    const tstart = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        if (e.cancelable) e.preventDefault();
+        pinchRef.current.start("touch", pt(e.touches[0]!), pt(e.touches[1]!));
+        return;
+      }
+      // One finger on the headers, a border or the corner selects or resizes, and in Ref mode on cells it points:
+      // no native panning then.
+      const t = e.touches[0];
+      if (!t) return;
+      const h = hitTestRef.current(t.clientX, t.clientY, true);
+      const headers = h.kind === "colHeader" || h.kind === "rowHeader" || h.kind === "colEdge" || h.kind === "rowEdge" || h.kind === "corner" || h.kind === "outline" || h.kind === "splitter";
+      const pointing = h.kind === "cell" && !!store.getState().edit && store.touchRef;
+      if ((headers || pointing) && e.cancelable) e.preventDefault();
+    };
+    const tmove = (e: TouchEvent) => {
+      if (pinch.current?.source !== "touch" || e.touches.length < 2) return;
+      if (e.cancelable) e.preventDefault();
+      pinchRef.current.move(pt(e.touches[0]!), pt(e.touches[1]!));
+    };
+    const tend = (e: TouchEvent) => {
+      if (pinch.current?.source === "touch" && e.touches.length < 2) pinchRef.current.end();
+    };
+    el.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    el.addEventListener("touchstart", tstart, { passive: false });
+    el.addEventListener("touchmove", tmove, { passive: false });
+    el.addEventListener("touchend", tend);
+    el.addEventListener("touchcancel", tend);
+    return () => {
+      el.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      el.removeEventListener("touchstart", tstart);
+      el.removeEventListener("touchmove", tmove);
+      el.removeEventListener("touchend", tend);
+      el.removeEventListener("touchcancel", tend);
+    };
+  }, [store]);
+
   useEffect(() => {
     // The scroll position for Freeze Panes and Save; the split for View › Split.
     store.viewport = () => {
@@ -716,6 +902,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   }, [activeSheet, schedule, scrollToView]);
 
   useEffect(schedule, [sheetView, schedule]);
+  // The touch handles follow the touch switch, Ref mode and the pinch zoom.
+  useEffect(schedule, [touchUi, refMode, pinchZoom, schedule]);
 
   // Freezing / unfreezing / splitting: the panes start where the view says (frozen while scrolled keeps the position).
   const paneKey = `${sheetView.frozenRows},${sheetView.frozenCols},${sheetView.topRow ?? 0},${sheetView.leftCol ?? 0},${(sheetView.splitX ?? 0) > 0},${(sheetView.splitY ?? 0) > 0}`;
@@ -754,7 +942,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   // --- hit testing ------------------------------------------------------
 
-  const hitTest = (clientX: number, clientY: number): Hit => {
+  const hitTest = (clientX: number, clientY: number, touch = false): Hit => {
     const el = scroller.current;
     if (!el) return { kind: "none" };
     const rect = el.getBoundingClientRect();
@@ -807,16 +995,18 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const col = data.colGeo.indexAt(cx);
       const start = data.colGeo.offset(col);
       const end = start + data.colGeo.size(col);
-      if (end - cx <= RESIZE_SLOP) return { kind: "colEdge", col };
-      if (cx - start <= RESIZE_SLOP && col > 0) return { kind: "colEdge", col: col - 1 };
+      const slop = touch ? RESIZE_SLOP_TOUCH : RESIZE_SLOP;
+      if (end - cx <= slop) return { kind: "colEdge", col };
+      if (cx - start <= slop && col > 0) return { kind: "colEdge", col: col - 1 };
       return { kind: "colHeader", col };
     }
     if (x < hw) {
       const row = data.rowGeo.indexAt(cy);
       const start = data.rowGeo.offset(row);
       const end = start + data.rowGeo.size(row);
-      if (end - cy <= RESIZE_SLOP / 2 + 1) return { kind: "rowEdge", row };
-      if (cy - start <= RESIZE_SLOP / 2 && row > 0) return { kind: "rowEdge", row: row - 1 };
+      const slop = touch ? RESIZE_SLOP_TOUCH / 2 : RESIZE_SLOP / 2;
+      if (end - cy <= slop + 1) return { kind: "rowEdge", row };
+      if (cy - start <= slop && row > 0) return { kind: "rowEdge", row: row - 1 };
       return { kind: "rowHeader", row };
     }
     if (store.getState().pageBreakPreview && !store.getState().edit) {
@@ -838,6 +1028,106 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     }
     return { kind: "cell", cell: { row: data.rowGeo.indexAt(cy), col: data.colGeo.indexAt(cx) } };
   };
+
+  const hitTestRef = useRef(hitTest);
+  hitTestRef.current = hitTest;
+
+  // --- selection handles (P10-M3) ---------------------------------------
+
+  /** The cell a handle's corner at a client point stands for (`bias` −1: a bottom-right corner, 1: a top-left one). */
+  const cellUnder = (clientX: number, clientY: number, bias: number): Cell => {
+    const el = scroller.current;
+    const data = sheetData();
+    if (!el) return { row: 0, col: 0 };
+    const rect = el.getBoundingClientRect();
+    const scale = screenScale(el);
+    const { hw, hh } = headerSize();
+    const l = layout();
+    const x = Math.max(0, Math.min(l.width - 1, (clientX - rect.left) / scale - hw));
+    const y = Math.max(0, Math.min(l.height - 1, (clientY - rect.top) / scale - hh));
+    const p = toSheet(l, x, y);
+    return {
+      row: data.rowGeo.indexAt(Math.max(0, p.y + (bias * data.rowGeo.defaultSize) / 2)),
+      col: data.colGeo.indexAt(Math.max(0, p.x + (bias * data.colGeo.defaultSize) / 2)),
+    };
+  };
+
+  /**
+   * Drags a selection handle (the range's top-left or bottom-right corner, cell by cell; at the edges the grid scrolls)
+   * or the touch fill handle (a tap opens the Fill sheet). In Ref mode the handles resize the pointed reference.
+   */
+  const handlePointer = (which: "start" | "end" | "fill", e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.pointerType === "touch") noteTouch();
+    const el = scroller.current;
+    if (!el) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const off = which === "fill" ? (box.width * TOUCH_FILL_OFFSET) / TOUCH_HANDLE_HIT : 0;
+    // The pointer's offset from the corner the handle stands for.
+    const gx = e.clientX - (box.left + box.width / 2 - off), gy = e.clientY - (box.top + box.height / 2 - off);
+    const st = store.getState();
+    const src = normalize(st.selection);
+    const point = st.edit && store.touchRef ? st.edit.point : null;
+    const range = point ? normalize({ anchor: point.anchor, focus: point.focus }) : src;
+    const fixed: Cell = which === "start" ? { row: range.r1, col: range.c1 } : { row: range.r0, col: range.c0 };
+    const x0 = e.clientX, y0 = e.clientY;
+    let last = { x: e.clientX, y: e.clientY };
+    let moved = false;
+    const update = () => {
+      const cell = cellUnder(last.x - gx, last.y - gy, which === "start" ? 1 : -1);
+      if (which === "fill") {
+        fillPreview.current = fillTarget(src, cell);
+        schedule();
+      } else if (point) store.pointRange(fixed, cell);
+      else store.select({ anchor: fixed, focus: cell });
+    };
+    const timer = setInterval(() => {
+      if (!moved) return;
+      const rect = el.getBoundingClientRect();
+      const scale = screenScale(el);
+      const { hw, hh } = headerSize();
+      const l = layout();
+      const data = sheetData();
+      const dx = edgeScroll((last.x - rect.left) / scale - hw, l.width, data.colGeo.defaultSize);
+      const dy = edgeScroll((last.y - rect.top) / scale - hh, l.height, data.rowGeo.defaultSize);
+      if (dx === 0 && dy === 0) return;
+      if (dy > 0) grow.current.rows = Math.max(grow.current.rows, data.rowGeo.indexAt(l.scrollY + l.height) + 50);
+      if (dx > 0) grow.current.cols = Math.max(grow.current.cols, data.colGeo.indexAt(l.scrollX + l.width) + 10);
+      draw();
+      el.scrollLeft += dx;
+      el.scrollTop += dy;
+      update();
+    }, 60);
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      last = { x: ev.clientX, y: ev.clientY };
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+      moved = true;
+      update();
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      clearInterval(timer);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (which === "fill") {
+        const dst = fillPreview.current;
+        fillPreview.current = null;
+        schedule();
+        if (moved && dst) void store.fill(dst, "auto");
+        else if (!moved && ev.type === "pointerup") openFillSheet();
+        return;
+      }
+      if (moved && !point) void store.selectionDone();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+  const openFillSheet = () => setFillSheet(true);
 
   const scrollIntoView = (cell: Cell) => {
     const el = scroller.current;
@@ -974,7 +1264,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   // Pointer events (mobile guardrail): a press on a filter button opens its dropdown; the rest is the mouse path below.
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    const hit = hitTest(e.clientX, e.clientY);
+    if (e.pointerType === "touch") {
+      noteTouch();
+      // The second finger of a pinch is not a press on the grid.
+      if (!e.isPrimary || pinch.current) return;
+      touchDownSel.current = store.getState().selection;
+    }
+    const hit = hitTest(e.clientX, e.clientY, e.pointerType === "touch");
     if (hit.kind === "splitter") {
       // Dragging a splitter moves it; dropped at the window's edge it goes away (Excel).
       e.preventDefault();
@@ -1174,24 +1470,35 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       || hit.kind === "tableFilter" || hit.kind === "totalsButton" || hit.kind === "splitter" || (hit.kind === "pivotButton" && !store.getState().edit)
     ) return;
     // Touch: a tap selects (on release, so that a swipe scrolls the sheet instead); no drag selection.
-    if (e.pointerType === "touch" && hit.kind === "cell" && !store.getState().edit) {
+    if (e.pointerType === "touch" && hit.kind === "cell") {
+      if (store.getState().edit && store.touchRef) {
+        // Ref mode (P10-M3): a tap inserts the cell's reference at the caret, a drag a range (the grid does not pan).
+        e.preventDefault();
+        pointWithMouse(hit, false, false);
+        return;
+      }
+      // A drag pans the grid natively; only a tap (no long press, no pinch) selects.
       const cell = hit.cell;
-      const x0 = e.clientX, y0 = e.clientY;
-      const up = (ev: PointerEvent) => {
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", cancel);
-        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10) return;
-        store.pictures.deselect();
-        store.slicers.deselect();
-        scroller.current?.focus({ preventScroll: true });
-        store.select(cellSelection(cell.row, cell.col));
+      const x0 = e.clientX, y0 = e.clientY, t0 = performance.now();
+      const pinches = pinchSeq.current;
+      let menu = false;
+      const onMenu = () => {
+        menu = true;
       };
-      const cancel = () => {
+      const done = () => {
         window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", cancel);
+        window.removeEventListener("pointercancel", done);
+        window.removeEventListener("contextmenu", onMenu, true);
+      };
+      const up = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        done();
+        if (menu || pinches !== pinchSeq.current || Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10 || performance.now() - t0 >= LONG_PRESS_MS) return;
+        tapCell(cell);
       };
       window.addEventListener("pointerup", up);
-      window.addEventListener("pointercancel", cancel);
+      window.addEventListener("pointercancel", done);
+      window.addEventListener("contextmenu", onMenu, true);
       return;
     }
     // While editing, a pivot button is just its cell (point mode).
@@ -1290,12 +1597,18 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       const startPos = axis === "col" ? e.clientX : e.clientY;
       const scale = scroller.current ? screenScale(scroller.current) : 1;
       resizePreview.current = { axis, index, size: startSize };
+      const touch = e.pointerType === "touch";
+      let dragging = !touch;
       const move = (ev: PointerEvent) => {
+        if (pinch.current) return;
         const pos = axis === "col" ? ev.clientX : ev.clientY;
+        // A finger's jitter is not a resize.
+        if (!dragging && Math.abs(pos - startPos) < 5) return;
+        dragging = true;
         resizePreview.current = { axis, index, size: Math.max(0, startSize + (pos - startPos) / scale) };
         schedule();
       };
-      const up = () => {
+      const up = (ev: PointerEvent) => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
         window.removeEventListener("pointercancel", up);
@@ -1304,6 +1617,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
         schedule();
         if (p && p.size !== startSize) {
           void (axis === "col" ? store.setColWidth(index, p.size) : store.setRowHeight(index, p.size));
+        } else if (touch && ev.type === "pointerup") {
+          // A double tap on a border autofits, like the double-click.
+          const tap: Tap = { key: `${axis}${index}`, x: ev.clientX, y: ev.clientY, at: performance.now() };
+          if (isDoubleTap(lastEdgeTap.current, tap)) {
+            lastEdgeTap.current = null;
+            void (axis === "col" ? store.autofitCols([index]) : store.autofitRow(index));
+          } else lastEdgeTap.current = tap;
         }
       };
       window.addEventListener("pointermove", move);
@@ -1322,6 +1642,7 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
     const anchor = next.anchor;
     const move = (ev: PointerEvent) => {
+      if (pinch.current) return;
       const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
       if (hit.kind === "colHeader" && (h.kind === "colHeader" || h.kind === "cell" || h.kind === "colEdge")) {
         const col = h.kind === "cell" ? h.cell.col : h.col;
@@ -1345,8 +1666,38 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       window.addEventListener("pointercancel", up);
   };
 
+  /**
+   * A tap on a cell (touch, P10-M3): selects it; a tap on the cell already selected starts editing it (Excel mobile);
+   * while editing (not in Ref mode) a tap on another cell commits the edit first.
+   */
+  const tapCell = (cell: Cell) => {
+    if (store.getState().edit) {
+      const sheet = store.getState().activeSheet;
+      void store.commitEdit(0, 0);
+      if (store.getState().edit || store.getState().activeSheet !== sheet) return;
+    }
+    store.pictures.deselect();
+    store.slicers.deselect();
+    if (store.comments.selectedNote) {
+      store.comments.selectedNote = null;
+      store.notify();
+    }
+    scroller.current?.focus({ preventScroll: true });
+    const cur = normalize(store.getState().selection);
+    const m = mergeAt(store.merges(), cell.row, cell.col) ?? { r0: cell.row, c0: cell.col, r1: cell.row, c1: cell.col };
+    if (!store.getState().selection.areas?.length && cur.r0 === m.r0 && cur.c0 === m.c0 && cur.r1 === m.r1 && cur.c1 === m.c1) {
+      if (store.pivots.toggleLabel(cell.row, cell.col)) return;
+      store.beginEdit(null);
+      return;
+    }
+    store.select(cellSelection(cell.row, cell.col));
+  };
+
   /** Point mode: a click inserts the cell's reference, a drag a range, a header whole columns/rows. */
-  const pointWithMouse = (hit: Extract<Hit, { kind: "cell" | "colHeader" | "rowHeader" }>, extend: boolean) => {
+  const pointWithMouse = (hit: Extract<Hit, { kind: "cell" | "colHeader" | "rowHeader" }>, extend: boolean, focus = true) => {
+    const focusEditor = () => {
+      if (focus) store.focusEditor();
+    };
     const corners = (h: Hit): [Cell, Cell] | null => {
       if (h.kind === "cell") return [h.cell, h.cell];
       if (h.kind === "colHeader") return [{ row: 0, col: h.col }, { row: LAST_ROW, col: h.col }];
@@ -1359,21 +1710,21 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
       // Generate GetPivotData: a value of a pivot table is referenced by its items, not by its address (Excel).
       const gpd = store.pivots.getPivotDataAt(hit.cell.row, hit.cell.col, edit.sheet);
       if (gpd && store.insertAtPoint(gpd)) {
-        store.focusEditor();
+        focusEditor();
         return;
       }
       // A cell of a table on the edited cell's row: `[@Col]` (Excel's "this row" reference).
       const sheetNow = store.getState().activeSheet;
       const tref = sheetNow === edit.sheet ? store.tables.pointRef(sheetNow, edit.cell, hit.cell) : null;
       if (tref && store.insertAtPoint(tref)) {
-        store.focusEditor();
+        focusEditor();
         return;
       }
     }
     const point = store.getState().edit?.point;
     const anchor = extend && point && store.getState().edit?.selEnd === point.end ? point.anchor : a;
     store.pointRange(anchor, f);
-    store.focusEditor();
+    focusEditor();
     const move = (ev: PointerEvent) => {
       const h = hitTest(Math.max(ev.clientX, 0), Math.max(ev.clientY, 0));
       if (h.kind !== hit.kind) return;
@@ -1605,7 +1956,12 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
 
   return (
     <>
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-white" data-testid="grid-root" style={zoom !== 1 ? { zoom } : undefined}>
+      <div
+        className="relative min-h-0 flex-1 overflow-hidden bg-white"
+        data-testid="grid-root"
+        data-zoom={Math.round((pinchZoom ?? zoom) * 100)}
+        style={(pinchZoom ?? zoom) !== 1 ? { zoom: pinchZoom ?? zoom } : undefined}
+      >
         <canvas
           ref={cellsCanvas}
           className="absolute"
@@ -1644,6 +2000,13 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
           <div ref={spacer} style={{ width: 1, height: 1 }} />
         </div>
         {editing && <CellEditor store={store} boxRef={editorBox} onMount={draw} />}
+        {touchUi && (
+          <>
+            {/* Selection handles (touch): drag to resize the range (in Ref mode: the reference). */}
+            <div ref={startHandle} data-testid="selection-handle-start" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("start", e)} />
+            <div ref={endHandle} data-testid="selection-handle-end" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("end", e)} />
+          </>
+        )}
         <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />
         <ValidationOverlay store={store} boxRef={validationBox} onMount={draw} />
         <ErrorTag store={store} boxRef={errorBox} onMount={draw} />

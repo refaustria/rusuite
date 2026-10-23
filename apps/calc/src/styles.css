@@ -8,3 +8,25 @@ body,
   margin: 0;
   overflow: hidden;
 }
+
+/* Touch selection handles (P10-M3): a 44 px target (at any grid zoom: `--rs-hz`) around a 24 px dot on the corner. */
+.rs-sel-handle {
+  position: absolute;
+  z-index: 20;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.rs-sel-handle::after {
+  content: "";
+  width: calc(24px / var(--rs-hz, 1));
+  height: calc(24px / var(--rs-hz, 1));
+  box-sizing: border-box;
+  border-radius: 9999px;
+  border: calc(2px / var(--rs-hz, 1)) solid #217346;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.rs-sel-handle[data-ref-mode]::after {
+  border-color: #1a73e8;
+}
