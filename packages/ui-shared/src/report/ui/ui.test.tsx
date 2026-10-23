@@ -1,12 +1,16 @@
 // The dialog: the "I understand" gate, the diagnostics preview, success / 429 / 502 rendering, screenshots.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { ReportController } from "../controller";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ReportController, reportAvailable } from "../controller";
+import { TopBar } from "../../compact/TopBar";
 import type { ReportScreenshot } from "../types";
 import { ReportOverlay } from "./ReportDialog";
-import { HelpMenu } from "./ribbon";
+import { HelpMenu, ReportBackstageItem } from "./ribbon";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const PNG_B64 = btoa("\x89PNG\r\n\x1a\n0000");
@@ -157,5 +161,31 @@ describe("ReportDialog", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Report a problem…/ }));
     expect(screen.getByTestId("report-dialog")).toBeTruthy();
     expect(c.getState().diagnostics?.docStats).toEqual({ cells: 9 });
+  });
+
+  it("the mobile shells offer no Report a problem (Help menu, File, the ⋯ sheet); open() does nothing there", () => {
+    const c = new ReportController({ storage: null, env: () => ({ userAgent: "UA", platform: "", width: 1, height: 1 }) });
+    expect(reportAvailable()).toBe(true);
+    vi.stubGlobal("__RUSUITE_MOBILE__", "android");
+    expect(reportAvailable()).toBe(false);
+    const pick = vi.fn();
+    render(
+      <>
+        <HelpMenu controller={c} />
+        <ul data-testid="file-items">
+          <ReportBackstageItem pick={pick} controller={c} />
+        </ul>
+        <TopBar accent="#000" />
+        <ReportOverlay controller={c} />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Help" }));
+    expect(screen.queryByRole("menuitem", { name: /Report a problem/ })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeTruthy();
+    expect(screen.getByTestId("file-items").childElementCount).toBe(0);
+    fireEvent.click(screen.getByTestId("compact-more"));
+    expect(screen.getByTestId("compact-more-sheet").textContent).not.toContain("Report a problem");
+    act(() => c.open());
+    expect(screen.queryByTestId("report-dialog")).toBeNull();
   });
 });

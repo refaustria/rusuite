@@ -1,5 +1,6 @@
 // Rusuite's mobile document access on Android (P10-M1): Storage Access Framework pickers, write-back to the picked
-// document, export through ACTION_CREATE_DOCUMENT, the share sheet and "Open with" intents. The Rust half is
+// document, export through ACTION_CREATE_DOCUMENT, the share sheet and "Open with" intents; PDF export (P10-M6)
+// through the webview's own print adapter (android/print/RusuitePdfWriter.kt). The Rust half is
 // `crates/tauri-plugin-rusuite-mobile/src/lib.rs`; every reply is `{ document?: … }` (missing = cancelled).
 
 package dev.rusuite.mobile
@@ -8,6 +9,16 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.ParcelFileDescriptor
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.print.PrintManager
+import android.print.RusuitePdfWriter
+import android.content.Context
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.webkit.WebView
@@ -21,6 +32,8 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 @InvokeArg
 class PickArgs {
@@ -45,6 +58,56 @@ class ExportArgs {
   lateinit var bytesBase64: String
 }
 
+@InvokeArg
+class PaperArgs {
+  var widthMm: Double = 210.0
+  var heightMm: Double = 297.0
+  var landscape: Boolean = false
+}
+
+@InvokeArg
+class PdfArgs {
+  lateinit var name: String
+  var paper: PaperArgs = PaperArgs()
+}
+
+/** Hands a finished PDF file to the print service (the system dialog re-reads it for every preview). */
+class PdfFileAdapter(private val name: String, private val file: File) : PrintDocumentAdapter() {
+  override fun onLayout(
+    oldAttributes: PrintAttributes?,
+    newAttributes: PrintAttributes,
+    cancellationSignal: CancellationSignal?,
+    callback: LayoutResultCallback,
+    extras: Bundle?
+  ) {
+    if (cancellationSignal?.isCanceled == true) {
+      callback.onLayoutCancelled()
+      return
+    }
+    val info = PrintDocumentInfo.Builder(name)
+      .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+      .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+      .build()
+    callback.onLayoutFinished(info, oldAttributes == null)
+  }
+
+  override fun onWrite(
+    pages: Array<out PageRange>?,
+    destination: ParcelFileDescriptor,
+    cancellationSignal: CancellationSignal?,
+    callback: WriteResultCallback
+  ) {
+    try {
+      FileInputStream(file).use { input ->
+        FileOutputStream(destination.fileDescriptor).use { output -> input.copyTo(output) }
+      }
+      callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+    } catch (e: Exception) {
+      callback.onWriteFailed(e.message)
+    }
+  }
+}
+
 @TauriPlugin
 class RusuiteMobilePlugin(private val activity: Activity) : Plugin(activity) {
   /** The document of the last VIEW/EDIT intent, until the page takes it. */
@@ -52,7 +115,13 @@ class RusuiteMobilePlugin(private val activity: Activity) : Plugin(activity) {
   /** The bytes of the export in progress (ACTION_CREATE_DOCUMENT returns before they are written). */
   private var exportBytes: ByteArray? = null
 
+  /** The app's webview (its print media is the page's print root while a PDF is made). */
+  private var webView: WebView? = null
+  /** The rendered PDF of the export in progress (ACTION_CREATE_DOCUMENT returns before it is copied). */
+  private var exportPdfFile: File? = null
+
   override fun load(webView: WebView) {
+    this.webView = webView
     remember(activity.intent)
   }
 
@@ -248,5 +317,137 @@ class RusuiteMobilePlugin(private val activity: Activity) : Plugin(activity) {
       return
     }
     io(invoke) { wrap(read(uri)) }
+  }
+  // ------------------------------------------------------------------ PDF (P10-M6)
+
+  /** The page's paper as print attributes: a custom media size in mils, no margins (the pages carry theirs). */
+  private fun attributes(paper: PaperArgs): PrintAttributes {
+    val mils = { mm: Double -> Math.round(mm / 25.4 * 1000.0).toInt().coerceIn(100, 200_000) }
+    val short = mils(minOf(paper.widthMm, paper.heightMm))
+    val long = mils(maxOf(paper.widthMm, paper.heightMm))
+    var media = PrintAttributes.MediaSize("rusuite_${short}x$long", "Rusuite", short, long)
+    if (paper.landscape || paper.widthMm > paper.heightMm) media = media.asLandscape()
+    return PrintAttributes.Builder()
+      .setMediaSize(media)
+      .setResolution(PrintAttributes.Resolution("rusuite", "PDF", 600, 600))
+      .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+      .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+      .build()
+  }
+
+  private fun pdfName(name: String): String {
+    val safe = name.replace('/', '_').ifEmpty { "document.pdf" }
+    return if (safe.lowercase().endsWith(".pdf")) safe else "$safe.pdf"
+  }
+
+  /** Renders the webview to `file` on the main thread; `done(null)` on success, else with the error message. */
+  private fun render(args: PdfArgs, file: File, done: (String?) -> Unit) {
+    activity.runOnUiThread {
+      val view = webView
+      if (view == null) {
+        done("the webview is not ready")
+        return@runOnUiThread
+      }
+      val adapter = view.createPrintDocumentAdapter(pdfName(args.name))
+      RusuitePdfWriter.write(adapter, attributes(args.paper), file, done)
+    }
+  }
+
+  private fun pdfFile(): File = File(File(activity.cacheDir, "pdf"), "render.pdf")
+
+  @Command
+  fun exportPdf(invoke: Invoke) {
+    val args = invoke.parseArgs(PdfArgs::class.java)
+    val file = pdfFile()
+    render(args, file) { error ->
+      if (error != null) {
+        invoke.reject(error)
+        return@render
+      }
+      val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+      intent.addCategory(Intent.CATEGORY_OPENABLE)
+      intent.type = "application/pdf"
+      intent.putExtra(Intent.EXTRA_TITLE, pdfName(args.name))
+      exportPdfFile = file
+      try {
+        startActivityForResult(invoke, intent, "exportPdfResult")
+      } catch (_: ActivityNotFoundException) {
+        // No document provider: the share sheet instead (as exportDocument).
+        exportPdfFile = null
+        sharePdfFile(invoke, file, pdfName(args.name))
+      }
+    }
+  }
+
+  @ActivityCallback
+  fun exportPdfResult(invoke: Invoke, result: ActivityResult) {
+    val file = exportPdfFile
+    exportPdfFile = null
+    val uri = result.data?.data
+    if (result.resultCode != Activity.RESULT_OK || uri == null || file == null) {
+      file?.delete()
+      invoke.resolve(wrap(null))
+      return
+    }
+    io(invoke) {
+      try {
+        write(uri, file.readBytes())
+      } finally {
+        file.delete()
+      }
+      // No handle: the apps cannot open a PDF, so it never enters the recent list.
+      val doc = JSObject()
+      doc.put("name", displayName(uri))
+      wrap(doc)
+    }
+  }
+
+  @Command
+  fun sharePdf(invoke: Invoke) {
+    val args = invoke.parseArgs(PdfArgs::class.java)
+    val file = pdfFile()
+    render(args, file) { error ->
+      if (error != null) invoke.reject(error) else sharePdfFile(invoke, file, pdfName(args.name))
+    }
+  }
+
+  /** ACTION_SEND of the rendered PDF, moved into `cache/share/` (the FileProvider's only path). */
+  private fun sharePdfFile(invoke: Invoke, file: File, name: String) {
+    io(invoke) {
+      val dir = File(activity.cacheDir, "share")
+      dir.mkdirs()
+      val shared = File(dir, name)
+      file.copyTo(shared, overwrite = true)
+      file.delete()
+      val uri = FileProvider.getUriForFile(activity, activity.packageName + ".fileprovider", shared)
+      val send = Intent(Intent.ACTION_SEND)
+      send.type = "application/pdf"
+      send.putExtra(Intent.EXTRA_STREAM, uri)
+      send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      activity.runOnUiThread { activity.startActivity(Intent.createChooser(send, name)) }
+      JSObject()
+    }
+  }
+
+  @Command
+  fun printPdf(invoke: Invoke) {
+    val args = invoke.parseArgs(PdfArgs::class.java)
+    // One file per job: the print service reads it while its dialog is open, after this call returned.
+    val file = File(File(activity.cacheDir, "pdf"), "print-${System.currentTimeMillis()}.pdf")
+    File(activity.cacheDir, "pdf").listFiles()?.filter { it.name.startsWith("print-") }?.forEach { it.delete() }
+    render(args, file) { error ->
+      if (error != null) {
+        invoke.reject(error)
+        return@render
+      }
+      try {
+        val manager = activity.getSystemService(Context.PRINT_SERVICE) as PrintManager
+        val name = pdfName(args.name)
+        manager.print(name, PdfFileAdapter(name, file), attributes(args.paper))
+        invoke.resolve(JSObject())
+      } catch (e: Exception) {
+        invoke.reject(e.message ?: e.javaClass.simpleName)
+      }
+    }
   }
 }

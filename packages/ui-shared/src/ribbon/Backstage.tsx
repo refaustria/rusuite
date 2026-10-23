@@ -19,6 +19,7 @@ import { ReportOverlay } from "../report/ui/ReportDialog";
 import { ReportBackstageItem } from "../report/ui/ribbon";
 import { publicVersion, RUSUITE_VERSION } from "../version";
 import { useCompact } from "../compact/useCompact";
+import { PdfBusySheet } from "../print/PdfBusySheet";
 
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
@@ -27,8 +28,12 @@ export interface BackstageActions {
   onOpen?: () => void;
   onSave?: () => void;
   onSaveAs?: () => void;
-  /** "Export PDF…": prints the document with the current print settings (the user picks "Save as PDF"). */
-  onExportPdf?: () => void;
+  /**
+   * "Export PDF…": the document with the current print settings as a PDF – without a dialog where the backend
+   * renders PDFs (`capabilities.pdf`, P10-M6), else through the print dialog (the user picks "Save as PDF").
+   * `"share"`: "Share as PDF…" – the same PDF to the system share sheet (shown with `capabilities.share` and `pdf`).
+   */
+  onExportPdf?: (mode?: "share") => void;
   /** The Print page (Ctrl+P): print settings and preview, rendered while the page is shown. */
   print?: ReactNode;
   /** "Close": close the document (apps start a blank one, asking before discarding changes). */
@@ -176,9 +181,15 @@ export function backstageOptions(session: AnySession | undefined, onOptions: (()
     : onOptions;
 }
 
-/** Whether the backend says it cannot print (mobile shells: `capabilities.print === false`); then Print and Export PDF are hidden. */
+/** Whether the backend says it cannot print (`capabilities.print === false`); then Print and Export PDF are hidden. */
 export function cannotPrint(session: AnySession | undefined): boolean {
   return (session?.backend as { capabilities?: { print?: boolean } } | undefined)?.capabilities?.print === false;
+}
+
+/** Whether the backend hands PDFs to the share sheet (mobile shells, P10-M6: `capabilities.share` and `pdf`). */
+export function canSharePdf(session: AnySession | undefined): boolean {
+  const caps = (session?.backend as { capabilities?: { share?: boolean; pdf?: boolean } } | undefined)?.capabilities;
+  return caps?.share === true && caps.pdf === true;
 }
 
 /** Full-pane File view (Office "backstage"). In the compact layout (P10-M2) a full-screen page with the commands on top. */
@@ -190,7 +201,8 @@ export function Backstage({
   const compact = useCompact();
   const noPrint = cannotPrint(session);
   const print = noPrint ? undefined : printProp;
-  const onExportPdf = noPrint ? undefined : exportPdfProp;
+  const onExportPdf = noPrint || !exportPdfProp ? undefined : () => exportPdfProp();
+  const onSharePdf = exportPdfProp && canSharePdf(session) ? () => exportPdfProp("share") : undefined;
   /** Command rows: 44 px touch targets in the compact layout. */
   const row = compact ? "min-h-11 py-2.5" : "py-2";
   const connectors = session?.connectors ?? null;
@@ -229,6 +241,7 @@ export function Backstage({
       {connectors && <ConnectorsOverlay connectors={connectors} />}
       {ai && <AiOverlay ai={ai} />}
       <ReportOverlay host={session?.backend} />
+      <PdfBusySheet />
     </>
   );
   // File › Options…: the shared options dialog (AI, P8-37); an app's own options become its General page.
@@ -371,6 +384,7 @@ export function Backstage({
             </li>
           )}
           {item("export", t("backstage.exportPdf"), "pdf", onExportPdf, print ? undefined : "Mod+P", !!exportDisabled)}
+          {item("sharePdf", t("backstage.sharePdf"), "pdf", onSharePdf, undefined, !!exportDisabled)}
         </ul>
         <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">
           {item("close", t("backstage.close"), "close", onCloseDocument)}

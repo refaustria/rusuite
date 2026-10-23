@@ -35,6 +35,12 @@ vi.mock("@tauri-apps/api/core", () => ({
           : { path: "content://docs/2", name: "saved.xlsx" };
       case "share_document":
         return null;
+      // PDF (P10-M6).
+      case "export_pdf":
+        return args?.suggestedName === "cancel.pdf" ? null : "picked.pdf";
+      case "print_pdf":
+      case "share_pdf":
+        return null;
       case "take_launch_document":
         return { path: "content://mail/7", name: "attachment.xlsx", bytesBase64: "UEs=" };
       default:
@@ -52,6 +58,7 @@ import {
   TauriBackend,
   UnsupportedError,
   capabilitiesOf,
+  pdfFileName,
   isMobile,
   mobilePlatform,
   WasmBackend,
@@ -302,15 +309,58 @@ describe("mobile shells (P10-M1)", () => {
     expect(isMobile()).toBe(false);
   });
 
-  it("capabilities: desktop and web print, only mobile shares; absent = defaults", () => {
-    expect(new TauriBackend().capabilities).toEqual({ print: true, saveAs: true, share: false });
-    expect(new WasmBackend(fake, { storage: null }).capabilities).toEqual({ print: true, saveAs: true, share: false });
-    expect(new TauriBackend(undefined, ".xlsx", { mobile: true }).capabilities).toEqual({
+  it("capabilities: desktop and web print, only mobile shares, PDFs where the shell renders them; absent = defaults", () => {
+    expect(new TauriBackend().capabilities).toEqual({ print: true, saveAs: true, share: false, pdf: false });
+    expect(new WasmBackend(fake, { storage: null }).capabilities).toEqual({ print: true, saveAs: true, share: false, pdf: false });
+    expect(new TauriBackend(undefined, ".xlsx", { mobile: true, pdf: false }).capabilities).toEqual({
       print: false,
       saveAs: true,
       share: true,
+      pdf: false,
     });
-    expect(capabilitiesOf({})).toEqual({ print: true, saveAs: true, share: false });
+    // The shell's marker (P10-M6): Print comes back on mobile, through the PDF.
+    vi.stubGlobal("__RUSUITE_PDF__", true);
+    expect(new TauriBackend(undefined, ".xlsx", { mobile: true }).capabilities).toEqual({ print: true, saveAs: true, share: true, pdf: true });
+    expect(new TauriBackend().capabilities.pdf).toBe(true);
+    expect(capabilitiesOf({})).toEqual({ print: true, saveAs: true, share: false, pdf: false });
+    expect(capabilitiesOf({ capabilities: { print: false, saveAs: true, share: true, pdf: true } }).pdf).toBe(true);
+  });
+
+  it("PDF commands (P10-M6): export everywhere, print and share on mobile", async () => {
+    const paper = { widthMm: 210, heightMm: 297, landscape: false };
+    const desktop = new TauriBackend(undefined, ".xlsx", { pdf: true });
+    expect(await desktop.exportPdf("Book1.pdf", paper)).toBe("picked.pdf");
+    expect(invoke).toHaveBeenLastCalledWith("export_pdf", { suggestedName: "Book1.pdf", paper, dialog: { title: "Export PDF" } });
+    expect(await desktop.exportPdf("cancel.pdf", paper)).toBeNull();
+    await expect(desktop.sharePdf("a.pdf", paper)).rejects.toBeInstanceOf(UnsupportedError);
+    await expect(new TauriBackend(undefined, ".xlsx", { pdf: false }).exportPdf("a.pdf", paper)).rejects.toBeInstanceOf(UnsupportedError);
+    const mobile = new TauriBackend(undefined, ".xlsx", { mobile: true, pdf: true });
+    vi.stubGlobal("document", { title: "• Budget.xlsx – Rusuite Calc" });
+    await mobile.print({ ...paper, widthMm: 297, heightMm: 210, landscape: true });
+    expect(invoke).toHaveBeenLastCalledWith("print_pdf", { suggestedName: "Budget.pdf", paper: { widthMm: 297, heightMm: 210, landscape: true } });
+    await mobile.print();
+    expect(invoke).toHaveBeenLastCalledWith("print_pdf", { suggestedName: "Budget.pdf", paper });
+    await mobile.sharePdf("Budget.pdf", paper);
+    expect(invoke).toHaveBeenLastCalledWith("share_pdf", { suggestedName: "Budget.pdf", paper });
+  });
+
+  it("names PDFs after the document", () => {
+    expect(pdfFileName("Budget.xlsx")).toBe("Budget.pdf");
+    expect(pdfFileName("• Report.docx")).toBe("Report.pdf");
+    expect(pdfFileName("Deck")).toBe("Deck.pdf");
+    expect(pdfFileName("")).toBe("Untitled.pdf");
+  });
+
+  it("the web build exports PDFs only through the e2e hook (simulated desktop)", async () => {
+    const hook = vi.fn(async () => "x.pdf");
+    vi.stubGlobal("__RUSUITE_TEST_INVOKE__", hook);
+    expect(new WasmBackend(fake, { storage: null }).capabilities.pdf).toBe(false);
+    vi.stubGlobal("__RUSUITE_PLATFORM__", "desktop");
+    const b = new WasmBackend(fake, { storage: null, ai: false, connectors: false });
+    expect(b.capabilities.pdf).toBe(true);
+    const paper = { widthMm: 215.9, heightMm: 279.4, landscape: false };
+    expect(await b.exportPdf("a.pdf", paper)).toBe("x.pdf");
+    expect(hook).toHaveBeenCalledWith("export_pdf", { suggestedName: "a.pdf", paper, dialog: { title: "Export PDF" } });
   });
 
   it("has neither connections nor the AI assistant (desktop-only, owner rule)", () => {
@@ -335,8 +385,8 @@ describe("mobile shells (P10-M1)", () => {
     expect(await b.saveFile("cancel.xlsx", "UEs=")).toBe(false);
   });
 
-  it("shares, hands out the launch document and rejects print as unsupported", async () => {
-    const b = new TauriBackend(undefined, ".xlsx", { mobile: true });
+  it("shares, hands out the launch document and rejects print as unsupported (no PDF renderer)", async () => {
+    const b = new TauriBackend(undefined, ".xlsx", { mobile: true, pdf: false });
     await b.share("a.xlsx", "UEs=");
     expect(invoke).toHaveBeenLastCalledWith("share_document", { suggestedName: "a.xlsx", bytesBase64: "UEs=" });
     expect(await b.takeLaunchDocument()).toEqual({ name: "attachment.xlsx", bytesBase64: "UEs=" });

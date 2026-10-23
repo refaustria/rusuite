@@ -52,22 +52,44 @@ shell):
 | `share()` | `share_document` | `ACTION_SEND` via the app's FileProvider | `UIActivityViewController` |
 | "Open with" | `take_launch_document` | `ACTION_VIEW` / `ACTION_EDIT` intents (cold start and `onNewIntent`) | `RunEvent::Opened` (`scene:openURLContexts:`) |
 | Recent files | `recent_open` | the persisted content URI | the bookmark |
+| `exportPdf()` (P10-M6) | `export_pdf { suggestedName, paper }` | `WebView.createPrintDocumentAdapter()` → PDF in `cacheDir/pdf` → `ACTION_CREATE_DOCUMENT` (`application/pdf`; share sheet when no provider) | `UIPrintPageRenderer` + `viewPrintFormatter()` → PDF → `UIDocumentPickerViewController(forExporting:)` |
+| `print(paper)` | `print_pdf { suggestedName, paper }` | the same PDF to `PrintManager.print` (adapter over the file) | `UIPrintInteractionController`, `printingItem` = PDF data |
+| `sharePdf()` | `share_pdf { suggestedName, paper }` | `ACTION_SEND` of the PDF (`cache/share/`) | `UIActivityViewController` |
 
 - A document is bound to an opaque **handle** (content URI / `bm:<bookmark>`), kept by the shell's `DocPath` exactly
   like a desktop path: Open binds once the core opened the file, Save writes there, New/recovery unbind it. A read-only
   "Open with" grant makes the next Save ask where to save.
 - The session (`DocumentSession`) asks for the launch document on start and whenever the page becomes visible again;
   it goes through the app's Open, after the unsaved-changes question.
-- `Backend.capabilities = { print: false, saveAs: true, share: true }` on mobile; `print()` rejects with
-  `UnsupportedError` and the UI hides Print (P10-M6 brings PDF + share sheet). Desktop and web are unchanged
+- `Backend.capabilities = { print: true, saveAs: true, share: true, pdf: true }` on mobile (P10-M6; without the plugin's
+  `window.__RUSUITE_PDF__` marker `print` and `pdf` are false, `print()` rejects with `UnsupportedError` and the UI hides
+  Print). Desktop and web are unchanged
   (`print: true, share: false`).
 - Recent files and crash recovery stay JSON files in the app data directory (Android
   `/data/user/0/dev.rusuite.<app>/…`, iOS `Library/Application Support/dev.rusuite.<app>`).
 - **No connections, no AI assistant** (owner rule): the mobile `TauriBackend` has neither, so File › Options › AI and
   Connections never appear; the shells are built without the connector commands and the OS keyring.
+  Nor "Report a problem" (Help menu, File, the compact "⋯" sheet; `reportAvailable()`): it sends text, screenshots
+  and diagnostics to rusuit.es, and the store privacy declarations say "no data collected" (web and desktop keep it).
 - Permissions: Android only `INTERNET` (Tauri's webview loads the bundled pages from `http://tauri.localhost`, which
   Chromium treats as a network load, and `tauri android dev` from the dev server – the apps make no network
   requests); no storage permission (the pickers grant access per document). iOS: none.
+
+## PDF and printing (P10-M6)
+The page mounts its print root (`#rusuite-print-root`, the pages of File › Print) and calls `export_pdf` / `print_pdf` /
+`share_pdf` with `paper = { widthMm, heightMm, landscape }` (the first page's `@page` size); the plugin renders the webview's
+print media to a PDF and hands it on (table above). File › Print and Export PDF… are back on mobile, plus **Share as PDF…**.
+Limitations:
+- An export returns only the chosen name, no handle: the apps cannot open a PDF, so it never enters the recent list.
+- Android: the adapter's `LayoutResultCallback` / `WriteResultCallback` constructors are package-private in the SDK stubs
+  (public but `@hide` in the framework), so the driver lives in `android/print/RusuitePdfWriter.kt` (package
+  `android.print`) – the established way to drive the WebView adapter without the print dialog. Not run on a device here
+  (no emulator on the build server); CI compiles it.
+- iOS: `paperRect` / `printableRect` of `UIPrintPageRenderer` are set by key-value coding (they are read-only properties);
+  only the Swift compile is verified (CI macOS runner).
+- Printing goes through a finished PDF, so the system print dialog cannot re-lay out the pages for another paper size
+  (it scales); choose the paper in File › Print first.
+- No new permission: printing and the pickers need none (`mobile.yml` checks the APK's permission list).
 
 ## Building locally (Linux, Android only)
 iOS needs macOS (CI below). Android on this server: SDK `/home/bojan/android-sdk` (platforms 34–36, build-tools 36,
