@@ -121,6 +121,27 @@ Downloads page says so in its Windows line. Tauri signs with `signtool` (sha256,
 for each file on the Azure path (installed in the job with `cargo install artifact-signing-cli --version 0.12.0 --locked`;
 it is the renamed `trusted-signing-cli`).
 
+### Decision (PM, 2026-10-23): Azure Trusted Signing
+The owner asked the PM to decide. **Azure Trusted Signing** is chosen: it is the only option that signs from CI without a
+hardware token, costs about US$10/month instead of €200–600/year, renews its certificates itself and is what Tauri's
+own documentation describes. Owner steps (about an hour, plus Microsoft's validation time of a few days):
+1. Azure account/subscription at <https://portal.azure.com> (a pay-as-you-go subscription; the Trusted Signing account
+   is billed to it).
+2. Portal → *Trusted Signing Accounts* → Create: region **West Europe** (endpoint `https://weu.codesigning.azure.net`),
+   SKU **Basic**, name e.g. `rusuite`.
+3. *Identity validation* → New → **Public** trust. Organization: the legal entity behind rusuit.es (the one that also owns
+   the Apple team, with its registration number and the domain); individual validation if no organization exists
+   (Microsoft lists the eligible countries – Austria is covered for organizations; check the individual list).
+   Microsoft e-mails the verification result.
+4. After validation: *Certificate profiles* → Create → type **Public Trust**, name `rusuite-public`, the validated identity.
+5. *Microsoft Entra ID* → App registrations → New (`rusuite-ci`) → Certificates & secrets → New client secret (24
+   months; note the expiry in "Renewal dates"). On the Trusted Signing account → Access control (IAM) → add role
+   **Trusted Signing Certificate Profile Signer** for that app.
+6. Put the six values into `~/rusuite-signing/` as `azure-tenant-id.txt`, `azure-client-id.txt`, `azure-client-secret.txt`,
+   `azure-endpoint.txt` (`https://weu.codesigning.azure.net`), `azure-account.txt` (`rusuite`),
+   `azure-cert-profile.txt` (`rusuite-public`); the PM (or the owner) then sets the `AZURE_*` secrets.
+Until then Windows builds stay unsigned and the Downloads page says so.
+
 ## Renewal dates
 
 | Item | Valid | Renew |
