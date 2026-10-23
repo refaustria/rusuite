@@ -7,6 +7,7 @@
 
 import { aiRibbonGroup, HelpMenu, useCompact } from "@rusuite/ui-shared";
 import { setTouchSelect, useTouchSelect } from "../canvas/touch";
+import { presenterWindowAvailable } from "../present/sync";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
@@ -216,6 +217,8 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   const hasSlide = state.current !== null;
   const compact = useCompact();
   const multiSelect = useTouchSelect();
+  // the presenter view needs a second window: not in the mobile shells, not without window.open (P10-M5)
+  const presenterView = presenterWindowAvailable();
   const slideCount = state.pres?.slides.length ?? 0;
   const palette = themePalette(theme);
   const masterView = state.masterView !== null;
@@ -673,15 +676,17 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
           <>
             <RibbonButton label={t("show.fromBeginning")} icon="present" size="large" shortcut="F5" disabled={!hasSlide} onClick={() => onPresent(true)} />
             <RibbonButton label={t("show.fromCurrent")} icon="presentCurrent" size="large" shortcut="Shift+F5" disabled={!hasSlide} onClick={() => onPresent(false)} />
-            <RibbonButton
-              label={t("show.presenterView")}
-              icon="presentCurrent"
-              size="large"
-              shortcut="Alt+F5"
-              tooltip={t("show.presenterTip")}
-              disabled={!hasSlide}
-              onClick={onPresenterView}
-            />
+            {presenterView && (
+              <RibbonButton
+                label={t("show.presenterView")}
+                icon="presentCurrent"
+                size="large"
+                shortcut="Alt+F5"
+                tooltip={t("show.presenterTip")}
+                disabled={!hasSlide}
+                onClick={onPresenterView}
+              />
+            )}
           </>
         ),
       },
@@ -778,7 +783,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
                 ...(canDetectScreens() ? [{ separator: true as const }, { id: "monitor-detect", label: t("show.monitor.detect"), onSelect: monitor.detect }] : []),
               ]}
             />
-            <RibbonButton label={t("show.presenterView")} icon="presentCurrent" size="large" shortcut="Alt+F5" tooltip={t("show.presenterTip")} disabled={!hasSlide} onClick={onPresenterView} />
+            {presenterView && <RibbonButton label={t("show.presenterView")} icon="presentCurrent" size="large" shortcut="Alt+F5" tooltip={t("show.presenterTip")} disabled={!hasSlide} onClick={onPresenterView} />}
           </>
         ),
       },

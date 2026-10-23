@@ -474,3 +474,126 @@ test.describe("Show touch presentation @mobile", () => {
     errors.expectNone();
   });
 });
+
+test.describe("Show touch on a tablet @tablet", () => {
+  test("with the ribbon: touch transforms, long press menu, 44 px handles", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page, false);
+    await expect(page.getByTestId("ribbon")).toBeVisible();
+    await page.getByRole("tab", { name: "Insert" }).click();
+    await page.getByRole("button", { name: "Shapes" }).click();
+    await page.getByRole("dialog", { name: "Shapes" }).getByRole("group", { name: "Rectangles" }).getByRole("button", { name: "Rectangle", exact: true }).press("Enter");
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "1");
+    await expect(stage(page)).toHaveAttribute("data-touch", "true");
+    const b0 = await selectionBox(page);
+    const scr = await selectedOnScreen(page);
+    const c = { x: scr.x + scr.width / 2, y: scr.y + scr.height / 2 };
+    // tap away and back
+    const st = (await stage(page).boundingBox())!;
+    await page.touchscreen.tap(st.x + 8, st.y + st.height - 8);
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "0");
+    await page.touchscreen.tap(c.x, c.y);
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "1");
+    // drag 80 px down
+    await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: c.x, y: c.y + (80 * k) / 7 })));
+    await expect.poll(async () => (await selectionBox(page)).y).toBeGreaterThan(b0.y);
+    expect((await selectionBox(page)).x).toBe(b0.x);
+    const c1 = { x: c.x, y: c.y + 80 };
+    const cdp = await page.context().newCDPSession(page);
+    await twoFingers(cdp, page, { x: c1.x - 30, y: c1.y }, { x: c1.x + 30, y: c1.y }, { x: c1.x - 45, y: c1.y }, { x: c1.x + 45, y: c1.y });
+    await expect.poll(async () => (await selectionBox(page)).w / b0.w).toBeGreaterThan(1.4);
+    const a = (-92 * Math.PI) / 180;
+    await twoFingers(cdp, page, { x: c1.x - 45, y: c1.y }, { x: c1.x + 45, y: c1.y }, { x: c1.x - 45 * Math.cos(a), y: c1.y - 45 * Math.sin(a) }, { x: c1.x + 45 * Math.cos(a), y: c1.y + 45 * Math.sin(a) }, 12);
+    await expect.poll(async () => (await selectionBox(page)).rot).toBe(270);
+    await cdp.detach();
+    const hits = await anchorHits(page);
+    expect(hits.length).toBe(9);
+    expect(hits.filter((h) => !h.ok)).toEqual([]);
+    // long press: the desktop context menu (no sheet at this width)
+    const now = await selectedOnScreen(page);
+    await longPress(page, now.x + now.width / 2, now.y + now.height / 2);
+    await expect(page.getByRole("menu", { name: "Slide editor" })).toBeVisible();
+    await expect(page.getByTestId("context-sheet")).toHaveCount(0);
+    await page.screenshot({ path: `${SHOTS}/P10-M5-tablet.png` });
+    await page.keyboard.press("Escape");
+    errors.expectNone();
+  });
+
+  test("the slide show gestures work with the ribbon layout", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page, false);
+    await page.getByRole("button", { name: "Present" }).first().tap();
+    await expect(page.getByTestId("presenter")).toBeVisible();
+    await expect(counter(page)).toHaveText("1 / 6");
+    await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: 800 - (400 * k) / 7, y: 400 })));
+    await expect(counter(page)).toHaveText("2 / 6");
+    await page.waitForTimeout(300);
+    await page.touchscreen.tap(100, 400);
+    await expect(counter(page)).toHaveText("1 / 6");
+    await longPress(page, 512, 400);
+    const menu = page.getByTestId("touch-overlay");
+    await expect(menu).toBeVisible();
+    await menu.getByRole("button", { name: "Slide 4", exact: true }).tap();
+    await expect(counter(page)).toHaveText("4 / 6");
+    await longPress(page, 512, 400);
+    await menu.getByRole("button", { name: "End show" }).tap();
+    await expect(page.getByTestId("presenter")).toHaveCount(0);
+    errors.expectNone();
+  });
+
+  test("Presenter View is offered with window.open and hidden without it", async ({ page, browser }) => {
+    const errors = trackErrors(page);
+    await openDeck(page, false);
+    await page.getByRole("tab", { name: "Slide Show", exact: true }).click();
+    await expect(page.getByTestId("ribbon-panel").getByRole("button", { name: "Presenter View" })).toHaveCount(1);
+    errors.expectNone();
+
+    const ctx = await browser.newContext({ viewport: { width: 1024, height: 768 }, hasTouch: true });
+    const p2 = await ctx.newPage();
+    await p2.addInitScript(() => {
+      (window as unknown as { open?: unknown }).open = undefined;
+    });
+    const errors2 = trackErrors(p2);
+    await openDeck(p2, false);
+    for (const tab of ["Slide Show", "View"]) {
+      await p2.getByRole("tab", { name: tab, exact: true }).click();
+      await expect(p2.getByTestId("ribbon-panel")).toBeVisible();
+      await expect(p2.getByRole("button", { name: "Presenter View" })).toHaveCount(0);
+    }
+    // Alt+F5 still works: the single-window fallback
+    await stage(p2).click({ position: { x: 4, y: 4 } });
+    await p2.keyboard.press("Alt+F5");
+    await expect(p2.getByTestId("presenter")).toBeVisible();
+    await expect(p2.getByTestId("notes-overlay-toggle")).toBeVisible();
+    await p2.keyboard.press("Escape");
+    errors2.expectNone();
+    await ctx.close();
+  });
+});
+
+test.describe("Show touch in German @mobile", () => {
+  test("de-DE: the slide sheet, Timing…, Multi-select and the show menu speak German", async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2.625, locale: "de-DE" });
+    const page = await ctx.newPage();
+    const errors = trackErrors(page);
+    await openDeck(page);
+    const c = await center(thumbs(page).nth(1));
+    await longPress(page, c.x, c.y);
+    const items = (await page.getByTestId("context-sheet").getByRole("menuitem").allInnerTexts()).map((x) => x.trim());
+    expect(items).toEqual(["Neue Folie", "Folie duplizieren", "Folie löschen", "Folie ausblenden", "Layout…", "Übergang…"]);
+    await page.keyboard.press("Escape");
+    await chip(page, "Übergänge").click();
+    await expect(strip(page).getByRole("button", { name: "Anzeigedauer…" })).toBeVisible();
+    await chip(page, "Start").click();
+    await expect(strip(page).getByRole("button", { name: "Mehrfachauswahl" })).toBeVisible();
+    await page.getByTestId("compact-topbar").getByRole("button", { name: "Präsentieren" }).tap();
+    await longPress(page, 206, 450);
+    const menu = page.getByRole("dialog", { name: "Menü der Bildschirmpräsentation" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("group", { name: "Gehe zu Folie…" })).toBeVisible();
+    await expect(menu.getByRole("button", { name: "Zurück zur Präsentation" })).toBeVisible();
+    await page.screenshot({ path: `${SHOTS}/P10-M5-present-menu-de.png` });
+    errors.expectNone();
+    await ctx.close();
+  });
+});
