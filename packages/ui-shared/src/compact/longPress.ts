@@ -5,13 +5,17 @@
 
 /** How long (ms) a touch must be held. */
 export const LONG_PRESS_MS = 500;
-/** How long (ms) after the lift of an answered press its compatibility mouse events are still swallowed. */
+/** How long (ms) after the lift of an answered press its compatibility mouse events are still swallowed. The window
+ * belongs to that press only: it closes on the next pointerdown (a new tap's own mouse events always follow its own
+ * pointerdown), and only events at the press's lift point (within `LONG_PRESS_SLOP`) are swallowed – a tap on a
+ * control elsewhere (the selection bar above the word, a menu item) is never eaten, however slow the device. */
 export const QUIET_MS = 250;
 /** How far (px) the finger may move during the hold. */
 export const LONG_PRESS_SLOP = 10;
 
-/** Installs the long-press handling on `target` (default `window`); returns the uninstall function. */
-export function installLongPress(target: Window = window): () => void {
+/** Installs the long-press handling on `target` (default `window`); returns the uninstall function. `trusted` tells a
+ * browser-made event from a script-made one (tests substitute it: jsdom's `isTrusted` is always false). */
+export function installLongPress(target: Window = window, trusted: (e: Event) => boolean = (e) => e.isTrusted): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let origin: { x: number; y: number; id: number; el: Element } | null = null;
   /** Until then a native contextmenu belongs to a press we already answered. */
@@ -20,6 +24,8 @@ export function installLongPress(target: Window = window): () => void {
   /** The answered press is still down (or just ended): its compatibility mouse events must not reach the new menu. */
   let answered = false;
   let quietUntil = 0;
+  /** Where the answered press was (and lifted): its compatibility mouse events arrive there. */
+  let quietAt: { x: number; y: number } | null = null;
 
   const cancel = () => {
     clearTimeout(timer);
@@ -27,6 +33,9 @@ export function installLongPress(target: Window = window): () => void {
     origin = null;
   };
   const down = (e: PointerEvent) => {
+    // A new press: whatever mouse events follow are its own, not the tail of the answered one.
+    quietUntil = 0;
+    if (e.isPrimary) answered = false;
     if (e.pointerType !== "touch" || !e.isPrimary) return cancel();
     cancel();
     nativeSeen = false;
@@ -39,6 +48,7 @@ export function installLongPress(target: Window = window): () => void {
       if (!o || nativeSeen || !o.el.isConnected) return;
       swallowUntil = Date.now() + 1500;
       answered = true;
+      quietAt = { x: o.x, y: o.y };
       o.el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, composed: true, clientX: o.x, clientY: o.y, button: 2, buttons: 0 }));
     }, LONG_PRESS_MS);
   };
@@ -51,15 +61,17 @@ export function installLongPress(target: Window = window): () => void {
     if (answered && e.pointerType === "touch") {
       answered = false;
       quietUntil = Date.now() + QUIET_MS;
+      quietAt = { x: e.clientX, y: e.clientY };
     }
   };
   const mouse = (e: MouseEvent) => {
-    if (!e.isTrusted || !(answered || Date.now() < quietUntil)) return;
+    if (!trusted(e) || !(answered || Date.now() < quietUntil)) return;
+    if (quietAt && Math.hypot(e.clientX - quietAt.x, e.clientY - quietAt.y) > LONG_PRESS_SLOP) return;
     e.preventDefault();
     e.stopImmediatePropagation();
   };
   const context = (e: MouseEvent) => {
-    if (!e.isTrusted) return;
+    if (!trusted(e)) return;
     if (Date.now() < swallowUntil) {
       e.preventDefault();
       e.stopImmediatePropagation();

@@ -64,6 +64,15 @@ menu, a wall-clock wait).
 - **Time-based features use the page clock.** Rehearse Timings, auto-advance and similar measure wall-clock time:
   `page.clock.install()` before loading, `page.clock.pauseAt(...)` / `runFor(ms)` while the measurement runs, then
   `resume()`. A `waitForTimeout(1200)` between key presses turns into 1.6 s on a busy runner (rounded to 2 s).
+- **Taps after a long press or a selection change** (touch suites, `support/touch.ts`). A long press answers with a
+  context menu and swallows only *its own* compatibility mouse events (`installLongPress`: until the next pointerdown,
+  within 10 px of the lift point, at most `QUIET_MS`) – a following tap is never eaten, so no `waitForTimeout` after a
+  long press. Controls that appear or move with the selection (Write's floating selection bar, a long-press menu or
+  sheet, Calc's fill handle after the selection grew) are tapped with `tapStable(locator)` (visible, enabled, box
+  unchanged across two animation frames); for coordinate taps use `stableCentre(locator)`. The touch specs import
+  `test`/`expect` from `support/touch.ts`: `E2E_SLOW=1` (or a rate, `E2E_SLOW=6`) throttles the page's CPU 4× through
+  DevTools to reproduce a 2-core runner locally, e.g.
+  `E2E_SLOW=1 pnpm --filter e2e exec playwright test --project mobile --project tablet --repeat-each 3`.
 - **Reproduce flakes under load:** `--repeat-each 30 --workers 12` (or `CI=1` for the CI worker count) usually turns a
   1-in-3 live-site flake into a reliable failure; the trace in `test-results/` shows the last action and the DOM.
 

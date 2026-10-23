@@ -163,6 +163,8 @@ for (const lang of TRANSLATED) {
       const errors = trackErrors(page);
       await page.goto("./");
       await page.getByTestId("portal-language").selectOption(lang);
+      // The catalog is applied (i18n.js sets `data-i18n-ready` last; `lang` alone came before the texts).
+      await expect(page.locator("html")).toHaveAttribute("data-i18n-ready", lang);
       await expect(page.locator("html")).toHaveAttribute("lang", lang);
       for (const app of ["calc", "write", "show"]) {
         await expect(page.getByRole("link", { name: m(`portal.${app}.open`), exact: true })).toHaveAttribute("href", `/${app}/`);

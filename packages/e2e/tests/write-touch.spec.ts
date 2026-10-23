@@ -3,9 +3,10 @@
 // drag, gutters, the Table chip) and pictures (44 px handles, corner drag, Layout Options) by touch, the caret above
 // the on-screen keyboard. Projects: `mobile` (Pixel 7, 412 × 915) runs the @mobile tests, `tablet` (1024 × 768,
 // touch, the desktop ribbon) the @tablet ones.
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 import { testdata, trackErrors } from "../support/common";
 import { msg } from "../support/i18n";
+import { expect, tapStable, test } from "../support/touch";
 
 const SHOTS = "../../shots";
 const editor = (page: Page) => page.locator(".ProseMirror").first();
@@ -329,15 +330,12 @@ async function tableFlow(page: Page, project: string) {
   for (const want of ["Insert row above", "Insert row below", "Delete table", "Table Properties…"]) expect(items.some((i) => i.startsWith(want)), `${want} in ${items.join(", ")}`).toBe(true);
   if (project === "mobile") await page.keyboard.press("Escape");
   else {
-    // The desktop menu closes on a tap outside it (after the long press's quiet time, see below).
-    await page.waitForTimeout(500);
+    // The desktop menu closes on a tap outside it (right away: the long press's quiet time is its own, P10-X2).
     await page.touchscreen.tap(page.viewportSize()!.width - 40, page.viewportSize()!.height - 80);
   }
   await expect(menu).toHaveCount(0);
   // A tap puts the caret into the cell (the word's selection bar goes away); the contextual Table tabs.
   const c2 = (await cells.nth(5).boundingBox())!;
-  // The long press's own mouse events are swallowed for 400 ms after it (installLongPress): a later tap.
-  await page.waitForTimeout(500);
   await page.touchscreen.tap(c2.x + c2.width / 2, c2.y + c2.height / 2);
   await expect(page.getByTestId("selection-bar")).toHaveCount(0);
   if (project === "mobile") {
@@ -438,7 +436,7 @@ async function selectionFlow(page: Page, project: string) {
   // Bold toggles bold on the word.
   const bold = bar.getByRole("button", { name: "Bold", exact: true });
   await expect(bold).toHaveAttribute("aria-pressed", "false");
-  await bold.tap();
+  await tapStable(bold);
   await expect(bold).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".ProseMirror strong").first()).toHaveText("Reference");
   await page.screenshot({ path: `${SHOTS}/P10-M4-selection-${project}.png` });
@@ -457,7 +455,7 @@ async function selectionFlow(page: Page, project: string) {
   await expect(bar).toBeVisible();
 
   // "⋯": the editor's context menu (a sheet on the phone) with the desktop's items.
-  await bar.getByRole("button", { name: "More", exact: true }).tap();
+  await tapStable(bar.getByRole("button", { name: "More", exact: true }));
   const menu = project === "mobile" ? page.getByTestId("context-sheet") : page.getByRole("menu", { name: "Editor" });
   await expect(menu).toBeVisible();
   const items = (await menu.getByRole("menuitem").allInnerTexts()).map((s) => s.replace(/\s+/g, " ").trim());

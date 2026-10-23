@@ -2,8 +2,9 @@
 // (1024 × 768, touch, the desktop ribbon) the @tablet ones (playwright.config.ts). Multi-finger gestures go through
 // the DevTools touch events (`Input.dispatchTouchEvent`), as a phone delivers them.
 
-import { expect, test, type CDPSession, type Locator, type Page } from "@playwright/test";
+import { type CDPSession, type Locator, type Page } from "@playwright/test";
 import { testdata, trackErrors } from "../support/common";
+import { expect, tapStable, test } from "../support/touch";
 
 const SHOTS = "../../shots";
 const DECK = testdata("pptx/provisional-25-pitch-deck.pptx");
@@ -28,15 +29,21 @@ async function openDeck(page: Page, compact = true) {
   await expect(page.getByTestId("slide-count")).toHaveText(/(Slide|Folie) 1 (of|von) 6/);
 }
 
-/** A touch held still for 800 ms at a viewport point (the app's long press: 500 ms). */
+/**
+ * A touch held still at a viewport point for 800 ms (the app's long press: 500 ms) – and on until its menu is open
+ * (at most 3 s more): a busy page handles the touchstart late, and a lift before its timer fired is only a tap.
+ */
 async function longPress(page: Page, x: number, y: number) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
   await page.waitForTimeout(800);
+  await page
+    .locator('[data-testid="context-sheet"], [data-testid="touch-overlay"], [role="menu"]')
+    .first()
+    .waitFor({ timeout: 3000 })
+    .catch(() => undefined);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await cdp.detach();
-  // the compatibility mouse events of the answered press are swallowed for 400 ms (installLongPress)
-  await page.waitForTimeout(450);
 }
 
 /** A touch path: start at `points[0]`, move through the others, lift. `hold` ms before moving (a long-press drag). */
@@ -117,18 +124,18 @@ test.describe("Show touch chrome @mobile", () => {
     expect(items).toEqual(["New slide", "Duplicate slide", "Delete slide", "Hide slide", "Layout…", "Transition…"]);
     for (const b of await sheet.getByRole("menuitem").all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: `${SHOTS}/P10-M5-strip-sheet.png` });
-    await sheet.getByRole("menuitem", { name: "Duplicate slide" }).tap();
+    await tapStable(sheet.getByRole("menuitem", { name: "Duplicate slide" }));
     await expect(thumbs(page)).toHaveCount(7);
     await expect(page.getByTestId("slide-count")).toHaveText("Slide 4 of 7");
 
     // Layout… swaps the sheet for the layouts; Transition… shows the Transitions tab
     await longPress(page, c.x, c.y);
-    await sheet.getByRole("menuitem", { name: "Layout…" }).tap();
+    await tapStable(sheet.getByRole("menuitem", { name: "Layout…" }));
     await expect(sheet.getByRole("menuitem", { name: /^Layout: / }).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(sheet).toHaveCount(0);
     await longPress(page, c.x, c.y);
-    await sheet.getByRole("menuitem", { name: "Transition…" }).tap();
+    await tapStable(sheet.getByRole("menuitem", { name: "Transition…" }));
     await expect(chip(page, "Transitions")).toHaveAttribute("aria-selected", "true");
     errors.expectNone();
   });
@@ -435,12 +442,12 @@ test.describe("Show touch presentation @mobile", () => {
       expect(Math.min(r.width, r.height)).toBeGreaterThanOrEqual(44);
     }
     await page.screenshot({ path: `${SHOTS}/P10-M5-present-menu.png` });
-    await menu.getByRole("button", { name: "Slide 4", exact: true }).tap();
+    await tapStable(menu.getByRole("button", { name: "Slide 4", exact: true }));
     await expect(menu).toHaveCount(0);
     await expect(counter(page)).toHaveText("4 / 6");
     // the pen draws with one finger, a swipe does not change the slide then
     await longPress(page, 206, y);
-    await menu.getByRole("button", { name: "Pen" }).tap();
+    await tapStable(menu.getByRole("button", { name: "Pen" }));
     await menu.getByRole("button", { name: "Back to the show" }).tap();
     await expect(presenter).toHaveAttribute("data-tool", "pen");
     await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: 330 - (240 * k) / 7, y })));
@@ -448,7 +455,7 @@ test.describe("Show touch presentation @mobile", () => {
     await expect(counter(page)).toHaveText("4 / 6");
     // Exit (the ink question comes first: discard)
     await longPress(page, 206, y + 40);
-    await menu.getByRole("button", { name: "End show" }).tap();
+    await tapStable(menu.getByRole("button", { name: "End show" }));
     await page.getByTestId("ink-confirm").getByRole("button", { name: "Discard" }).tap();
     await expect(presenter).toHaveCount(0);
     await expect(bar(page)).toBeVisible();
@@ -533,10 +540,10 @@ test.describe("Show touch on a tablet @tablet", () => {
     await longPress(page, 512, 400);
     const menu = page.getByTestId("touch-overlay");
     await expect(menu).toBeVisible();
-    await menu.getByRole("button", { name: "Slide 4", exact: true }).tap();
+    await tapStable(menu.getByRole("button", { name: "Slide 4", exact: true }));
     await expect(counter(page)).toHaveText("4 / 6");
     await longPress(page, 512, 400);
-    await menu.getByRole("button", { name: "End show" }).tap();
+    await tapStable(menu.getByRole("button", { name: "End show" }));
     await expect(page.getByTestId("presenter")).toHaveCount(0);
     errors.expectNone();
   });

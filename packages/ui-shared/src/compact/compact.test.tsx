@@ -10,7 +10,7 @@ import { COMPACT_MAX_WIDTH, COMPACT_QUERY, FORCE_COMPACT_EVENT, isCompact, useCo
 import { compactSegments } from "./CommandBar";
 import { BottomSheet } from "./BottomSheet";
 import { installViewportVars, keyboardInset, readViewport, VISUAL_VIEWPORT_EVENT } from "./visualViewport";
-import { installLongPress, LONG_PRESS_MS } from "./longPress";
+import { installLongPress, LONG_PRESS_MS, QUIET_MS } from "./longPress";
 
 type W = { __RUSUITE_FORCE_COMPACT__?: boolean; __RUSUITE_VISUAL_VIEWPORT__?: { height?: number; offsetTop?: number } };
 const w = window as unknown as W;
@@ -327,6 +327,52 @@ describe("long press", () => {
     expect(menus.length).toBe(1);
     stop();
     el.remove();
+    vi.useRealTimers();
+  });
+
+  it("the quiet window after an answered press eats only that press's own mouse events, never a tap on a control", () => {
+    vi.useFakeTimers();
+    // Script-made events stand in for the browser's (the synthetic contextmenu stays untrusted).
+    const stop = installLongPress(window, (e) => e.type !== "contextmenu");
+    const doc = document.createElement("div");
+    const bar = document.createElement("button");
+    document.body.append(doc, bar);
+    const clicks: EventTarget[] = [];
+    const onClick = (e: Event) => clicks.push(e.target!);
+    document.addEventListener("click", onClick);
+    const pointer = (el: Element, type: string, x: number, y: number, id = 7) =>
+      el.dispatchEvent(Object.assign(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }), { pointerType: "touch", isPrimary: true, pointerId: id }));
+    const click = (el: Element, x: number, y: number) => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    const longPress = () => {
+      pointer(doc, "pointerdown", 100, 200);
+      vi.advanceTimersByTime(LONG_PRESS_MS + 10);
+      pointer(doc, "pointerup", 100, 200);
+    };
+    // The press's own compatibility click (at its lift point, right after it) is swallowed.
+    longPress();
+    click(doc, 100, 200);
+    expect(clicks).toEqual([]);
+    // A tap on the bar 40 px above it, still inside the window (a slow device: no time passed), goes through –
+    // even before its own pointerdown arrived.
+    click(bar, 100, 160);
+    expect(clicks).toEqual([bar]);
+    // A new tap at the very same spot inside the window: its pointerdown ends the window, its click goes through.
+    clicks.length = 0;
+    longPress();
+    pointer(doc, "pointerdown", 100, 200, 8);
+    pointer(doc, "pointerup", 100, 200, 8);
+    click(doc, 100, 200);
+    expect(clicks).toEqual([doc]);
+    // After the window, the lift point is free again; mouse clicks are never touched.
+    clicks.length = 0;
+    longPress();
+    vi.advanceTimersByTime(QUIET_MS + 10);
+    click(doc, 100, 200);
+    expect(clicks).toEqual([doc]);
+    stop();
+    document.removeEventListener("click", onClick);
+    doc.remove();
+    bar.remove();
     vi.useRealTimers();
   });
 });
