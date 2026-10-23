@@ -4,10 +4,11 @@
 // Single-finger taps and the long press go through the DevTools touch input (real touch events, native panning);
 // drags of the handles and the pinch use synthetic `PointerEvent`s with `pointerType: "touch"`.
 
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 import { trackErrors } from "../support/common";
 import { Grid, openCalc } from "../support/calc";
 import { msg } from "../support/i18n";
+import { expect, stableCentre, tapStable, test } from "../support/touch";
 
 const SHOTS = "../../shots";
 
@@ -27,11 +28,26 @@ async function ptr(page: Page, type: "pointerdown" | "pointermove" | "pointerup"
   );
 }
 
-/** A one-finger synthetic drag from `a` to `b`. */
+/**
+ * A one-finger synthetic drag from `a` to `b`, dispatched in one go: one round trip per step took over 500 ms on a
+ * loaded runner with the first steps inside the 10 px slop – a long press (installLongPress) instead of a drag.
+ */
 async function drag(page: Page, a: { x: number; y: number }, b: { x: number; y: number }, steps = 8) {
-  await ptr(page, "pointerdown", a.x, a.y);
-  for (let i = 1; i <= steps; i++) await ptr(page, "pointermove", a.x + ((b.x - a.x) * i) / steps, a.y + ((b.y - a.y) * i) / steps);
-  await ptr(page, "pointerup", b.x, b.y);
+  await page.evaluate(
+    ({ a, b, steps }) => {
+      const send = (type: string, x: number, y: number) =>
+        (document.elementFromPoint(x, y) ?? document.body).dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: "touch", isPrimary: true,
+            clientX: x, clientY: y, button: type === "pointermove" ? -1 : 0, buttons: type === "pointerup" ? 0 : 1,
+          }),
+        );
+      send("pointerdown", a.x, a.y);
+      for (let i = 1; i <= steps; i++) send("pointermove", a.x + ((b.x - a.x) * i) / steps, a.y + ((b.y - a.y) * i) / steps);
+      send("pointerup", b.x, b.y);
+    },
+    { a, b, steps },
+  );
 }
 
 /** Centre of an element. */
@@ -208,7 +224,8 @@ test.describe("calc touch @mobile", () => {
     await expect(fill).toBeVisible();
     const fb = (await fill.boundingBox())!;
     expect(fb.width).toBeGreaterThanOrEqual(44);
-    const from = await centre(page, "fill-handle-touch");
+    // The handle follows the selection B2:B3 a frame later: drag it from where it stands still.
+    const from = await stableCentre(page.getByTestId("fill-handle-touch"));
     await drag(page, from, { x: from.x, y: from.y + 2 * 20 });
     await expect(address(page)).toHaveValue("B2:B5");
     await expect.poll(() => shown(page, 4, 1)).toBe("4");
@@ -219,7 +236,8 @@ test.describe("calc touch @mobile", () => {
     await page.touchscreen.tap(c2.x, c2.y);
     await drag(page, await handleOn(page, "selection-handle-end", await grid.pos(1, 2, 32, 10)), await grid.pos(4, 2, 32, 10));
     await expect(address(page)).toHaveValue("C2:C5");
-    const at = await centre(page, "fill-handle-touch");
+    // The handle moves with the grown selection: tap it where it stands still.
+    const at = await stableCentre(page.getByTestId("fill-handle-touch"));
     await ptr(page, "pointerdown", at.x, at.y);
     await ptr(page, "pointerup", at.x, at.y);
     const sheet = page.getByTestId("context-sheet");
@@ -356,9 +374,8 @@ test.describe("calc touch @mobile", () => {
       await longPress(page, first.x + first.width / 2, first.y + first.height / 2);
       const menu = page.getByTestId("context-sheet");
       await expect(menu).toBeVisible();
-      // (A tap right after the long press would be taken for its tail: installLongPress' quiet time.)
-      await page.waitForTimeout(500);
-      await menu.getByRole("menuitem", { name: msg(lang, "calc.rename.confirm"), exact: true }).tap();
+      // A tap right after the long press is a tap of its own (installLongPress' quiet time is the press's, P10-X2).
+      await tapStable(menu.getByRole("menuitem", { name: msg(lang, "calc.rename.confirm"), exact: true }));
       const dialog = page.getByRole("dialog", { name: msg(lang, "calc.rename.title") });
       await expect(dialog).toBeVisible();
       await dialog.getByLabel(msg(lang, "calc.sheetName")).fill("Data");
@@ -431,7 +448,7 @@ test.describe("calc touch tablet @tablet", () => {
     await page.keyboard.press("Escape");
     await expect(address(page)).toHaveValue("B2:C4");
     // The fill handle's tap: the four fill commands as a menu.
-    const f = await centre(page, "fill-handle-touch");
+    const f = await stableCentre(page.getByTestId("fill-handle-touch"));
     await ptr(page, "pointerdown", f.x, f.y);
     await ptr(page, "pointerup", f.x, f.y);
     await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Fill down", "Fill right", "Fill series", "Copy cells"]);

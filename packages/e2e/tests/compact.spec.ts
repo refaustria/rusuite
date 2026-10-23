@@ -4,10 +4,11 @@
 // same build is walked tab by tab (in a desktop context of the same browser) and every control it shows must be in
 // the command bar's strip of that tab.
 
-import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
+import { type Browser, type Locator, type Page } from "@playwright/test";
 import { testdata, trackErrors } from "../support/common";
 import { Grid } from "../support/calc";
 import { msg } from "../support/i18n";
+import { expect, tapStable, test } from "../support/touch";
 
 const SHOTS = "../../shots";
 
@@ -208,7 +209,7 @@ test.describe("compact layout @mobile", () => {
         await chip(page, "Home").click();
         const bold = strip(page).getByRole("button", { name: "Bold", exact: true });
         await expect(bold).toHaveAttribute("aria-pressed", "false");
-        await bold.tap();
+        await tapStable(bold);
         await grid.waitIdle();
         await expect(bold).toHaveAttribute("aria-pressed", "true");
       } else if (app === "write") {
@@ -219,7 +220,7 @@ test.describe("compact layout @mobile", () => {
         await chip(page, "Home").click();
         const bold = strip(page).getByRole("button", { name: "Bold", exact: true });
         const before = await bold.getAttribute("aria-pressed");
-        await bold.tap();
+        await tapStable(bold);
         await expect(bold).toHaveAttribute("aria-pressed", before === "true" ? "false" : "true");
       } else {
         await chip(page, "Insert").click();
