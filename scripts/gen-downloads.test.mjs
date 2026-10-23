@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { classify, loadCatalog, publicName, render, renderNone, signingOf } from "./gen-downloads.mjs";
+import { classify, loadCatalog, loadStoreLinks, publicName, render, renderNone, signingOf } from "./gen-downloads.mjs";
+import { buildManifest } from "./signing/manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -260,4 +261,91 @@ test("the generator CLI accepts --release with signing.json (and keeps --in)", a
     execFileSync("node", [path.join(ROOT, "scripts/gen-downloads.mjs"), flag, path.join(dir, "release.json"), "--out", path.join(dir, "d.html")]);
     assert.match(fs.readFileSync(path.join(dir, "d.html"), "utf8"), /data-signed="macos"/, flag);
   }
+});
+
+// P10-R1: signing.json as the real manifest job writes it (scripts/signing/manifest.mjs) drives the page.
+test("signingOf reads the real manifest.mjs output: every combination of signed OSes", () => {
+  const rec = (os, n, extra = {}) => Array.from({ length: n }, () => ({ os, signed: true, ...extra }));
+  const all = [...rec("macos", 6, { notarized: true }), ...rec("windows", 3, { method: "azure" })];
+  const full = JSON.parse(JSON.stringify(buildManifest(all, { fingerprint: FPR, linuxResult: "success" })));
+  assert.deepEqual(signingOf(full), { macos: true, windows: true, linux: true, fingerprint: "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567", sha256sums: true });
+  // 3.1415 as it may ship: macOS + Linux signed, Windows still unsigned (Azure pending).
+  const partial = JSON.parse(JSON.stringify(buildManifest(rec("macos", 6, { notarized: true }), { fingerprint: FPR, linuxResult: "success" })));
+  assert.deepEqual(signingOf(partial), { macos: true, windows: false, linux: true, fingerprint: "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567", sha256sums: true });
+  const html = render({ ...signedFixture({ macos: true, linux: true }), signing: partial });
+  assert.match(html, /data-unsigned="windows"/);
+  assert.match(html, /data-signed="macos"/);
+  assert.match(html, /data-signed="linux"/);
+  assert.doesNotMatch(html, /data-signed="windows"/);
+  // Nothing signed: the manifest of a release without secrets renders the unsigned page.
+  const none = JSON.parse(JSON.stringify(buildManifest([], {})));
+  assert.deepEqual(signingOf(none), signingOf(undefined));
+  // The release version renders as the public name.
+  assert.match(render(signedFixture({ macos: true })), /Rusuite 3\.1415 for Windows, macOS and Linux/);
+  assert.match(render(signedFixture({ macos: true })), /data-version="3\.1415"/);
+});
+
+// P10-R1: "Phones and tablets" from docs/store/links.json; empty strings = coming soon.
+const mobileOf = (html) => html.slice(html.indexOf('data-testid="mobile-apps"'), html.indexOf("</section>", html.indexOf('data-testid="mobile-apps"')));
+const EMPTY = { calc: { play: "", appstore: "" }, write: { play: "", appstore: "" }, show: { play: "", appstore: "" } };
+
+test("the committed docs/store/links.json has empty strings for all six store links", () => {
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(ROOT, "docs/store/links.json"), "utf8")), EMPTY);
+  assert.deepEqual(loadStoreLinks(), EMPTY);
+});
+
+test("Phones and tablets without links: 'coming soon' for every store, no store anchors", () => {
+  const html = mobileOf(render(fixture("v3.1415.0", NAMES.map((n) => n.replace("0.1.0-rc.1", "3.1415.0"))), loadCatalog(), { links: EMPTY }));
+  assert.match(html, /<h2 data-i18n="portal\.dl\.mobile\.title">Phones and tablets<\/h2>/);
+  assert.equal([...html.matchAll(/data-soon="true"/g)].length, 6);
+  assert.equal([...html.matchAll(/coming soon/g)].length, 6);
+  assert.doesNotMatch(html, /<a /);
+  const de = mobileOf(render(fixture(), loadCatalog("de"), { links: EMPTY }));
+  assert.match(de, /Smartphones und Tablets/);
+  assert.match(de, /demnächst/);
+});
+
+test("Phones and tablets with links: Play Store and App Store buttons per app; a partial file mixes both states", () => {
+  const links = {
+    calc: { play: "https://play.google.com/store/apps/details?id=dev.rusuite.calc", appstore: "https://apps.apple.com/app/id1" },
+    write: { play: "https://play.google.com/store/apps/details?id=dev.rusuite.write", appstore: "" },
+    show: { play: "", appstore: "" },
+  };
+  const html = mobileOf(render(fixture(), loadCatalog(), { links }));
+  assert.match(html, /<li class="dl-app" data-app="calc">[\s\S]*?href="https:\/\/play\.google\.com\/store\/apps\/details\?id=dev\.rusuite\.calc" data-store="play"/);
+  assert.match(html, /href="https:\/\/apps\.apple\.com\/app\/id1" data-store="appstore"/);
+  assert.equal([...html.matchAll(/<a class=/g)].length, 3);
+  assert.equal([...html.matchAll(/data-soon="true"/g)].length, 3);
+  const calc = html.slice(html.indexOf('data-app="calc"'), html.indexOf('data-app="write"'));
+  assert.doesNotMatch(calc, /data-soon/);
+  assert.match(calc, />Google Play</);
+  assert.match(calc, />App Store</);
+  // The page stays free of other hosts except the store links the visitor clicks (ADR 0009: no request on load).
+  assert.doesNotMatch(render(fixture(), loadCatalog(), { links }).replace(/<a [^>]*>/g, ""), /https?:\/\/(play|apps)\./);
+});
+
+test("loadStoreLinks accepts https URLs only and survives a missing or broken file", () => {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR || "/tmp"), "p10-r1-links-"));
+  const file = path.join(dir, "links.json");
+  fs.writeFileSync(file, JSON.stringify({ calc: { play: "https://play.google.com/x", appstore: "javascript:alert(1)" }, write: { play: '"><b>' }, show: 7 }));
+  assert.deepEqual(loadStoreLinks(file), { calc: { play: "https://play.google.com/x", appstore: "" }, write: { play: "", appstore: "" }, show: { play: "", appstore: "" } });
+  fs.writeFileSync(file, "{ nope");
+  assert.deepEqual(loadStoreLinks(file), EMPTY);
+  assert.deepEqual(loadStoreLinks(path.join(dir, "missing.json")), EMPTY);
+});
+
+test("the generator CLI reads --links and renders the 3.1415 page with the mobile section", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const os = await import("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "p10-r1-dl-"));
+  fs.writeFileSync(path.join(dir, "release.json"), JSON.stringify(signedFixture({ macos: true, windows: false, linux: true })));
+  fs.writeFileSync(path.join(dir, "links.json"), JSON.stringify({ ...EMPTY, calc: { play: "https://play.google.com/store/apps/details?id=dev.rusuite.calc", appstore: "" } }));
+  const run = (...extra) => {
+    execFileSync("node", [path.join(ROOT, "scripts/gen-downloads.mjs"), "--release", path.join(dir, "release.json"), ...extra, "--out", path.join(dir, "d.html")]);
+    return fs.readFileSync(path.join(dir, "d.html"), "utf8");
+  };
+  const withLinks = run("--links", path.join(dir, "links.json"));
+  assert.match(withLinks, /data-version="3\.1415"/);
+  assert.match(withLinks, /dev\.rusuite\.calc/);
+  assert.match(mobileOf(run()), /data-soon="true"/); // default: the committed (empty) links.json
 });

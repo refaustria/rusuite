@@ -10,7 +10,9 @@
 //
 // release.json: { tagName, name, url, publishedAt, isDraft, isPrerelease, assets: [{ name, size, url, digest? }],
 // signing? } (`digest` = "sha256:<hex>"; `signing` = the release's `signing.json` asset, P10-S1 – gen-downloads.sh
-// fetches it; absent means every build is unsigned, as up to 3.141). Texts are portal catalog keys (`portal.dl.*`, apps/portal/locales); downloads.js
+// fetches it; absent means every build is unsigned, as up to 3.141). The "Phones and tablets" section takes the store
+// links from docs/store/links.json (P10-R1; `--links <file>` overrides): { "calc": { "play": "", "appstore": "" }, … },
+// an empty string = "coming soon" for that store. Texts are portal catalog keys (`portal.dl.*`, apps/portal/locales); downloads.js
 // formats sizes/dates for the chosen language and puts the visitor's OS first.
 
 import fs from "node:fs";
@@ -22,6 +24,21 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /** The English portal catalog: the page's built-in texts (shown as is without JavaScript). */
 export function loadCatalog(locale = "en") {
   return JSON.parse(fs.readFileSync(path.join(ROOT, "apps/portal/locales", `${locale}.json`), "utf8"));
+}
+
+/**
+ * The store links of the phone apps (docs/store/links.json): `{ <app>: { play, appstore } }`. Only `https://` URLs count;
+ * empty, missing or malformed entries are "" (shown as "coming soon"), so a bad file never breaks the page.
+ */
+export function loadStoreLinks(file = path.join(ROOT, "docs/store/links.json")) {
+  let raw = {};
+  try {
+    raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    raw = {};
+  }
+  const url = (v) => (typeof v === "string" && /^https:\/\/[^\s"'<>]+$/.test(v.trim()) ? v.trim() : "");
+  return Object.fromEntries(APPS.map((a) => [a.id, { play: url(raw?.[a.id]?.play), appstore: url(raw?.[a.id]?.appstore) }]));
 }
 
 export const RELEASES_URL = "https://github.com/refaustria/rusuite/releases";
@@ -252,8 +269,44 @@ function sumsAside(cat, signing, assetUrl) {
       </aside>`;
 }
 
-/** The page for one release. */
-export function render(release, cat = loadCatalog()) {
+// Store names are brand names: not translated, no catalog keys.
+const STORES = [
+  { id: "play", name: "Google Play" },
+  { id: "appstore", name: "App Store" },
+];
+
+/** "Phones and tablets" (P10-R1): per app a Google Play and an App Store button, or "coming soon" where there is no link. */
+function mobileSection(cat, links) {
+  const rows = APPS.map((app) => {
+    const buttons = STORES.map((store, i) => {
+      const href = links?.[app.id]?.[store.id] ?? "";
+      return href
+        ? `
+              <a class="button${i === 0 ? "" : " secondary"}" href="${esc(href)}" data-store="${store.id}" rel="noopener" title="${esc(`${app.name} – ${store.name}`)}">
+                <span>${store.name}</span>
+              </a>`
+        : `
+              <span class="muted" data-store="${store.id}" data-soon="true">${store.name} · <span ${i18n(cat, "portal.dl.mobile.soon")}</span></span>`;
+    }).join("");
+    return `
+          <li class="dl-app" data-app="${app.id}">
+            <img src="logos/${app.id}.svg" width="40" height="40" alt="" />
+            <div class="dl-name"><strong>${esc(app.name)}</strong><span ${i18n(cat, app.kind)}</span></div>
+            <div class="dl-buttons">${buttons}
+            </div>
+          </li>`;
+  }).join("");
+  return `
+      <section class="os-mobile" data-store-section="mobile" data-testid="mobile-apps">
+        <h2 ${i18n(cat, "portal.dl.mobile.title")}</h2>
+        <p class="warn" ${i18n(cat, "portal.dl.mobile.text")}</p>
+        <ul class="dl-list">${rows}
+        </ul>
+      </section>`;
+}
+
+/** The page for one release. `links` = the store links (default: docs/store/links.json). */
+export function render(release, cat = loadCatalog(), { links = loadStoreLinks() } = {}) {
   const tag = String(release.tagName ?? "");
   const version = publicName(tag);
   const date = String(release.publishedAt ?? "").slice(0, 10);
@@ -325,7 +378,7 @@ export function render(release, cat = loadCatalog()) {
     </header>
     <main data-testid="downloads" data-release="${esc(tag)}" data-version="${esc(version)}">${unsignedAside(cat, unsigned)}
       <div id="os-list">${sections}
-      </div>${sumsAside(cat, signing, assetUrl)}
+      </div>${mobileSection(cat, links)}${sumsAside(cat, signing, assetUrl)}
       <template id="dl-badge"><span class="badge" ${i18n(cat, "portal.dl.recommended")}</span></template>
     </main>${foot(cat)}`;
 }
@@ -341,10 +394,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
   const out = opt("--out");
   const input = opt("--in") ?? opt("--release");
   if (!out || (!input && !args.includes("--none"))) {
-    console.error("usage: gen-downloads.mjs (--in|--release release.json | --none) --out downloads.html");
+    console.error("usage: gen-downloads.mjs (--in|--release release.json | --none) [--links links.json] --out downloads.html");
     process.exit(2);
   }
-  const html = input ? render(JSON.parse(fs.readFileSync(input, "utf8"))) : renderNone();
+  const links = opt("--links") ? loadStoreLinks(opt("--links")) : undefined;
+  const html = input ? render(JSON.parse(fs.readFileSync(input, "utf8")), loadCatalog(), links && { links }) : renderNone();
   fs.writeFileSync(out, html);
   console.log(`gen-downloads: wrote ${out}`);
 }

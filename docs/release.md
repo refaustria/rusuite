@@ -11,7 +11,33 @@ everywhere: ui-shared `publicVersion`, `scripts/gen-downloads.mjs` `publicName`,
 `public_version`, apps/portal/version.js and the `tag` step of release.yml. A hotfix inside a cycle bumps the patch
 (`3.141.1`, shown as "3.141.1").
 
-## Release 3.141 – the steps of this cycle
+## Release 3.1415 – the steps of this cycle
+Prepared by P10-R1 on `p10/r1-release-31415` (versions `3.1415.0`, MSI `3.14.15.0`, notes `docs/release-notes/3.1415.md`,
+CHANGELOG, NOTICE, portal "New in 3.1415", Downloads "Phones and tablets", Office check pack in
+`/home/bojan/rusuite-office-check/rusuite-office-check-3.1415.0.zip`). After that branch is merged:
+1. `pnpm i18n:check:strict`, `scripts/check-versions.sh 3.1415.0`, `scripts/versions-lib.test.sh` and CI green on `main`;
+   put the **public** GPG key into `keys/rusuite-release-key.asc` (from `~/rusuite-signing/`, [signing.md](signing.md))
+   so `deploy-web.sh` ships `https://rusuit.es/rusuite-release-key.asc`; deploy the web (`scripts/deploy-web.sh --e2e`).
+2. Secrets present? (`gh secret list -R refaustria/rusuite`; the lists in [signing.md](signing.md) and
+   [store/README.md](store/README.md)). Trim the three signing lines of `docs/release-notes/3.1415.md` (and the
+   "Coming soon: Windows signing" item of the portal, `portal.soon.item8`) to what the run will really sign.
+3. Owner: open the Office check pack (no new file features this cycle; it re-validates the 3.141 files).
+4. Optional test run of release.yml with `v0.0.0-test` (section 2), then delete the draft.
+5. Tag and push: `git tag -a v3.1415.0 -m "Rusuite 3.1415" && git push origin v3.1415.0`. This starts **both**
+   `release.yml` (desktop draft "Rusuite 3.1415", `signing.json`) and `mobile-release.yml` (signed AAB → Play internal
+   track, IPA → TestFlight; skipped with a notice where secrets are missing).
+6. Review the desktop draft (section 4): `signing.json` says what you expect, paste `docs/release-notes/3.1415.md`
+   (fill nothing yet in the store links, see 9), untick the pre-release box, *Publish release*.
+7. Redeploy the web from `main` (`scripts/deploy-web.sh --e2e`): Downloads lists 3.1415 with the per-OS signed state.
+8. Store work (section 6, details in [store/README.md](store/README.md)): `play.mjs status` / `validate`,
+   `play.mjs listing push --app <app>`, `asc.mjs app-info push`, `asc.mjs version ensure|push --version 3.1415`,
+   `asc.mjs build attach --version 3.1415 --build 4415000`, review notes; testers on Play internal and TestFlight.
+9. Submit with the owner's go per store (`play.mjs upload --track production --rollout 0.2`, `asc.mjs submit … --yes`).
+   After approval: put the store URLs into `docs/store/links.json` (`calc|write|show` × `play|appstore`), replace
+   `<Play Store link>` / `<App Store link>` in the published release text, merge and redeploy the web – the Downloads
+   page then shows the buttons instead of "coming soon".
+
+## Release 3.141 – the steps of this cycle (done 2026-10-18)
 Prepared by P9-R1 on `p9/r1-release-3141` (versions `3.141.0`, notes `docs/release-notes/3.141.md`, CHANGELOG, NOTICE,
 Office check pack in `/home/bojan/rusuite-office-check/rusuite-office-check-3.141.0.zip`). After that branch is merged:
 1. `pnpm i18n:check:strict` green on `main` (the portal's "New in 3.141" / signing keys need translating, see the
