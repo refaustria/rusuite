@@ -44,6 +44,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Logos and the portal (P7-10)](#logos-and-the-portal-p7-10)
 - [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
 - [Compact layout for phones (P10-M2)](#compact-layout-for-phones-p10-m2)
+- [Calc with touch (P10-M3)](#calc-with-touch-p10-m3)
 - [Write touch (P10-M4)](#write-touch-p10-m4)
 
 ## Write
@@ -1939,6 +1940,38 @@ the web build on phones and to the mobile shells. Test hook: `window.__RUSUITE_F
 - **Status bars** stay as a one-line footer above the command bar that scrolls sideways (nothing hidden).
 - **Tests**: Playwright projects `mobile` (Pixel 7, 412 × 915) and `tablet` (1024 × 768, touch) run `tests/compact.spec.ts`;
   the reachability test walks the desktop ribbon of the same build and asserts every control per tab in the strip.
+
+## Calc with touch (P10-M3)
+
+The touch UI applies once a touch pointer was seen, or right away on the compact layout of a touch device
+(`navigator.maxTouchPoints > 0`; `apps/calc/src/touch/touchUi.ts`). A mouse-only desktop never gets it; at ≥ 900 px with
+touch (tablets) everything below applies except the formula keys and the compact chrome.
+
+- **Taps.** A tap selects a cell; a tap on the cell already selected edits it (so a double tap on a new cell does both).
+  While editing (not in Ref mode) a tap on another cell commits first. A drag on cells pans the grid natively (also inside
+  the selection); a long press opens the cell / header context menu (a sheet on phones) and keeps the selection. Touches
+  on the headers, borders and the corner do not pan: a tap selects the row/column, a drag extends it, a drag on a border
+  resizes (10 px touch zone, 5 px dead zone), a double tap on a border autofits.
+- **Selection handles** (`selection-handle-start`/`-end`): 24 px dots in 44 px targets on the range's top-left and
+  bottom-right corners (their size is kept at any zoom); dragging one moves that corner cell by cell, at the cell area's
+  edges the grid scrolls. A tap on a handle is a tap on the cell under it. Whole rows/columns get none.
+- **Fill handle** (`fill-handle-touch`): a 44 px target diagonally off the bottom-right corner (clear of the end handle);
+  a drag fills as with the mouse (one number is copied, two continue the series), a tap offers Fill down, Fill right,
+  Fill series, Copy cells (`CalcStore.fillWithin`: from the selection's first row, column or into the next cell).
+- **Pinch** (two pointers or two touches) scales the sheet zoom between 50 % and 200 % around the fingers; committed to
+  the sheet view (`setSheetView`) when the fingers lift; `touch-action: none` on the grid only while pinching.
+- **Formula keys** (compact, while a cell is edited; `touch/FormulaKeys.tsx`): a 44 px row above the command bar with
+  Ref, fx (Insert Function), `= + - * / ( ) : ; , $ %`, ✕ (cancel) and ↵ (commit); with the on-screen keyboard open
+  (`html[data-keyboard]`) the row takes the command bar's place right above the keyboard. The keys never take the focus.
+  **Ref mode**: taps and drags on cells insert or replace the reference at the caret (point mode), the handles resize
+  the pointed reference, ⇤ ⇥ move the caret by one token. On touch devices `focusGrid()` does not refocus the editor (no
+  keyboard after a command); the editor is focused by a tap on the cell, the formula bar or typing.
+- **Compact chrome**: the formula bar is one 44 px line – the name box as a chip (tap to type a reference or name), its
+  list button, the field and an expand button (four wrapping lines); the sheet tabs are a sideways-scrolling strip of
+  44 px tabs with "+" pinned at its end, a long press opens the sheet menu as a sheet (Rename opens the rename dialog);
+  the status bar shows the selection's Sum / Average / Count as a chip (tap cycles; from the loaded cells, dates left
+  out). Colour grids in sheets have 40 px tall cells (ui-shared, all apps).
+- **Tests**: `packages/e2e/tests/calc-touch.spec.ts` (projects `mobile` and `tablet`).
 
 ## Write touch (P10-M4)
 

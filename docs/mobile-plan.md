@@ -3,7 +3,9 @@
 - Status: **in progress – cycle 3.1415** ([plan-3.1415.md](plan-3.1415.md), Block M). Done: **P10-M1** mobile shells, mobile
   `Backend` and mobile CI ([mobile.md](mobile.md)); **P10-M2** compact layout under 900 px (top bar, bottom command bar from
   the ribbon definitions, bottom sheets, 44 px targets, soft-keyboard handling via `visualViewport`, safe areas, long-press
-  context menus; see [ui.md › Compact layout](ui.md#compact-layout-for-phones-p10-m2)). Next: touch editing per app (M3–M5),
+  context menus; see [ui.md › Compact layout](ui.md#compact-layout-for-phones-p10-m2)); **P10-M3** Calc touch editing
+  (handles, pinch, touch fill handle, formula keys with Ref mode, compact formula bar / sheet strip / Sum chip; see
+  [ui.md › Calc with touch](ui.md#calc-with-touch-p10-m3)). Next: touch editing per app (M4–M5),
   PDF for mobile (M6), store assets and publishing (M7–M9). *Was: considered, not scheduled (owner, 2026-10-15).*
 - **P10-M4 (Write touch): done** – fit-width page with pinch and double tap, long-press word selection with selection
   handles and a floating format bar, 44 px picture handles, column border strips and table gutters, the caret kept above
