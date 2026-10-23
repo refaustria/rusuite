@@ -94,16 +94,30 @@
     select.value = locale;
   };
 
+  // Every language switch starts an apply; only the latest one may write the page. (The start-up apply of the
+  // browser's language and a quick pick from the list run at the same time: whichever catalog arrived last used to
+  // win, leaving e.g. `lang="fi"` over English texts.) `data-i18n-ready` on <html> names the language that is fully
+  // shown; it is removed while a switch is in flight.
+  let generation = 0;
   async function apply(locale) {
+    const mine = ++generation;
+    delete document.documentElement.dataset.i18nReady;
     const shown = hasCatalog(locale) ? locale : "en";
     if (shown !== locale) console.info(`rusuite: no "${locale}" portal translation yet – showing English`);
+    let msgs;
+    let eng = {};
     try {
-      messages = await load(shown);
-      if (shown !== "en") english = await load("en").catch(() => ({}));
+      msgs = await load(shown);
+      if (shown !== "en") eng = await load("en").catch(() => ({}));
     } catch {
+      if (mine !== generation) return;
       fillSelect("en");
+      document.documentElement.dataset.i18nReady = "en";
       return; // the page stays as it is (English)
     }
+    if (mine !== generation) return; // a newer choice is on its way
+    messages = msgs;
+    english = eng;
     document.documentElement.lang = shown;
     document.documentElement.dir = "ltr";
     for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n, params(el));
@@ -113,6 +127,7 @@
     fillSelect(shown);
     window.rusuiteI18n = { locale: shown, t };
     window.dispatchEvent(new CustomEvent("rusuite:locale", { detail: shown }));
+    document.documentElement.dataset.i18nReady = shown;
   }
 
   select.addEventListener("change", () => {
