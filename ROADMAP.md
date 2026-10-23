@@ -170,6 +170,7 @@ Captured here, **not implemented** unless essential to the current phase. README
 - `FileProvider` abstraction + backstage provider tabs; Google Drive (PKCE + Picker + Drive v3), OneDrive (MSAL + Graph), Dropbox, optional WebDAV; iCloud only through the native file system; CSP connect-src per enabled provider; tokens client-side only (ADR 0009). Needs the owner's OAuth app registrations.
 
 ## Mobile (Android, iOS) – after v0.1.0, see docs/mobile-plan.md
+- P10 follow-ups: `write-touch.spec.ts` "the page fits the phone" flaked once under live load (passes alone) – wait for the fit-width zoom to settle before asserting; Write reflowing reading view for phones; text box/shape touch handles in Write; Show selection mini-toolbar, saving the pinch zoom in the file, two-finger undo; Calc core-driven Sum/Average/Count status on desktop, selection toolbar on tap; a Rust PDF writer as an alternative to the webview renderer; real-device smoke via Firebase Test Lab / a macOS simulator job; `bundletool` AAB check in CI; desktop file associations (`bundle.fileAssociations`); `navigator.share` on the web; store listings/screenshots in all 24 languages; `play.mjs promote`; en-GB App Store locale.
 - Tauri mobile targets for the three apps; tablet-first layouts; touch editing; document picker + share sheet; Rust PDF generation; store publishing. Guardrails apply now (pointer events, responsive ribbon, Backend abstraction).
 
 ## Release / distribution
