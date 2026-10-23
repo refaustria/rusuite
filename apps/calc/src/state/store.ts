@@ -2258,6 +2258,33 @@ export class CalcStore {
     return this.apply({ type: "fillRange", sheet, src, dst, mode: "copy" });
   }
 
+  /**
+   * The touch Fill sheet's Fill series / Copy cells (P10-M3): a taller-than-one-row selection is filled down from its
+   * first row, a single row right from its first cell; a single cell fills the next cell below, as a one-cell drag of
+   * the fill handle would.
+   */
+  fillWithin(mode: "series" | "copy"): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const r = clipRange(normalize(this.state.selection), this.cache(sheet));
+    let src: Rect;
+    let dst: Rect;
+    if (r.r1 > r.r0) {
+      src = { ...r, r1: r.r0 };
+      dst = { ...r, r0: r.r0 + 1 };
+    } else if (r.c1 > r.c0) {
+      src = { ...r, c1: r.c0 };
+      dst = { ...r, c0: r.c0 + 1 };
+    } else {
+      if (r.r1 >= LAST_ROW) return Promise.resolve();
+      src = r;
+      dst = { ...r, r0: r.r1 + 1, r1: r.r1 + 1 };
+    }
+    const all = { r0: src.r0, c0: src.c0, r1: dst.r1, c1: dst.c1 };
+    if (this.refuseMergeSplit(all) || this.refuseArrayChange(dst)) return Promise.resolve();
+    this.select(normalizeAround(this.state.selection.anchor, all));
+    return this.apply({ type: "fillRange", sheet, src, dst, mode });
+  }
+
   /** Double-click on the fill handle: fills down to the end of the neighbouring column's data. */
   fillToData(mode: FillMode = "auto"): Promise<void> {
     const src = normalize(this.state.selection);

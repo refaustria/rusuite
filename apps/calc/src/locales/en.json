@@ -2155,5 +2155,10 @@
   "calc.picture.fixed": "Don't move or size with cells",
   "calc.picture.size": "Size",
   "calc.picture.crop": "Crop",
-  "calc.picture.resetCrop": "Reset Crop"
+  "calc.picture.resetCrop": "Reset Crop",
+  "calc.touch.fill": "Fill",
+  "calc.touch.fillDown": "Fill down",
+  "calc.touch.fillRight": "Fill right",
+  "calc.touch.fillSeries": "Fill series",
+  "calc.touch.copyCells": "Copy cells"
 }

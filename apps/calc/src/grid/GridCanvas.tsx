@@ -177,8 +177,6 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
   const startHandle = useRef<HTMLDivElement>(null);
   const endHandle = useRef<HTMLDivElement>(null);
   const touchFill = useRef<HTMLDivElement>(null);
-  /** Tap on the touch fill handle: the Fill sheet. */
-  const [, setFillSheet] = useState(false);
   /** The zoom shown while pinching (committed to the sheet view when the fingers lift). */
   const [pinchZoom, setPinchZoom] = useState<number | null>(null);
   const pinchZoomRef = useRef<number | null>(null);
@@ -1127,7 +1125,22 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
   };
-  const openFillSheet = () => setFillSheet(true);
+  /** A tap on the touch fill handle: Fill down / right / series, Copy cells (a sheet on phones, a menu on tablets). */
+  const openFillSheet = () => {
+    const b = touchFill.current?.getBoundingClientRect();
+    const at = b ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : { x: 0, y: 0 };
+    const item = (id: string, label: string, run: () => Promise<void>): ContextMenuItem => ({ id, label, onSelect: () => void run() });
+    setMenu({
+      at,
+      label: t("calc.touch.fill"),
+      items: [
+        item("fill-down", t("calc.touch.fillDown"), () => store.fillCopy("down")),
+        item("fill-right", t("calc.touch.fillRight"), () => store.fillCopy("right")),
+        item("fill-series", t("calc.touch.fillSeries"), () => store.fillWithin("series")),
+        item("copy-cells", t("calc.touch.copyCells"), () => store.fillWithin("copy")),
+      ],
+    });
+  };
 
   const scrollIntoView = (cell: Cell) => {
     const el = scroller.current;
@@ -2005,6 +2018,8 @@ export function GridCanvas({ store, showPerf = false }: { store: CalcStore; show
             {/* Selection handles (touch): drag to resize the range (in Ref mode: the reference). */}
             <div ref={startHandle} data-testid="selection-handle-start" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("start", e)} />
             <div ref={endHandle} data-testid="selection-handle-end" data-ref-mode={refMode ? "" : undefined} aria-hidden="true" className="rs-sel-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("end", e)} />
+            {/* The fill handle (touch): drag fills like the mouse's; a tap offers the fill commands. */}
+            <div ref={touchFill} data-testid="fill-handle-touch" aria-hidden="true" className="rs-fill-handle" style={{ display: "none" }} onPointerDown={(e) => handlePointer("fill", e)} />
           </>
         )}
         <SpillIndicator store={store} boxRef={spillBox} onMount={draw} />

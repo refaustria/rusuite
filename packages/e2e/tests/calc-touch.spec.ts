@@ -178,4 +178,45 @@ test.describe("calc touch @mobile", () => {
     await expect.poll(() => textX(page, 2)).toBeGreaterThan(before + 60);
     errors.expectNone();
   });
+
+  test("the touch fill handle: a drag fills like the mouse, a tap offers the fill commands", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    // B2 = 1, B3 = 2 dragged to B5: the series 1..4 (one number alone is copied, as with the mouse and in Excel).
+    await grid.type(1, 1, "1");
+    await grid.type(2, 1, "2");
+    const b2 = await grid.pos(1, 1);
+    await page.touchscreen.tap(b2.x, b2.y);
+    await drag(page, await centre(page, "selection-handle-end"), await grid.pos(2, 1, 32, 10));
+    await expect(address(page)).toHaveValue("B2:B3");
+    const fill = page.getByTestId("fill-handle-touch");
+    await expect(fill).toBeVisible();
+    const fb = (await fill.boundingBox())!;
+    expect(fb.width).toBeGreaterThanOrEqual(44);
+    const from = await centre(page, "fill-handle-touch");
+    await drag(page, from, { x: from.x, y: from.y + 2 * 20 });
+    await expect(address(page)).toHaveValue("B2:B5");
+    await expect.poll(() => grid.display(4, 1)).toBe("4");
+    expect(await grid.display(3, 1)).toBe("3");
+    // C2 = 1, C2:C5 selected; a tap on the fill handle → Fill series.
+    await grid.type(1, 2, "1");
+    const c2 = await grid.pos(1, 2);
+    await page.touchscreen.tap(c2.x, c2.y);
+    await drag(page, await centre(page, "selection-handle-end"), await grid.pos(4, 2, 32, 10));
+    await expect(address(page)).toHaveValue("C2:C5");
+    const at = await centre(page, "fill-handle-touch");
+    await ptr(page, "pointerdown", at.x, at.y);
+    await ptr(page, "pointerup", at.x, at.y);
+    const sheet = page.getByTestId("context-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("menuitem")).toHaveText(["Fill down", "Fill right", "Fill series", "Copy cells"]);
+    for (const b of await sheet.getByRole("menuitem").all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: `${SHOTS}/P10-M3-fill-sheet.png` });
+    await sheet.getByRole("menuitem", { name: "Fill series" }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect.poll(() => grid.display(4, 2)).toBe("4");
+    expect(await grid.display(2, 2)).toBe("2");
+    errors.expectNone();
+  });
 });

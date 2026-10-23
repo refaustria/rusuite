@@ -2155,5 +2155,10 @@
   "calc.picture.fixed": "Von Zellposition und -größe unabhängig",
   "calc.picture.size": "Größe",
   "calc.picture.crop": "Zuschneiden",
-  "calc.picture.resetCrop": "Zuschnitt zurücksetzen"
+  "calc.picture.resetCrop": "Zuschnitt zurücksetzen",
+  "calc.touch.fill": "Ausfüllen",
+  "calc.touch.fillDown": "Nach unten ausfüllen",
+  "calc.touch.fillRight": "Nach rechts ausfüllen",
+  "calc.touch.fillSeries": "Reihe ausfüllen",
+  "calc.touch.copyCells": "Zellen kopieren"
 }

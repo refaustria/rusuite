@@ -30,3 +30,19 @@ body,
 .rs-sel-handle[data-ref-mode]::after {
   border-color: #1a73e8;
 }
+/* The touch fill handle: a 44 px target around a green square, diagonally off the range's bottom-right corner. */
+.rs-fill-handle {
+  position: absolute;
+  z-index: 20;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.rs-fill-handle::after {
+  content: "";
+  width: calc(16px / var(--rs-hz, 1));
+  height: calc(16px / var(--rs-hz, 1));
+  border: calc(2px / var(--rs-hz, 1)) solid #ffffff;
+  background: #217346;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
