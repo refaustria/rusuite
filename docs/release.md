@@ -136,7 +136,12 @@ reply, that the native window title names the app and that `ping` reports the ve
    `true` for every OS whose secrets are set ([signing.md](signing.md)).
 2. Replace the release text with `docs/release-notes/<public name>.md` (adapt the heading for an rc). Keep **Set as a
    pre-release** ticked for alpha/rc builds; untick it for a cycle release such as 3.141.
-3. **Publish release**. The SHA-256 digests of the assets then show under *Assets*.
+3. **Trim the signing lines before publishing.** `docs/release-notes/3.1415.md` keeps one line per OS under "Signing
+   and trust" (marked "PM"). After the release run: open `signing.json` from the draft, delete the OS lines that say
+   unsigned, keep the Gatekeeper/SmartScreen hint for them (the "Upgrade notes" and the Downloads page explain the
+   warning), and keep the signed lines as they are. If the signed state changed against the store texts, switch them
+   with `node scripts/store/signing-wording.mjs all|macLinux|none` (store texts, `docs/store/listing/README.md`).
+4. **Publish release**. The SHA-256 digests of the assets then show under *Assets*.
 
 ## 5. Portal downloads page
 The portal's `downloads.html` is static and generated at deploy time from the newest **published** release:
