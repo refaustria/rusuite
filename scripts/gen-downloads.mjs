@@ -5,11 +5,12 @@
 // scripts/gen-downloads.sh (`gh release view <tag> --json …` plus the assets' SHA-256 digests from `gh api`). Only a
 // click on a download button leaves the site, to the asset's GitHub URL.
 //
-//   node scripts/gen-downloads.mjs --in release.json --out downloads.html
+//   node scripts/gen-downloads.mjs --in release.json --out downloads.html      (--release is the same as --in)
 //   node scripts/gen-downloads.mjs --none --out downloads.html     # no release yet (the committed fallback page)
 //
-// release.json: { tagName, name, url, publishedAt, isDraft, isPrerelease, assets: [{ name, size, url, digest? }] }
-// (`digest` = "sha256:<hex>"). Texts are portal catalog keys (`portal.dl.*`, apps/portal/locales); downloads.js
+// release.json: { tagName, name, url, publishedAt, isDraft, isPrerelease, assets: [{ name, size, url, digest? }],
+// signing? } (`digest` = "sha256:<hex>"; `signing` = the release's `signing.json` asset, P10-S1 – gen-downloads.sh
+// fetches it; absent means every build is unsigned, as up to 3.141). Texts are portal catalog keys (`portal.dl.*`, apps/portal/locales); downloads.js
 // formats sizes/dates for the chosen language and puts the visitor's OS first.
 
 import fs from "node:fs";
@@ -42,6 +43,7 @@ export const OSES = [
     ],
     verify: 'certutil -hashfile <file> SHA256',
     warning: "portal.dl.warn.windows",
+    signed: "portal.dl.signed.windows",
     steps: [{ id: "windows", title: "portal.dl.win.title", items: ["portal.dl.win.1", "portal.dl.win.2"] }],
   },
   {
@@ -53,6 +55,8 @@ export const OSES = [
     ],
     verify: "shasum -a 256 <file>",
     warning: "portal.dl.warn.macos",
+    warningSigned: "portal.dl.warn.macos.signed",
+    signed: "portal.dl.signed.macos",
     steps: [
       {
         id: "macos15",
@@ -73,6 +77,9 @@ export const OSES = [
     ],
     verify: "sha256sum <file>",
     warning: "portal.dl.warn.linux",
+    signed: "portal.dl.signed.linux",
+    // Linux has no first-start warning: its install steps stay; the GPG line is added to them.
+    keepSteps: true,
     steps: [{ id: "linux", title: "portal.dl.linux.title", items: ["portal.dl.linux.1", "portal.dl.linux.2"] }],
   },
 ];
@@ -146,6 +153,24 @@ function stepsHtml(cat, os) {
       </div>`;
 }
 
+/**
+ * Per OS whether its builds are signed, from the release's `signing.json` (P10-S1, scripts/signing/manifest.mjs).
+ * Anything missing or malformed counts as unsigned. macOS counts only when notarized too (a signed but not notarized
+ * app still meets Gatekeeper's "Not Opened").
+ */
+export function signingOf(manifest) {
+  const m = manifest && typeof manifest === "object" ? manifest : {};
+  const fpr = String(m.linux?.fingerprint ?? "").replace(/\s+/g, "").toUpperCase();
+  const gpg = m.linux?.gpg === true && /^[0-9A-F]{40}$/.test(fpr);
+  return {
+    macos: m.macos?.signed === true && m.macos?.notarized === true,
+    windows: m.windows?.signed === true && ["pfx", "azure"].includes(m.windows?.method),
+    linux: gpg,
+    fingerprint: gpg ? fpr.replace(/(.{4})(?=.)/g, "$1 ") : null,
+    sha256sums: gpg && m.sha256sums === true,
+  };
+}
+
 const sha256Of = (asset) => (/^sha256:([0-9a-f]{64})$/i.exec(asset.digest ?? "")?.[1] ?? "").toLowerCase();
 
 function head(cat) {
@@ -203,6 +228,30 @@ export function renderNone(cat = loadCatalog()) {
     <main data-testid="downloads" data-release="none"></main>${foot(cat)}`;
 }
 
+/** The "not signed yet" notice: as up to 3.141 when no OS is signed, naming the unsigned ones otherwise, else none. */
+function unsignedAside(cat, unsigned) {
+  if (unsigned.length === 0) return "";
+  const all = unsigned.length === OSES.length;
+  const params = all ? undefined : { oses: unsigned.map((os) => os.title).join(", ") };
+  return `
+      <aside class="unsigned" role="note"${all ? "" : ` data-unsigned="${unsigned.map((os) => os.id).join(" ")}"`}>
+        <h2 ${i18n(cat, all ? "portal.dl.unsigned.title" : "portal.dl.unsigned.some.title", { params })}</h2>
+        <p ${i18n(cat, all ? "portal.dl.unsigned.text" : "portal.dl.unsigned.some.text", { params })}</p>
+      </aside>`;
+}
+
+/** The signed SHA256SUMS of the release (P10-S1): where to get it and how to check it. */
+function sumsAside(cat, signing, assetUrl) {
+  const sums = assetUrl("SHA256SUMS");
+  const sig = assetUrl("SHA256SUMS.asc");
+  if (!signing.sha256sums || !sums || !sig) return "";
+  return `
+      <aside class="steps-block verify" data-testid="sha256sums">
+        <h2 ${i18n(cat, "portal.dl.sums.title")}</h2>
+        <p ${i18n(cat, "portal.dl.sums.text", { html: true, params: { sums, sig, fingerprint: signing.fingerprint } })}</p>
+      </aside>`;
+}
+
 /** The page for one release. */
 export function render(release, cat = loadCatalog()) {
   const tag = String(release.tagName ?? "");
@@ -211,6 +260,9 @@ export function render(release, cat = loadCatalog()) {
   const assets = (release.assets ?? []).map((a) => ({ ...a, info: classify(a.name) })).filter((a) => a.info);
   const find = (app, os, kind) => assets.find((a) => a.info.app === app && a.info.os === os && a.info.kind === kind);
   const prerelease = Boolean(release.isPrerelease) || tag.includes("-");
+  const signing = signingOf(release.signing);
+  const assetUrl = (name) => (release.assets ?? []).find((a) => a.name === name)?.url;
+  const unsigned = OSES.filter((os) => !signing[os.id]);
 
   const sections = OSES.map((os) => {
     const rows = APPS.map((app) => {
@@ -236,13 +288,22 @@ export function render(release, cat = loadCatalog()) {
     const sums = assets
       .filter((a) => a.info.os === os.id)
       .sort(fileOrder(os))
-      .map((a) => `\n            <dt data-app="${a.info.app}">${esc(a.name)}</dt><dd><code>${sha256Of(a) || "–"}</code></dd>`)
+      .map((a) => {
+        const asc = signing[os.id] && os.id === "linux" ? assetUrl(`${a.name}.asc`) : undefined;
+        const sig = asc ? ` <a class="asc" href="${esc(asc)}" title="${esc(`${a.name}.asc`)}">.asc</a>` : "";
+        return `\n            <dt data-app="${a.info.app}">${esc(a.name)}${sig}</dt><dd><code>${sha256Of(a) || "–"}</code></dd>`;
+      })
       .join("");
+    const signedLine = signing[os.id]
+      ? `<p class="steps-block signed" data-signed="${os.id}" ${i18n(cat, os.signed, { html: true, params: os.id === "linux" ? { fingerprint: signing.fingerprint } : undefined })}</p>`
+      : "";
+    const guide = signing[os.id] && !os.keepSteps ? signedLine : `${stepsHtml(cat, os)}${signedLine ? `\n        ${signedLine}` : ""}`;
+    const warning = signing[os.id] && os.warningSigned ? os.warningSigned : os.warning;
     return `
       <section class="os" data-os="${os.id}">
         <h2>${os.title}</h2>
-        <p class="warn" ${i18n(cat, os.warning, { html: true })}</p>
-        ${stepsHtml(cat, os)}
+        <p class="warn" ${i18n(cat, warning, { html: true })}</p>
+        ${guide}
         <ul class="dl-list">${rows}
         </ul>
         <details class="sums">
@@ -262,13 +323,9 @@ export function render(release, cat = loadCatalog()) {
       <p class="sub">${prerelease ? `<span class="pill" ${i18n(cat, "portal.dl.prerelease")}</span> ` : ""}${date ? `<span data-date="${esc(date)}" ${i18n(cat, "portal.dl.released", { params: { date } })}</span>` : ""}</p>
       ${webLinks(cat)}
     </header>
-    <main data-testid="downloads" data-release="${esc(tag)}" data-version="${esc(version)}">
-      <aside class="unsigned" role="note">
-        <h2 ${i18n(cat, "portal.dl.unsigned.title")}</h2>
-        <p ${i18n(cat, "portal.dl.unsigned.text")}</p>
-      </aside>
+    <main data-testid="downloads" data-release="${esc(tag)}" data-version="${esc(version)}">${unsignedAside(cat, unsigned)}
       <div id="os-list">${sections}
-      </div>
+      </div>${sumsAside(cat, signing, assetUrl)}
       <template id="dl-badge"><span class="badge" ${i18n(cat, "portal.dl.recommended")}</span></template>
     </main>${foot(cat)}`;
 }
@@ -282,9 +339,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
     return i >= 0 ? args[i + 1] : undefined;
   };
   const out = opt("--out");
-  const input = opt("--in");
+  const input = opt("--in") ?? opt("--release");
   if (!out || (!input && !args.includes("--none"))) {
-    console.error("usage: gen-downloads.mjs (--in release.json | --none) --out downloads.html");
+    console.error("usage: gen-downloads.mjs (--in|--release release.json | --none) --out downloads.html");
     process.exit(2);
   }
   const html = input ? render(JSON.parse(fs.readFileSync(input, "utf8"))) : renderNone();
