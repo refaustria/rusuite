@@ -40,6 +40,7 @@ import { sectionFrames } from "./features/layout/sectionFrames";
 import { useTouchZoom } from "./touch/useTouchZoom";
 import { installTouchMode } from "./touch/touchMode";
 import { TouchSelection } from "./touch/TouchSelection";
+import { TableGutters } from "./touch/TableGutters";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -410,6 +411,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />
       <LayoutOptions editor={editor} />
       {editor && <TouchSelection editor={editor} ctl={ctl} features={features} />}
+      {editor && <TableGutters editor={editor} />}
       <Toasts ctl={ctl} />
       <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} />
       <NewDocumentDialog

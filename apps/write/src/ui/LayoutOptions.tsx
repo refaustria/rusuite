@@ -1,9 +1,11 @@
 // Word's Layout Options button: next to a selected picture, it opens the
 // wrap choices (In Line with Text; With Text Wrapping: Square, Tight, Top
 // and Bottom, Behind Text, In Front of Text). Positioned over the editor
-// (fixed, follows scrolling); pointer events, 28 px button.
+// (fixed, follows scrolling); pointer events, 28 px button (44 px and rows
+// of 44 px in touch mode, kept on the screen; P10-M4).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { isTouchMode, subscribeTouchMode } from "../touch/touchMode";
 import type { Editor } from "@tiptap/react";
 import { FOCUS_RING } from "@rusuite/ui-shared";
 import type { Anchor } from "../generated/Anchor";
@@ -31,6 +33,7 @@ export function LayoutOptions({ editor }: { editor: Editor | null }) {
   const t = useT();
   const [spot, setSpot] = useState<Spot | null>(null);
   const [open, setOpen] = useState(false);
+  const touch = useSyncExternalStore(subscribeTouchMode, isTouchMode);
   useEffect(() => {
     if (!editor) return;
     const update = () => {
@@ -49,11 +52,15 @@ export function LayoutOptions({ editor }: { editor: Editor | null }) {
   }, [editor]);
   if (!editor || !spot) return null;
   const wrap = wrapOf(spot.anchor);
+  // Touch: the button stays on the screen (a picture as wide as the page), the menu opens to the left near the edge.
+  const vw = typeof window === "undefined" ? 0 : window.innerWidth;
+  const left = touch ? Math.max(4, Math.min(spot.x, vw - 52)) : spot.x;
+  const flip = touch && left > vw - 236;
   return (
-    <div className="fixed z-10" style={{ left: spot.x, top: spot.y }} data-testid="layout-options">
+    <div className="fixed z-10" style={{ left, top: spot.y }} data-testid="layout-options">
       <button
         type="button"
-        className={`flex h-7 w-7 items-center justify-center rounded border border-ui-border bg-ui-panel text-ui-fg shadow hover:bg-ui-hover ${FOCUS_RING}`}
+        className={`flex ${touch ? "h-11 w-11" : "h-7 w-7"} items-center justify-center rounded border border-ui-border bg-ui-panel text-ui-fg shadow hover:bg-ui-hover ${FOCUS_RING}`}
         aria-label={t("write.layoutOptions")}
         title={t("write.layoutOptions")}
         aria-expanded={open}
@@ -66,7 +73,7 @@ export function LayoutOptions({ editor }: { editor: Editor | null }) {
         <div
           role="menu"
           aria-label={t("write.layoutOptions")}
-          className="absolute left-0 top-full mt-1 w-56 rounded border border-ui-border bg-ui-panel p-1 text-sm text-ui-fg shadow-lg"
+          className={`absolute ${flip ? "right-0" : "left-0"} top-full mt-1 w-56 rounded border border-ui-border bg-ui-panel p-1 text-sm text-ui-fg shadow-lg`}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setOpen(false);
@@ -82,7 +89,7 @@ export function LayoutOptions({ editor }: { editor: Editor | null }) {
                 type="button"
                 role="menuitemradio"
                 aria-checked={wrap === w}
-                className={`flex min-h-8 w-full items-center gap-2 rounded px-2 text-left hover:bg-ui-hover aria-checked:bg-ui-active ${FOCUS_RING}`}
+                className={`flex ${touch ? "min-h-11" : "min-h-8"} w-full items-center gap-2 rounded px-2 text-left hover:bg-ui-hover aria-checked:bg-ui-active ${FOCUS_RING}`}
                 onPointerDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setSelectedAnchor(editor, (a) => withWrap(a, w));

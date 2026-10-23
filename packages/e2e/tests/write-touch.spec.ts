@@ -174,6 +174,14 @@ test.describe("Write touch @mobile", () => {
     await selectionFlow(page, "mobile");
   });
 
+  test("tables by touch: long press → the table items, a column border drag, the gutters, the Table chips", async ({ page }) => {
+    await tableFlow(page, "mobile");
+  });
+
+  test("pictures by touch: 8 handles with 44 px hit areas, a corner drag resizes, Layout Options is 44 px", async ({ page }) => {
+    await pictureFlow(page, "mobile");
+  });
+
 });
 
 test.describe("Write touch in German @mobile", () => {
@@ -204,6 +212,95 @@ test.describe("Write touch in German @mobile", () => {
     await ctx.close();
   });
 });
+
+/** Items 3 (and 5): the table fixture by touch. */
+async function tableFlow(page: Page, project: string) {
+  const errors = trackErrors(page);
+  await openFixture(page, "provisional-24-table-4x3-header.docx");
+  const cells = page.locator(".ProseMirror table td, .ProseMirror table th");
+  const c = (await cells.nth(4).boundingBox())!;
+  // A long press in a cell: the context menu (a sheet on the phone) with the table items.
+  await longPress(page, c.x + 8, c.y + c.height / 2);
+  const menu = project === "mobile" ? page.getByTestId("context-sheet") : page.getByRole("menu", { name: "Editor" });
+  await expect(menu).toBeVisible();
+  const items = (await menu.getByRole("menuitem").allInnerTexts()).map((s) => s.replace(/\s+/g, " ").trim());
+  for (const want of ["Insert row above", "Insert row below", "Delete table", "Table Properties…"]) expect(items.some((i) => i.startsWith(want)), `${want} in ${items.join(", ")}`).toBe(true);
+  if (project === "mobile") await page.keyboard.press("Escape");
+  else {
+    // The desktop menu closes on a tap outside it (after the long press's quiet time, see below).
+    await page.waitForTimeout(500);
+    await page.touchscreen.tap(page.viewportSize()!.width - 40, page.viewportSize()!.height - 80);
+  }
+  await expect(menu).toHaveCount(0);
+  // A tap puts the caret into the cell (the word's selection bar goes away); the contextual Table tabs.
+  const c2 = (await cells.nth(5).boundingBox())!;
+  // The long press's own mouse events are swallowed for 400 ms after it (installLongPress): a later tap.
+  await page.waitForTimeout(500);
+  await page.touchscreen.tap(c2.x + c2.width / 2, c2.y + c2.height / 2);
+  await expect(page.getByTestId("selection-bar")).toHaveCount(0);
+  if (project === "mobile") {
+    await expect(page.getByTestId("command-tabs").getByRole("tab", { name: "Table Design", exact: true })).toBeVisible();
+    await expect(page.getByTestId("command-tabs").getByRole("tab", { name: "Table Layout", exact: true })).toBeVisible();
+  } else {
+    await expect(page.getByTestId("ribbon").getByRole("tab", { name: "Table Layout", exact: true })).toBeVisible();
+  }
+  // The gutters (44 px): a tap on the second column's selects that column.
+  const col = page.getByTestId("table-gutter-col-1");
+  await expect(col).toBeVisible();
+  const g = (await col.boundingBox())!;
+  expect(g.height).toBeGreaterThanOrEqual(44);
+  await page.touchscreen.tap(g.x + g.width / 2, g.y + g.height / 2);
+  await expect(page.locator(".ProseMirror .selectedCell")).toHaveCount(4);
+  const row = page.getByTestId("table-gutter-row-0");
+  const r = (await row.boundingBox())!;
+  expect(r.width).toBeGreaterThanOrEqual(44);
+  await page.touchscreen.tap(r.x + r.width / 2, r.y + r.height / 2);
+  await expect(page.locator(".ProseMirror .selectedCell")).toHaveCount(3);
+  await page.screenshot({ path: `${SHOTS}/P10-M4-table-${project}.png` });
+  // Drag the border after the first column 30 px to the right (the finger 15 px beside it: inside the 44 px strip).
+  const first = (await cells.nth(0).boundingBox())!;
+  const before = first.width;
+  const bx = first.x + first.width + 15;
+  const by = first.y + first.height / 2;
+  const steps: { x: number; y: number }[][] = [];
+  for (let i = 0; i <= 6; i++) steps.push([{ x: bx + i * 5, y: by }]);
+  steps.push([]);
+  await touch(page, steps);
+  await expect.poll(async () => (await cells.nth(0).boundingBox())!.width).toBeGreaterThan(before + 10);
+  errors.expectNone();
+}
+
+/** Items 3 (and 5): the picture fixture by touch. */
+async function pictureFlow(page: Page, project: string) {
+  const errors = trackErrors(page);
+  await openFixture(page, "provisional-30-image-inline.docx");
+  const img = page.locator(".ProseMirror img.inline-image").first();
+  const b0 = (await img.boundingBox())!;
+  await page.touchscreen.tap(b0.x + b0.width / 2, b0.y + b0.height / 2);
+  const handles = page.locator(".inline-image-wrap.selected .image-handle");
+  await expect(handles).toHaveCount(8);
+  for (const h of await handles.all()) {
+    const hb = (await h.boundingBox())!;
+    expect(hb.width).toBeGreaterThanOrEqual(43.5);
+    expect(hb.height).toBeGreaterThanOrEqual(43.5);
+  }
+  const lo = page.getByTestId("layout-options").getByRole("button").first();
+  const lb = (await lo.boundingBox())!;
+  expect(lb.width).toBeGreaterThanOrEqual(44);
+  expect(lb.height).toBeGreaterThanOrEqual(44);
+  expect(lb.x + lb.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.screenshot({ path: `${SHOTS}/P10-M4-picture-${project}.png` });
+  // Drag the bottom-right corner 40 px left and up: smaller.
+  const se = (await page.locator(".inline-image-wrap.selected .image-handle-se").boundingBox())!;
+  const sx = se.x + se.width / 2;
+  const sy = se.y + se.height / 2;
+  const steps: { x: number; y: number }[][] = [];
+  for (let i = 0; i <= 8; i++) steps.push([{ x: sx - i * 5, y: sy - i * 5 }]);
+  steps.push([]);
+  await touch(page, steps);
+  await expect.poll(async () => (await img.boundingBox())!.width).toBeLessThan(b0.width - 20);
+  errors.expectNone();
+}
 
 const selectedText = (page: Page) => page.evaluate(() => window.getSelection()?.toString() ?? "");
 const BAR_KEYS = ["fmt.bold", "fmt.italic", "fmt.underline", "write.highlight", "write.link.insertDots", "cmd.copy", "cmd.cut", "cmd.paste", "write.comments.new", "write.touch.more"];
