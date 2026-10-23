@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FOCUS_RING } from "./Popover";
 import { formatCombo } from "./shortcuts/keys";
 import { useLocale } from "./i18n/react";
+import { useCompact } from "./compact/useCompact";
+import { SheetFrame } from "./compact/BottomSheet";
 
 export type ContextMenuItem =
   | {
@@ -28,7 +30,7 @@ const isItem = (i: ContextMenuItem): i is Exclude<ContextMenuItem, { separator: 
  * Right-click menu at a point: kept inside the viewport, focuses its
  * first item, arrow keys / Home / End move, Enter or Space activates,
  * Esc, Tab and an outside click close it. Selecting an item closes the
- * menu and then runs the item.
+ * menu and then runs the item. In the compact layout (P10-M2) the same menu is a bottom sheet.
  */
 export function ContextMenu({ at, label, items, onClose }: ContextMenuProps) {
   useLocale();
@@ -36,6 +38,7 @@ export function ContextMenu({ at, label, items, onClose }: ContextMenuProps) {
   const [pos, setPos] = useState(at);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const compact = useCompact();
 
   useLayoutEffect(() => {
     if (!at) return;
@@ -61,17 +64,35 @@ export function ContextMenu({ at, label, items, onClose }: ContextMenuProps) {
     };
   }, [at]);
 
+  // A sheet keeps Escape even when the touch that opened it handed the focus back to the document.
+  useEffect(() => {
+    if (!at || !compact) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onCloseRef.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [at, compact]);
+
   if (!at) return null;
 
   const buttons = () => Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
 
-  return (
+  const menu = (
     <div
       ref={ref}
       role="menu"
       aria-label={label}
-      className="fixed z-50 min-w-48 rounded border border-ui-border bg-ui-panel py-1 text-sm text-ui-fg shadow-lg"
-      style={{ left: (pos ?? at).x, top: (pos ?? at).y }}
+      data-compact={compact || undefined}
+      className={
+        compact
+          ? "min-h-0 flex-1 overflow-auto pb-2 text-sm text-ui-fg"
+          : "fixed z-50 min-w-48 rounded border border-ui-border bg-ui-panel py-1 text-sm text-ui-fg shadow-lg"
+      }
+      style={compact ? undefined : { left: (pos ?? at).x, top: (pos ?? at).y }}
       onContextMenu={(e) => e.preventDefault()}
       onKeyDown={(e) => {
         const b = buttons();
@@ -93,7 +114,7 @@ export function ContextMenu({ at, label, items, onClose }: ContextMenuProps) {
             type="button"
             role="menuitem"
             disabled={it.disabled}
-            className={`flex w-full items-center justify-between gap-6 px-3 py-1 text-left hover:bg-ui-hover focus:bg-ui-hover disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS_RING}`}
+            className={`flex w-full items-center justify-between gap-6 px-3 ${compact ? "min-h-11 py-2" : "py-1"} text-left hover:bg-ui-hover focus:bg-ui-hover disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS_RING}`}
             onClick={() => {
               onClose();
               it.onSelect();
@@ -107,5 +128,12 @@ export function ContextMenu({ at, label, items, onClose }: ContextMenuProps) {
         ),
       )}
     </div>
+  );
+  return compact ? (
+    <SheetFrame onClose={() => onCloseRef.current()} testId="context-sheet">
+      {menu}
+    </SheetFrame>
+  ) : (
+    menu
   );
 }

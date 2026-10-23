@@ -1415,6 +1415,7 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
       documentTitle={`${name ?? t("doc.untitled")}${dirty ? " •" : ""}`}
       accent="#2b579a"
       rightSlot={<HelpMenu docStats={() => ({ blocks: editor.state.doc.childCount })} />}
+      undo={{ canUndo, canRedo, onUndo: () => ctl.undo(), onRedo: () => ctl.redo() }}
       tabs={[
         home, insert, designTab(ctl, t), layout, references, review, view,
         ...contextualTabs(tableTabList, t("ribbon.ctx.tableTools"), CONTEXT_COLORS.table),

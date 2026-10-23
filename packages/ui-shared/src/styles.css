@@ -35,3 +35,93 @@
   --color-ui-active: var(--ui-active);
   --color-ui-focus: var(--ui-focus);
 }
+
+/* Compact layout (P10-M2, below 900 px; `<html data-compact>` is set by the compact ribbon). The app's root
+   (`data-rs-app`) follows the visual viewport (the on-screen keyboard shrinks it), keeps the safe areas free and
+   leaves room for the fixed bottom command bar. */
+html[data-compact] [data-rs-app] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--rs-vv-top, 0px);
+  height: var(--rs-vv-height, 100dvh);
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: var(--rs-command-bar-h, 0px);
+}
+
+/* Touch targets: every control in the bars is at least 44 px; inputs at 16 px (no zoom on focus in iOS). */
+html[data-compact] .rs-touch :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) {
+  min-height: 44px;
+}
+html[data-compact] .rs-touch :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) {
+  min-width: 44px;
+}
+html[data-compact] :is(.rs-touch, [data-bottom-sheet]) :is(select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
+  font-size: 16px;
+}
+/* The strip has one row: wrapping helpers of app groups lay their controls side by side. */
+html[data-compact] [data-compact-items] > :is(div, span):not([role]) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  height: auto;
+}
+
+/* Sheets: rows a finger can hit, text of at least 13 px, the dialog's action row stays in view. */
+html[data-compact] [data-bottom-sheet] :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) {
+  min-height: 44px;
+}
+html[data-compact] [data-bottom-sheet] button:not([data-cell]):not([data-gallery-item]):not([data-sheet-handle]):not([role="menuitem"]):not([role="menuitemradio"]) {
+  min-height: 40px;
+}
+html[data-compact] [data-bottom-sheet] :is(.text-xs, .text-\[11px\], .text-\[10px\]) {
+  font-size: 13px;
+  line-height: 1.35;
+}
+html[data-compact] [data-sheet-body] {
+  padding-bottom: 12px;
+}
+html[data-compact] [data-sheet-body] > :is(form, div, section, fieldset) {
+  width: auto !important;
+  max-width: 100%;
+  min-width: 0;
+}
+html[data-compact] [data-sheet-body] :is(> .justify-end:last-child, > * > .justify-end:last-child) {
+  position: sticky;
+  bottom: -12px;
+  z-index: 1;
+  margin-top: 8px;
+  padding-block: 8px;
+  background: var(--ui-panel);
+  border-top: 1px solid var(--ui-border);
+}
+
+/* The status bar: one line that scrolls sideways instead of losing items. */
+html[data-compact] [data-testid="status-bar"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  font-size: 13px;
+}
+html[data-compact] [data-testid="status-bar"] > * {
+  flex-shrink: 0;
+}
+
+/* The document areas scroll natively but a pinch is not the browser's page zoom: it reaches the app (the apps' touch
+   handling comes with M3–M5); the bars never zoom the page. */
+html[data-compact] :is([data-testid="grid"], [data-testid="write-scroll"], [data-testid="canvas-area"]) {
+  touch-action: pan-x pan-y;
+}
+html[data-compact] :is(.rs-touch, [data-bottom-sheet]) {
+  touch-action: pan-x pan-y;
+}
+html[data-compact] .rs-touch label:has(> input:is([type="checkbox"], [type="radio"])) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  min-width: 44px;
+}

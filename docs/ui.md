@@ -43,6 +43,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Printing (P7-9)](#printing-p7-9)
 - [Logos and the portal (P7-10)](#logos-and-the-portal-p7-10)
 - [Privacy (P7-12, ADR 0009)](#privacy-p7-12-adr-0009)
+- [Compact layout for phones (P10-M2)](#compact-layout-for-phones-p10-m2)
 
 ## Write
 
@@ -1900,3 +1901,40 @@ privacy-check allow-list, reachable only from the controller's `submit`).
   P8-45) and the shared chart presets (Show imports the ui-shared chart preset module directly; re-exporting it from
   the ui-shared index is left for X2).
 
+## Compact layout for phones (P10-M2)
+
+Below **900 px** viewport width (`COMPACT_MAX_WIDTH = 899`, `useCompact()`, `matchMedia("(max-width: 899px)")`) every app
+switches to a touch layout; at 900 px and wider nothing changes (desktop, tablets in landscape keep the ribbon). It applies to
+the web build on phones and to the mobile shells. Test hook: `window.__RUSUITE_FORCE_COMPACT__ = true | false`
+(`addInitScript`; `FORCE_COMPACT_EVENT` re-reads it at run time).
+
+- **Same source as the ribbon.** `Ribbon` renders `CompactRibbon` instead of the desktop strip from the same `tabs` →
+  groups → controls; no command is declared twice. The controls (`RibbonButton`, `RibbonMenuButton`, `RibbonSplitButton`,
+  `RibbonGallery`, `RibbonRow`/`RibbonStack`, the toolbar `Toggle`) read `CompactBarContext` and render as 44 px touch
+  buttons with a 10 px label under the icon; rows and stacks flatten into one strip.
+- **Top bar** (44 px): File (hamburger, opens the backstage), the document title (ellipsis; no rename yet), Undo / Redo
+  (`RibbonProps.undo`: the app's own commands and states), the app's `rightSlot` (Help "?", Show's Present) and "⋯" – a sheet
+  with Options… (the backstage's, incl. the AI options on the desktop), Keyboard shortcuts, Report a problem… and the language.
+- **Bottom command bar** (fixed, `data-testid="command-bar"`): row 1 the tabs as scrollable chips (`role="tab"`, contextual
+  tabs in their colour), row 2 the active tab's groups as one horizontally scrolling strip (`[data-compact-strip]`), a thin
+  divider and the group name as caption between groups. The strip remembers its scroll position per tab. Split buttons are
+  one button whose sheet starts with the main action (`data-split-menu` = the desktop arrow's name); inline galleries open as
+  a sheet; menus and panels open as bottom sheets. Toggles keep `aria-pressed`, disabled controls are dimmed.
+- **Bottom sheets** (`BottomSheet`, `SheetFrame`): `Dialog` (same `role="dialog"`, focus trap and focus return – the P9-Q1
+  rules), `ContextMenu`, ribbon popups, `Popover`/`Dropdown` and the Help menu become full-width sheets with a drag handle (tap
+  or drag down 80 px closes; it never takes the focus), Escape closes, dialogs keep their action row (the last `.justify-end`
+  row) sticky at the bottom; a tap on the backdrop closes menus but not dialogs (as on the desktop).
+- **Backstage**: full screen, the commands on top (back button, 44 px rows), the page below. A backend with
+  `capabilities.print === false` (mobile shells) hides Print and Export PDF – on every width.
+- **Keyboard and safe areas**: `installViewportVars` tracks `visualViewport` (`resize`/`scroll`) as `--rs-vv-top`,
+  `--rs-vv-height`, `--rs-kb-inset` on `<html data-compact>`; the app root (`data-rs-app`) is fixed to the visual viewport and
+  padded by `--rs-command-bar-h`, the bar and the sheets sit at `bottom: var(--rs-kb-inset)`, so the formula bar, the editor and
+  the slide stay visible above the keyboard. `viewport-fit=cover` and `env(safe-area-inset-*)` keep notches free. Test hook:
+  `window.__RUSUITE_VISUAL_VIEWPORT__ = { height, offsetTop }` + the `rusuite:visualviewport` event.
+- **Touch**: hit targets in the bars ≥ 44 px (CSS under `.rs-touch`), inputs 16 px (no iOS focus zoom), text in sheets ≥ 13 px;
+  tooltips are not shown. A touch held still for 500 ms dispatches `contextmenu` at the point (`installLongPress`; iOS has
+  none; Android's own is de-duplicated), so every context menu opens as a sheet. The grid, Write's scroll area and Show's
+  canvas area use `touch-action: pan-x pan-y` (native scrolling, no browser page zoom; the apps' pinch handling: M3–M5).
+- **Status bars** stay as a one-line footer above the command bar that scrolls sideways (nothing hidden).
+- **Tests**: Playwright projects `mobile` (Pixel 7, 412 × 915) and `tablet` (1024 × 768, touch) run `tests/compact.spec.ts`;
+  the reachability test walks the desktop ribbon of the same build and asserts every control per tab in the strip.

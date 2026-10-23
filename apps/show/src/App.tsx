@@ -216,7 +216,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   const sorter = view === "sorter" && !masterView;
 
   return (
-    <main className="flex h-screen flex-col bg-ui-bg text-ui-fg">
+    <main className="flex h-screen flex-col bg-ui-bg text-ui-fg" data-rs-app="">
       <RecoveryBanner session={session} />
       <ShowRibbon store={store} session={session} onPresent={presentFrom} onPresenterView={presenterView} onExportPdf={exportPdf} onRehearse={() => presentFrom(true, true)} onRecord={(fromStart) => presentFrom(fromStart, false, true)}
         print={<ShowPrintPage store={store} backend={backend} options={printOptions} onChange={setPrintOptions} />}

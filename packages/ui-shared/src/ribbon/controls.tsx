@@ -6,6 +6,8 @@ import { FOCUS_RING } from "../Popover";
 import { formatCombo } from "../shortcuts/keys";
 import { RibbonIcon, type RibbonIconName } from "./icons";
 import { useT } from "../i18n/react";
+import { useCompact, useInCompactBar } from "../compact/useCompact";
+import { BottomSheet } from "../compact/BottomSheet";
 
 export type RibbonButtonSize = "large" | "small";
 
@@ -21,6 +23,10 @@ const icon = (i: RibbonIconName | ReactNode, size: number) =>
 const BASE = `rounded text-ui-fg hover:bg-ui-hover disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-ui-active aria-expanded:bg-ui-hover ${FOCUS_RING}`;
 const LARGE = `${BASE} flex h-12 min-w-11 flex-col items-center justify-start gap-0.5 px-1 pt-0.5 text-center text-[11px] leading-[11px]`;
 const SMALL = `${BASE} inline-flex h-6 min-w-6 items-center justify-center gap-1 px-1 text-xs`;
+
+/** In the compact command bar (P10-M2): a 44 px touch button, the icon over a 10 px label. */
+export const COMPACT_BUTTON = `${BASE} flex min-h-11 min-w-11 shrink-0 flex-col items-center justify-center gap-0.5 px-1 py-0.5 text-center text-[10px] leading-[11px]`;
+const COMPACT_LABEL = "whitespace-nowrap";
 
 /** Labels of large buttons: two lines of at most 80 px, but never narrower than their longest word (German compounds). */
 const LARGE_LABEL = "line-clamp-2 max-w-20 min-w-min";
@@ -48,6 +54,14 @@ export interface RibbonButtonProps {
 /** A ribbon command: large (icon over label) or small (icon, optional label). */
 export function RibbonButton({ label, icon: i, size = "small", showLabel, pressed, disabled, shortcut, tooltip, onClick }: RibbonButtonProps) {
   const large = size === "large";
+  if (useInCompactBar()) {
+    return (
+      <button type="button" className={COMPACT_BUTTON} aria-label={label} aria-pressed={pressed} disabled={disabled} onClick={onClick}>
+        {i !== undefined && icon(i, 22)}
+        <span className={COMPACT_LABEL}>{label}</span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"
@@ -71,12 +85,15 @@ export function RibbonDivider() {
 
 /** One row of small controls (groups stack up to two rows). */
 export function RibbonRow({ children }: { children: ReactNode }) {
-  return <div className="flex items-center gap-0.5">{children}</div>;
+  // The compact command bar flattens rows and stacks into one strip.
+  const bar = useInCompactBar();
+  return <div className={bar ? "contents" : "flex items-center gap-0.5"}>{children}</div>;
 }
 
 /** Stacks rows of small controls vertically. */
 export function RibbonStack({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col justify-center gap-0.5">{children}</div>;
+  const bar = useInCompactBar();
+  return <div className={bar ? "contents" : "flex flex-col justify-center gap-0.5"}>{children}</div>;
 }
 
 // --- popups ----------------------------------------------------------------
@@ -160,6 +177,20 @@ const PANEL = "absolute left-0 top-full z-50 mt-0.5 rounded border border-ui-bor
 export type RibbonPopupContent = RibbonMenuItem[] | ((close: () => void) => ReactNode);
 
 function PopupPanel({ id, label, content, close }: { id: string; label: string; content: RibbonPopupContent; close: () => void }) {
+  return useCompact() ? <PopupSheet id={id} label={label} content={content} close={close} /> : <PopupBox id={id} label={label} content={content} close={close} />;
+}
+
+/** Compact layout: the menu or panel as a bottom sheet. */
+function PopupSheet({ id, label, content, close, head }: { id: string; label: string; content: RibbonPopupContent; close: () => void; head?: ReactNode }) {
+  return (
+    <BottomSheet id={id} label={label} role={Array.isArray(content) && !head ? null : "dialog"} onClose={close} testId="popup-sheet">
+      {head}
+      {Array.isArray(content) ? <RibbonMenu label={label} items={content} onDone={close} /> : content(close)}
+    </BottomSheet>
+  );
+}
+
+function PopupBox({ id, label, content, close }: { id: string; label: string; content: RibbonPopupContent; close: () => void }) {
   // A panel under a button near the window's right edge moves left to stay visible.
   const ref = useRef<HTMLDivElement>(null);
   const [dx, setDx] = useState(0);
@@ -199,6 +230,7 @@ export function RibbonMenuButton({ label, icon: i, size = "small", showLabel, di
   const btn = useRef<HTMLButtonElement>(null);
   const id = useId();
   const large = size === "large";
+  const bar = useInCompactBar();
   const close = () => {
     setOpen(false);
     btn.current?.focus();
@@ -220,12 +252,12 @@ export function RibbonMenuButton({ label, icon: i, size = "small", showLabel, di
       <button
         ref={btn}
         type="button"
-        className={large ? LARGE : SMALL}
+        className={bar ? COMPACT_BUTTON : large ? LARGE : SMALL}
         aria-label={label}
         aria-haspopup={Array.isArray(menu) ? "menu" : "dialog"}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        title={tooltip ?? label}
+        title={bar ? undefined : (tooltip ?? label)}
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
@@ -235,6 +267,16 @@ export function RibbonMenuButton({ label, icon: i, size = "small", showLabel, di
           }
         }}
       >
+        {bar ? (
+          <>
+            {i !== undefined && icon(i, 22)}
+            <span className={`flex items-center ${COMPACT_LABEL}`}>
+              {label}
+              <RibbonIcon name="chevronDown" size={10} />
+            </span>
+          </>
+        ) : (
+          <>
         {i !== undefined && icon(i, large ? 22 : 16)}
         {(large || showLabel || i === undefined) && (
           <span className={large ? "flex items-center" : "flex items-center whitespace-nowrap"}>
@@ -244,6 +286,8 @@ export function RibbonMenuButton({ label, icon: i, size = "small", showLabel, di
         )}
         {large && <RibbonIcon name="chevronDown" size={10} />}
         {!large && !showLabel && i !== undefined && <RibbonIcon name="chevronDown" size={12} />}
+          </>
+        )}
       </button>
       {open && <PopupPanel id={id} label={label} content={menu} close={close} />}
     </div>
@@ -264,6 +308,7 @@ export function RibbonSplitButton({ label, icon: i, size = "small", showLabel, d
   const arrow = useRef<HTMLButtonElement>(null);
   const id = useId();
   const large = size === "large";
+  const bar = useInCompactBar();
   const optionsLabel = menuLabel ?? t("ribbon.options", { label });
   const close = () => {
     setOpen(false);
@@ -272,6 +317,62 @@ export function RibbonSplitButton({ label, icon: i, size = "small", showLabel, d
   useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled, setOpen]);
+  if (bar) {
+    // Compact command bar: one touch button; its sheet starts with the main action, then the menu or gallery.
+    return (
+      <div
+        ref={root}
+        className="relative flex"
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && open) {
+            e.stopPropagation();
+            close();
+          }
+        }}
+      >
+        <button
+          ref={arrow}
+          type="button"
+          className={COMPACT_BUTTON}
+          aria-label={label}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          data-split-menu={optionsLabel}
+          disabled={disabled}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {i !== undefined && icon(i, 22)}
+          <span className={`flex items-center ${COMPACT_LABEL}`}>
+            {label}
+            <RibbonIcon name="chevronDown" size={10} />
+          </span>
+        </button>
+        {open && (
+          <PopupSheet
+            id={id}
+            label={optionsLabel}
+            content={menu}
+            close={close}
+            head={
+              <button
+                type="button"
+                data-split-main=""
+                className={`mb-1 flex min-h-11 w-full items-center gap-2 rounded border border-ui-border px-2 text-left text-sm font-medium hover:bg-ui-hover ${FOCUS_RING}`}
+                onClick={() => {
+                  close();
+                  onClick();
+                }}
+              >
+                <span className="flex min-w-4 shrink-0 justify-center">{i !== undefined && icon(i, 16)}</span>
+                {label}
+              </button>
+            }
+          />
+        )}
+      </div>
+    );
+  }
   const arrowButton = (
     <button
       ref={arrow}
