@@ -53,13 +53,10 @@ async function openFile(page, form, fixture) {
   await wait(page, 3500);
 }
 
-/** Zoom of the page view so that the page fits the narrow viewports (50 % on phones, 75 % on 7" tablets, 100 % on desktop). */
+/** Zoom of the page view: the compact layout opens Write fit-width by itself (P10-M4), so there is nothing to set; desktop 100 %. */
 async function fit(page, form) {
   if (!form.compact) return;
-  await tab(page, form, 6);
-  await page.locator("[data-compact-strip] select").first().selectOption({ label: form.w < 500 ? "50 %" : "75 %" });
   await wait(page, 700);
-  await tab(page, form, 0);
 }
 
 /** Puts the caret into the text line starting with `text` and selects the line (Home, Shift+End). */
@@ -174,7 +171,7 @@ async function capture(browser, base, app, def, shot, formName, lang) {
     const compose = await ctx.newPage();
     await compose.setViewportSize({ width: form.w, height: form.h });
     await compose.setContent(
-      `<body style="margin:0;background:#fff"><div style="height:${CAPTION_PX}px;background:${COLORS[app]};color:#fff;font:600 ${form.w > 700 ? 14 : 13}px/${CAPTION_PX}px 'Liberation Sans',Arial,sans-serif;text-align:center;white-space:nowrap;overflow:hidden">${shot.caption[lang]}</div><img style="display:block;width:${form.w}px;height:${form.h - CAPTION_PX}px" src="data:image/png;base64,${png.toString("base64")}"></body>`,
+      `<meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0;background:#fff"><div style="height:${CAPTION_PX}px;background:${COLORS[app]};color:#fff;font:600 ${form.w > 700 ? 14 : 13}px/${CAPTION_PX}px 'Liberation Sans',Arial,sans-serif;text-align:center;white-space:nowrap;overflow:hidden">${shot.caption[lang]}</div><img style="display:block;width:${form.w}px;height:${form.h - CAPTION_PX}px" src="data:image/png;base64,${png.toString("base64")}"></body>`,
     );
     await compose.waitForFunction(() => document.images[0].complete);
     return toOpaquePng(await compose.screenshot(), [255, 255, 255]);
