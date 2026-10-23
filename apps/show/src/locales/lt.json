@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "„Office“ tema",
   "show.master.phText": "Tekstas",
   "show.prompt.picture": "Spustelėk piktogramą, kad pridėtum paveikslėlį",
-  "show.insertPictureInto": "Įterpti paveikslėlį"
+  "show.insertPictureInto": "Įterpti paveikslėlį",
+  "show.touch.layoutMenu": "Maketas…",
+  "show.touch.transitionMenu": "Perėjimas…",
+  "show.touch.timing": "Trukmė…",
+  "show.touch.multiSelect": "Kelių elementų žymėjimas",
+  "show.touch.showMenu": "Skaidrių demonstravimo meniu",
+  "show.touch.backToShow": "Grįžti į demonstravimą",
+  "show.touch.goToSlide": "Eiti į skaidrę…",
+  "show.touch.tapToPlay": "Bakstelėk, kad paleistum"
 }

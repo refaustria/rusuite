@@ -1349,5 +1349,9 @@
   "write.notes.sep.line": "Līnija",
   "write.notes.sep.none": "Nav",
   "write.notes.sep.text": "Teksts",
-  "write.notes.sep.reset": "Atiestatīt"
+  "write.notes.sep.reset": "Atiestatīt",
+  "write.touch.selectionBar": "Atlase",
+  "write.touch.more": "Vairāk",
+  "write.touch.handleStart": "Atlases sākums",
+  "write.touch.handleEnd": "Atlases beigas"
 }

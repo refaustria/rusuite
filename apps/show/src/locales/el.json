@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Θέμα του Office",
   "show.master.phText": "Κείμενο",
   "show.prompt.picture": "Κάνε κλικ στο εικονίδιο για να προσθέσεις εικόνα",
-  "show.insertPictureInto": "Εισαγωγή εικόνας"
+  "show.insertPictureInto": "Εισαγωγή εικόνας",
+  "show.touch.layoutMenu": "Διάταξη…",
+  "show.touch.transitionMenu": "Μετάβαση…",
+  "show.touch.timing": "Χρονισμός…",
+  "show.touch.multiSelect": "Πολλαπλή επιλογή",
+  "show.touch.showMenu": "Μενού προβολής παρουσίασης",
+  "show.touch.backToShow": "Επιστροφή στην προβολή",
+  "show.touch.goToSlide": "Μετάβαση σε διαφάνεια…",
+  "show.touch.tapToPlay": "Πάτησε για αναπαραγωγή"
 }
