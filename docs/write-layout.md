@@ -211,6 +211,15 @@ a block like any other; positions relative to the page or the margin are approxi
   then every page is scaled into the left 72 % of the sheet and the comments whose range starts on it are stacked in the
   right pane (`markupAnchors`: the start marker's flow y mapped through the page fragments; `markupPageHtml`).
 
+## Phones: fit-width and the page gap (P10-M4)
+
+On phones (compact layout) the print layout starts at fit-width: the editor's zoom is the scroll area's width less 16 px
+divided by the widest page, recomputed on resize and rotation; pinch and double tap change it (docs/ui.md › Write touch).
+The zoom is the same CSS `zoom` as View › Zoom, so measuring and pagination are unchanged (a zoom change re-measures after
+60 ms). The band between pages is 8 px on the screen at any zoom: the pagination's `pageGap` option
+(`WriteFeatures.pageGap = round(8 / zoom)` layout px; `PAGE_GAP_PX` = 16 elsewhere, Hide White Space still 3 px); the gap
+is part of the pagination inputs, so a new gap lays the pages out anew instead of reusing the previous run.
+
 ## Limits (approximations, documented in docs/ui.md)
 - Word's line breaking is not reproduced; lines are the browser's. Floating pictures wrap with CSS floats (one side),
   or on both sides through per-line spacers when there is room (P9-W4, above); a tight/through wrap polygon is drawn as
