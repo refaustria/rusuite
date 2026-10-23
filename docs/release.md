@@ -115,6 +115,21 @@ also the committed `apps/portal/downloads.html`). Preview locally:
 Windows, macOS and Linux") (drafts work for the PM's token, but
 their download links work only for repository members).
 
+## 6. Mobile stores (from 3.1415, P10-M8)
+The same tag also starts **`mobile-release.yml`**: signed Android App Bundles → Google Play **internal** track and
+signed iOS builds → **TestFlight**, for Calc, Write and Show (artifacts `android-<app>` / `ios-<app>`, 14 days; each
+upload is skipped with a notice when its secrets are missing). Its `version strings` job fails when the tag does not
+match the version files, exactly like `release.yml`. Then, per app and only with the owner's go per store
+(details and commands: **[docs/store/README.md](store/README.md)**; first release: the console checklists
+[checklist-play.md](store/checklist-play.md) and [checklist-appstore.md](store/checklist-appstore.md)):
+1. `node scripts/store/play.mjs status` – the internal track has the new version code; testers check it.
+2. Listings: `play.mjs listing push --app <app>`; `asc.mjs app-info push`, `asc.mjs version ensure|push --version <public name>`.
+3. App Store: `asc.mjs build attach --version <public name> --build <versionCode>`, `asc.mjs review notes …`.
+4. Submit: `play.mjs upload --track production [--rollout 0.2]` (or promote in the console); `asc.mjs submit … --yes`.
+5. After approval: Play rolls out (or *Publish changes* with managed publishing); App Store *Release This Version*.
+A manual run (*Actions › Mobile release › Run workflow*, inputs *tag* and *track*) rebuilds and re-uploads a tag –
+it needs a new version code if the previous upload went through (Play and TestFlight refuse a used one).
+
 ## Report relay URL (P8-43)
 The desktop apps post "Report a problem" to the relay URL baked in at build time: `REPORT_RELAY_URL` (Vite exposes it
 through the apps' `envPrefix`), default `https://rusuit.es/api/report`. Set it in the environment of the

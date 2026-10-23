@@ -1,0 +1,1 @@
+Rusuite Calc opens .xlsx files. No account needed, no data collected.

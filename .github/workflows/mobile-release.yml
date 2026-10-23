@@ -1,0 +1,212 @@
+# Mobile store release (P10-M8, docs/store/README.md): signed Android App Bundles → Google Play (internal track by
+# default) and signed iOS .ipa files → TestFlight, for Calc, Write and Show. Runs on version tags (v*) and by hand.
+#
+# Every store step is conditional on its repository secrets (names only; values never appear in logs):
+# - ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD → release-signed AAB;
+#   with PLAY_SERVICE_ACCOUNT_JSON as well → `scripts/store/play.mjs upload` to the chosen track;
+# - IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD, IOS_MOBILE_PROVISION_<APP>, APPLE_DEVELOPMENT_TEAM → App Store .ipa;
+#   with APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_KEY_CONTENT as well → `xcrun altool --upload-app` (TestFlight).
+# Without any secret the workflow still succeeds: debug-signed Android builds and iOS simulator builds as artifacts
+# (14 days), and a notice for each skipped upload. The build steps are those of mobile.yml (scripts/mobile/*.sh).
+# Release notes: docs/store/release-notes/<lang>.txt (en fallback), read by play.mjs.
+
+name: Mobile release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag (or other ref) to build; empty = the branch selected above"
+        required: false
+        default: ""
+      track:
+        description: "Google Play track for the upload"
+        required: true
+        default: internal
+        type: choice
+        options: [internal, closed, open, production]
+
+concurrency:
+  group: mobile-release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REF: ${{ inputs.tag || github.ref }}
+  PLAY_TRACK: ${{ inputs.track || 'internal' }}
+
+jobs:
+  versions:
+    name: version strings
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+      # A tag must equal every version string (scripts/set-version.sh); any other ref only checks that they agree.
+      - name: Check versions against the tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tag="$GITHUB_REF_NAME"; elif [[ "$INPUT_TAG" == v* ]]; then tag="$INPUT_TAG"; fi
+          if [ -n "$tag" ]; then scripts/check-versions.sh "${tag#v}"; else scripts/check-versions.sh; fi
+
+  android:
+    needs: versions
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [calc, write, show]
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      HAS_PLAY: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-${{ matrix.app }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Version code
+        run: scripts/mobile/version-code.sh ${{ matrix.app }}
+      - name: Release keystore (secrets)
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: scripts/mobile/android-keystore.sh write ${{ matrix.app }}
+      - name: Build AAB + APK (arm64, x86_64)
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: pnpm --filter ${{ matrix.app }} tauri android build --ci --aab --apk --target aarch64 --target x86_64
+      - name: Smoke (aapt, apksigner)
+        run: scripts/mobile/android-smoke.sh ${{ matrix.app }}
+      - name: Remove the keystore
+        if: always()
+        run: scripts/mobile/android-keystore.sh remove ${{ matrix.app }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.app }}
+          path: dist/*
+          retention-days: 14
+      - name: Upload to Google Play (${{ env.PLAY_TRACK }})
+        if: env.HAS_PLAY == 'true' && env.HAS_KEYSTORE == 'true'
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: >
+          node scripts/store/play.mjs upload --app ${{ matrix.app }}
+          --aab "dist/rusuite-${{ matrix.app }}-$VERSION-android.aab" --track "$PLAY_TRACK"
+          --name "$VERSION ($VERSION_CODE)"
+      - name: Google Play upload skipped
+        if: env.HAS_PLAY != 'true' || env.HAS_KEYSTORE != 'true'
+        run: |
+          msg="${{ matrix.app }}: no Google Play upload – needs the ANDROID_KEYSTORE_* and PLAY_SERVICE_ACCOUNT_JSON secrets (keystore: $HAS_KEYSTORE, Play: $HAS_PLAY); the AAB is in the android-${{ matrix.app }} artifact"
+          echo "::notice::$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+
+  ios:
+    needs: versions
+    runs-on: macos-15
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: calc
+            profile: IOS_MOBILE_PROVISION_CALC
+          - app: write
+            profile: IOS_MOBILE_PROVISION_WRITE
+          - app: show
+            profile: IOS_MOBILE_PROVISION_SHOW
+    env:
+      HAS_IOS_SIGNING: ${{ secrets.IOS_CERTIFICATE != '' && secrets.IOS_CERTIFICATE_PASSWORD != '' && secrets[matrix.profile] != '' }}
+      HAS_ASC: ${{ secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY_CONTENT != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+      - name: Select the newest Xcode
+        run: |
+          latest=$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -1)
+          [ -n "$latest" ] || { echo "::error::no /Applications/Xcode_*.app"; exit 1; }
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios-${{ matrix.app }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Version code
+        run: scripts/mobile/version-code.sh ${{ matrix.app }}
+      - name: Build for the simulator (unsigned)
+        if: env.HAS_IOS_SIGNING != 'true'
+        run: >
+          pnpm --filter ${{ matrix.app }} tauri ios build --ci --debug --target aarch64-sim
+          --config "{\"bundle\":{\"iOS\":{\"bundleVersion\":\"$VERSION_CODE\"}}}"
+      - name: Build the App Store .ipa (signed)
+        if: env.HAS_IOS_SIGNING == 'true'
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets[matrix.profile] }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: >
+          pnpm --filter ${{ matrix.app }} tauri ios build --ci --export-method app-store-connect
+          --config "{\"bundle\":{\"iOS\":{\"bundleVersion\":\"$VERSION_CODE\"}}}"
+      - name: Smoke (plutil)
+        run: scripts/mobile/ios-smoke.sh ${{ matrix.app }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ matrix.app }}
+          path: dist/*
+          retention-days: 14
+      - name: Upload to TestFlight
+        if: env.HAS_IOS_SIGNING == 'true' && env.HAS_ASC == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: scripts/mobile/testflight-upload.sh "dist/rusuite-${{ matrix.app }}-$VERSION-ios.ipa"
+      - name: TestFlight upload skipped
+        if: env.HAS_IOS_SIGNING != 'true' || env.HAS_ASC != 'true'
+        run: |
+          msg="${{ matrix.app }}: no TestFlight upload – needs the IOS_* signing and APPLE_API_* secrets (signing: $HAS_IOS_SIGNING, API key: $HAS_ASC); the build is in the ios-${{ matrix.app }} artifact"
+          echo "::notice::$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
