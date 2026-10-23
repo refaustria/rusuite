@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { toOpaquePng, pngInfo, decodePng, encodeRgb } from "./png.mjs";
+import { toOpaquePng, pngInfo } from "./png.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const { chromium } = createRequire(path.join(root, "packages/e2e/"))("@playwright/test");
@@ -53,13 +53,10 @@ async function openFile(page, form, fixture) {
   await wait(page, 3500);
 }
 
-/** Zoom of the page view so that the page fits the narrow viewports (50 % on phones, 75 % on 7" tablets, 100 % on desktop). */
+/** Zoom of the page view: the compact layout opens Write fit-width by itself (P10-M4), so there is nothing to set; desktop 100 %. */
 async function fit(page, form) {
   if (!form.compact) return;
-  await tab(page, form, 6);
-  await page.locator("[data-compact-strip] select").first().selectOption({ label: form.w < 500 ? "50 %" : "75 %" });
   await wait(page, 700);
-  await tab(page, form, 0);
 }
 
 /** Puts the caret into the text line starting with `text` and selects the line (Home, Shift+End). */
@@ -174,7 +171,7 @@ async function capture(browser, base, app, def, shot, formName, lang) {
     const compose = await ctx.newPage();
     await compose.setViewportSize({ width: form.w, height: form.h });
     await compose.setContent(
-      `<body style="margin:0;background:#fff"><div style="height:${CAPTION_PX}px;background:${COLORS[app]};color:#fff;font:600 ${form.w > 700 ? 14 : 13}px/${CAPTION_PX}px 'Liberation Sans',Arial,sans-serif;text-align:center;white-space:nowrap;overflow:hidden">${shot.caption[lang]}</div><img style="display:block;width:${form.w}px;height:${form.h - CAPTION_PX}px" src="data:image/png;base64,${png.toString("base64")}"></body>`,
+      `<meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0;background:#fff"><div style="height:${CAPTION_PX}px;background:${COLORS[app]};color:#fff;font:600 ${form.w > 700 ? 14 : 13}px/${CAPTION_PX}px 'Liberation Sans',Arial,sans-serif;text-align:center;white-space:nowrap;overflow:hidden">${shot.caption[lang]}</div><img style="display:block;width:${form.w}px;height:${form.h - CAPTION_PX}px" src="data:image/png;base64,${png.toString("base64")}"></body>`,
     );
     await compose.waitForFunction(() => document.images[0].complete);
     return toOpaquePng(await compose.screenshot(), [255, 255, 255]);
@@ -232,18 +229,14 @@ async function graphics(opts) {
       const bg = hexRgb(COLORS[app]);
       const ctx = await browser.newContext({ deviceScaleFactor: 1 });
       const page = await ctx.newPage();
-      // Play icon: the 512 px icon (rounded, transparent corners) flattened onto the app colour = full-bleed square.
+      // Play icon and App Store icon: the full-bleed square source (icons/icon-fullbleed.png, 1024², RGB, no baked-in
+      // corners – Apple and Google apply their own masks), scaled for the 512 px Play icon.
+      const full = fs.readFileSync(path.join(iconDir, "icon-fullbleed.png"));
       await page.setViewportSize({ width: 512, height: 512 });
-      await page.setContent(`<body style="margin:0;background:transparent"><img style="display:block;width:512px;height:512px" src="data:image/png;base64,${iconB64}">`);
+      await page.setContent(`<body style="margin:0;background:transparent"><img style="display:block;width:512px;height:512px" src="data:image/png;base64,${full.toString("base64")}">`);
       await page.waitForFunction(() => document.images[0].complete);
       fs.writeFileSync(path.join(dir, "icon-512.png"), toOpaquePng(await page.screenshot({ omitBackground: true }), bg));
-      // App Store icon: the 1024 px iOS icon with its baked-in rounded corners filled with the app colour (Apple masks it).
-      const ios = decodePng(toOpaquePng(fs.readFileSync(path.join(iconDir, "ios", "AppIcon-512@2x.png")), bg));
-      const corner = 240;
-      for (let y = 0; y < ios.height; y++)
-        for (let x = 0; x < ios.width; x++)
-          if ((x < corner || x >= ios.width - corner) && (y < corner || y >= ios.height - corner)) ios.data.set(bg, (y * ios.width + x) * 3);
-      fs.writeFileSync(path.join(dir, "appstore-1024.png"), encodeRgb(ios.width, ios.height, ios.data));
+      fs.writeFileSync(path.join(dir, "appstore-1024.png"), toOpaquePng(full, bg));
       // Feature graphic.
       const c = COLORS[app];
       await page.setViewportSize({ width: 1024, height: 500 });

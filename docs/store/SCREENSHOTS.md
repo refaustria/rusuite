@@ -40,7 +40,7 @@ the fixture through File → Open.
 | | 03 | `insert` | same | A1:C7 selected, Insert tab |
 | | 04 | `formulas` | same | B2:B7 selected, Formulas tab |
 | | 05 | `dialog` | same | "Create PivotTable" as a bottom sheet |
-| Write | 01 | `page` | `testdata/docx/provisional-47-report.docx` | the report in page view (zoom 50 % phones, 75 % 7", 100 % 10") |
+| Write | 01 | `page` | `testdata/docx/provisional-47-report.docx` | the report in page view (fit-width on phones and the 7" tablet as the app opens it, 100 % on the 10") |
 | | 02 | `format` | same | a paragraph selected and set bold (Home tab) |
 | | 03 | `styles` | same | the Styles pane (compact) / the styles gallery (ribbon) |
 | | 04 | `insert` | same | heading selected, Insert tab |
@@ -53,14 +53,13 @@ the fixture through File → Open.
 
 3 apps × 5 forms × 2 languages × 5 shots = 150 PNGs, about 15 MB.
 
-Known limits of the current state (regenerate after the touch tasks merge): Write's page view at phone width still
-shows the page at its paper width (hence the 50 % zoom), Show's phone layout is dominated by the thumbnail strip, and
-Calc has no selection handles yet (a selected range is shown instead).
+Refreshed after the touch tasks (P10-M2…M5, P10-X1): Write's page is fit-width, Calc shows selection handles and the formula key
+row, Show the thumbnail strip with the compact Home tab.
 
 ## Graphics (`docs/store/graphics/<app>/`)
 
 | File | Size | Use |
 |---|---|---|
-| `icon-512.png` | 512 × 512, no alpha | Play icon: `src-tauri/icons/icon.png` flattened onto the app colour (full-bleed square, Play rounds it) |
+| `icon-512.png` | 512 × 512, no alpha | Play icon: `src-tauri/icons/icon-fullbleed.png` (the logo tile without rounded corners, RGB) scaled down; Google masks it |
 | `feature-1024x500.png` | 1024 × 500, no alpha | Play feature graphic (English text, app colour gradient, icon) |
-| `appstore-1024.png` | 1024 × 1024, no alpha, square | App Store icon: `icons/ios/AppIcon-512@2x.png` with its baked-in rounded white corners filled with the app colour (Apple applies its own mask) |
+| `appstore-1024.png` | 1024 × 1024, no alpha, square | App Store icon: `src-tauri/icons/icon-fullbleed.png` as is (full-bleed square without baked-in corners; Apple applies its own mask) |

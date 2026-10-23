@@ -5,6 +5,8 @@
 
 /** How long (ms) a touch must be held. */
 export const LONG_PRESS_MS = 500;
+/** How long (ms) after the lift of an answered press its compatibility mouse events are still swallowed. */
+export const QUIET_MS = 250;
 /** How far (px) the finger may move during the hold. */
 export const LONG_PRESS_SLOP = 10;
 
@@ -48,7 +50,7 @@ export function installLongPress(target: Window = window): () => void {
     if (origin && e.pointerId === origin.id) cancel();
     if (answered && e.pointerType === "touch") {
       answered = false;
-      quietUntil = Date.now() + 400;
+      quietUntil = Date.now() + QUIET_MS;
     }
   };
   const mouse = (e: MouseEvent) => {
