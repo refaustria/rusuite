@@ -10,6 +10,6 @@ How to try the app (no sample file needed)
 1. Start the app. It opens with an empty document.
 2. Calc: tap a cell, type a number or a formula such as =SUM(A1:A3), press Enter. Write: tap into the page and type; use the command bar at the bottom for Bold, lists and tables. Show: tap the title placeholder, type, and use "New slide" in the command bar.
 3. Open an existing file: tap File (top left) > Open and pick a .xlsx / .docx / .pptx from Files. Sample files are available at https://github.com/refaustria/rusuite/tree/main/testdata (xlsx/provisional-charts-c6.xlsx, docx/provisional-47-report.docx, pptx/provisional-25-pitch-deck.pptx); download one in Safari and open it with "Open in Rusuite ..." from the share sheet or from Files.
-4. Save: File > Save writes back to the opened file; File > Save As or Export PDF opens the system share sheet / document picker.
+4. Save: File > Save writes back to the opened file; for a new document or Save As the system document picker ("Save to Files") opens. Export as PDF (new in 3.1415) goes through the share sheet.
 
 Contact: bojan@referee.at
