@@ -399,3 +399,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | caidreamh scaoilte | reader warnings |
 | Custom show (PowerPoint) | Taispeántas saincheaptha | `reader.pptx.customShow.*` |
 | Pivot cache | taisce Tábla Pivot | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | tapáil ("Tapáil …") | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | brú fada | (context menu as a sheet; no catalog text yet) |
+| pinch | pinseáil | (zoom; no catalog text yet) |
+| swipe | svaidhpeáil | (no catalog text yet) |
+| selection handle | hanla | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | painéal (ní "bileog" = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | méarlorg | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | eochair eisiúna | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | nótaraithe | `portal.dl.signed.macos` |
+| More | Tuilleadh | `compact.more` |
+| More commands | Tuilleadh orduithe | `compact.moreSheet` |
+| Fill | Líon | `calc.touch.fill` |
+| Fill series | Líon sraith | `calc.touch.fillSeries` |
+| Copy cells | Cóipeáil cealla | `calc.touch.copyCells` |
+| Ref | Tag. | `calc.keys.refShort` |
+| Share as PDF… | Comhroinn mar PDF… | `backstage.sharePdf` |
+| Export PDF | Easpórtáil PDF | `print.exportPdf` |
+| Multi-select | Ilroghnú | `show.touch.multiSelect` |

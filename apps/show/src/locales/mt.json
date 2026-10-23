@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Tema ta' Office",
   "show.master.phText": "Test",
   "show.prompt.picture": "Ikklikkja fuq l-ikona biex iżżid stampa",
-  "show.insertPictureInto": "Daħħal Stampa"
+  "show.insertPictureInto": "Daħħal Stampa",
+  "show.touch.layoutMenu": "Tqassim…",
+  "show.touch.transitionMenu": "Tranżizzjoni…",
+  "show.touch.timing": "Ħin…",
+  "show.touch.multiSelect": "Għażla multipla",
+  "show.touch.showMenu": "Menu tal-preżentazzjoni bis-slajds",
+  "show.touch.backToShow": "Lura għall-preżentazzjoni",
+  "show.touch.goToSlide": "Mur fuq slajd…",
+  "show.touch.tapToPlay": "Agħfas biex iddoqq"
 }

@@ -1341,5 +1341,9 @@
   "write.notes.sep.line": "Viiva",
   "write.notes.sep.none": "Ei mitään",
   "write.notes.sep.text": "Teksti",
-  "write.notes.sep.reset": "Palauta"
+  "write.notes.sep.reset": "Palauta",
+  "write.touch.selectionBar": "Valinta",
+  "write.touch.more": "Lisää",
+  "write.touch.handleStart": "Valinnan alku",
+  "write.touch.handleEnd": "Valinnan loppu"
 }

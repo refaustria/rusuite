@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office-téma",
   "show.master.phText": "Szöveg",
   "show.prompt.picture": "Kattints az ikonra a kép hozzáadásához",
-  "show.insertPictureInto": "Kép beszúrása"
+  "show.insertPictureInto": "Kép beszúrása",
+  "show.touch.layoutMenu": "Elrendezés…",
+  "show.touch.transitionMenu": "Átmenet…",
+  "show.touch.timing": "Időzítés…",
+  "show.touch.multiSelect": "Többszörös kijelölés",
+  "show.touch.showMenu": "Diavetítés menü",
+  "show.touch.backToShow": "Vissza a diavetítéshez",
+  "show.touch.goToSlide": "Ugrás diára…",
+  "show.touch.tapToPlay": "Koppints a lejátszáshoz"
 }

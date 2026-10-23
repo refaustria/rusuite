@@ -378,3 +378,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | rippuv seos | reader warnings |
 | Custom show (PowerPoint) | Kohandatud seanss | `reader.pptx.customShow.*` |
 | Pivot cache | PivotTable-vahemälu | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | koputama ("Koputa …") | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | pikk vajutus | (context menu as a sheet; no catalog text yet) |
+| pinch | näpistama | (zoom; no catalog text yet) |
+| swipe | pühkima | (no catalog text yet) |
+| selection handle | pide | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | paan (mitte "leht" = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | sõrmejälg | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | väljalaskevõti | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notariseeritud | `portal.dl.signed.macos` |
+| More | Rohkem | `compact.more` |
+| More commands | Rohkem käske | `compact.moreSheet` |
+| Fill | Täida | `calc.touch.fill` |
+| Fill series | Täida sari | `calc.touch.fillSeries` |
+| Copy cells | Kopeeri lahtrid | `calc.touch.copyCells` |
+| Ref | Viide | `calc.keys.refShort` |
+| Share as PDF… | Jaga PDF-ina… | `backstage.sharePdf` |
+| Export PDF | Ekspordi PDF | `print.exportPdf` |
+| Multi-select | Mitmikvalik | `show.touch.multiSelect` |

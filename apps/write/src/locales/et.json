@@ -1341,5 +1341,9 @@
   "write.notes.sep.line": "Joon",
   "write.notes.sep.none": "Puudub",
   "write.notes.sep.text": "Tekst",
-  "write.notes.sep.reset": "Lähtesta"
+  "write.notes.sep.reset": "Lähtesta",
+  "write.touch.selectionBar": "Valik",
+  "write.touch.more": "Rohkem",
+  "write.touch.handleStart": "Valiku algus",
+  "write.touch.handleEnd": "Valiku lõpp"
 }

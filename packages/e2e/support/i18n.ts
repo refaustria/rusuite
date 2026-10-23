@@ -67,3 +67,44 @@ export function clippedRibbonLabels(page: Page): Promise<string[]> {
     return out;
   });
 }
+
+/**
+ * Compact layout (P10-LF): texts that clip in the top bar, the command bar (chips and the strip of the current tab)
+ * and, if given, an open bottom sheet – the rule of `clippedRibbonLabels` (and of compact.spec.ts) – plus labels whose
+ * text sticks out of their button (the bars wrap labels instead of clipping them). The document title's ellipsis is by
+ * design; gallery items crop like Office's previews.
+ */
+export function clippedCompactLabels(page: Page, sheetTestId?: string): Promise<string[]> {
+  return page.evaluate((sheet) => {
+    const out: string[] = [];
+    const roots = ['[data-testid="command-bar"]', '[data-testid="compact-topbar"]'];
+    if (sheet) roots.push(`[data-testid="${sheet}"]`);
+    for (const root of Array.from(document.querySelectorAll<HTMLElement>(roots.join(", ")))) {
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+        const text = el.textContent?.trim();
+        if (!text || el.children.length > 0 || el.getClientRects().length === 0) continue;
+        if (el.closest('[data-gallery-item], [data-testid="compact-title"], [data-compact-strip] [data-testid]')) continue;
+        if (el.matches("[data-compact-strip], [role=tablist]")) continue;
+        const cs = getComputedStyle(el);
+        const clamp = cs.getPropertyValue("-webkit-line-clamp");
+        const clips = cs.overflowX !== "visible" || cs.overflowY !== "visible" || cs.textOverflow === "ellipsis" || (clamp !== "" && clamp !== "none");
+        if (clips && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) {
+          out.push(text);
+          continue;
+        }
+        // The bars' labels do not clip but wrap (overflow visible): a label is too long when its text sticks out of
+        // its button (an unbreakable word wider than the 44 px+ target, or more lines than the button is high).
+        const button = el.closest("button, [role=menuitem], [role=tab]");
+        if (!button || !root.contains(button)) continue;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const r = range.getBoundingClientRect();
+        const b = button.getBoundingClientRect();
+        if (r.width > 0 && (r.left < b.left - 1 || r.right > b.right + 1 || r.top < b.top - 1 || r.bottom > b.bottom + 1)) {
+          out.push(`${text} (sticks out of its button by ${Math.round(Math.max(b.left - r.left, r.right - b.right, b.top - r.top, r.bottom - b.bottom))} px)`);
+        }
+      }
+    }
+    return out;
+  }, sheetTestId);
+}

@@ -1365,5 +1365,9 @@
   "write.notes.sep.line": "Linja",
   "write.notes.sep.none": "L-ebda",
   "write.notes.sep.text": "Test",
-  "write.notes.sep.reset": "Erġa' ssettja"
+  "write.notes.sep.reset": "Erġa' ssettja",
+  "write.touch.selectionBar": "Għażla",
+  "write.touch.more": "Aktar",
+  "write.touch.handleStart": "Bidu tal-għażla",
+  "write.touch.handleEnd": "Tmiem l-għażla"
 }

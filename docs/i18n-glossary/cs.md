@@ -384,3 +384,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | dangling relationship | neplatná relace | reader warnings |
 | Custom show (PowerPoint) | Vlastní prezentace | `reader.pptx.customShow.*` |
 | Pivot cache | mezipaměť kontingenční tabulky | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | klepnout („Klepnutím …“) | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | dlouhé stisknutí | (context menu as a sheet; no catalog text yet) |
+| pinch | sevření prstů | (zoom; no catalog text yet) |
+| swipe | přejetí prstem | (no catalog text yet) |
+| selection handle | úchyt | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | panel (ne „list“ = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | otisk | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | klíč pro vydání | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notarizováno | `portal.dl.signed.macos` |
+| More | Další | `compact.more` |
+| More commands | Další příkazy | `compact.moreSheet` |
+| Fill | Vyplnit | `calc.touch.fill` |
+| Fill series | Vyplnit řady | `calc.touch.fillSeries` |
+| Copy cells | Kopírovat buňky | `calc.touch.copyCells` |
+| Ref | Odk. | `calc.keys.refShort` |
+| Share as PDF… | Sdílet jako PDF… | `backstage.sharePdf` |
+| Export PDF | Exportovat do PDF | `print.exportPdf` |
+| Multi-select | Vícenásobný výběr | `show.touch.multiSelect` |

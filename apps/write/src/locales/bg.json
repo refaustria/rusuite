@@ -1341,5 +1341,9 @@
   "write.notes.sep.line": "Линия",
   "write.notes.sep.none": "Няма",
   "write.notes.sep.text": "Текст",
-  "write.notes.sep.reset": "Нулиране"
+  "write.notes.sep.reset": "Нулиране",
+  "write.touch.selectionBar": "Селекция",
+  "write.touch.more": "Още",
+  "write.touch.handleStart": "Начало на селекцията",
+  "write.touch.handleEnd": "Край на селекцията"
 }

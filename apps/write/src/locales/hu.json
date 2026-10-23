@@ -1341,5 +1341,9 @@
   "write.notes.sep.line": "Vonal",
   "write.notes.sep.none": "Nincs",
   "write.notes.sep.text": "Szöveg",
-  "write.notes.sep.reset": "Alaphelyzet"
+  "write.notes.sep.reset": "Alaphelyzet",
+  "write.touch.selectionBar": "Kijelölés",
+  "write.touch.more": "Továbbiak",
+  "write.touch.handleStart": "Kijelölés eleje",
+  "write.touch.handleEnd": "Kijelölés vége"
 }

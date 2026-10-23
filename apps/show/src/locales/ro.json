@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Temă Office",
   "show.master.phText": "Text",
   "show.prompt.picture": "Fă clic pe pictogramă pentru a adăuga o imagine",
-  "show.insertPictureInto": "Inserare imagine"
+  "show.insertPictureInto": "Inserare imagine",
+  "show.touch.layoutMenu": "Machetă…",
+  "show.touch.transitionMenu": "Tranziție…",
+  "show.touch.timing": "Sincronizare…",
+  "show.touch.multiSelect": "Selecție multiplă",
+  "show.touch.showMenu": "Meniul expunerii de diapozitive",
+  "show.touch.backToShow": "Înapoi la expunere",
+  "show.touch.goToSlide": "Salt la diapozitivul…",
+  "show.touch.tapToPlay": "Atinge pentru redare"
 }

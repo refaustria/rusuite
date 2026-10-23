@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office tema",
   "show.master.phText": "Tekst",
   "show.prompt.picture": "Klikni ikonu za dodavanje slike",
-  "show.insertPictureInto": "Umetni sliku"
+  "show.insertPictureInto": "Umetni sliku",
+  "show.touch.layoutMenu": "Izgled…",
+  "show.touch.transitionMenu": "Prijelaz…",
+  "show.touch.timing": "Vremenski slijed…",
+  "show.touch.multiSelect": "Višestruki odabir",
+  "show.touch.showMenu": "Izbornik prezentacije",
+  "show.touch.backToShow": "Natrag na prezentaciju",
+  "show.touch.goToSlide": "Idi na slajd…",
+  "show.touch.tapToPlay": "Dodirni za reprodukciju"
 }

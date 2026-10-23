@@ -377,3 +377,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | nutrūkęs ryšys | reader warnings |
 | Custom show (PowerPoint) | Pasirinktinis demonstravimas | `reader.pptx.customShow.*` |
 | Pivot cache | suvestinės talpykla | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | bakstelėti („Bakstelėk …“) | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | ilgas paspaudimas | (context menu as a sheet; no catalog text yet) |
+| pinch | suėmimas pirštais | (zoom; no catalog text yet) |
+| swipe | perbraukimas | (no catalog text yet) |
+| selection handle | rankenėlė | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | skydelis (ne „lapas“ = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | piršto atspaudas | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | leidimų raktas | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notarizuota | `portal.dl.signed.macos` |
+| More | Daugiau | `compact.more` |
+| More commands | Daugiau komandų | `compact.moreSheet` |
+| Fill | Užpildyti | `calc.touch.fill` |
+| Fill series | Užpildyti seką | `calc.touch.fillSeries` |
+| Copy cells | Kopijuoti langelius | `calc.touch.copyCells` |
+| Ref | Nuor. | `calc.keys.refShort` |
+| Share as PDF… | Bendrinti kaip PDF… | `backstage.sharePdf` |
+| Export PDF | Eksportuoti į PDF | `print.exportPdf` |
+| Multi-select | Kelių elementų žymėjimas | `show.touch.multiSelect` |

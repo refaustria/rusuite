@@ -1349,5 +1349,9 @@
   "write.notes.sep.line": "Línea",
   "write.notes.sep.none": "Ninguno",
   "write.notes.sep.text": "Texto",
-  "write.notes.sep.reset": "Restablecer"
+  "write.notes.sep.reset": "Restablecer",
+  "write.touch.selectionBar": "Selección",
+  "write.touch.more": "Más",
+  "write.touch.handleStart": "Inicio de la selección",
+  "write.touch.handleEnd": "Fin de la selección"
 }

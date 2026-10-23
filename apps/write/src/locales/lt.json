@@ -1357,5 +1357,9 @@
   "write.notes.sep.line": "Linija",
   "write.notes.sep.none": "Nėra",
   "write.notes.sep.text": "Tekstas",
-  "write.notes.sep.reset": "Atkurti"
+  "write.notes.sep.reset": "Atkurti",
+  "write.touch.selectionBar": "Žymėjimas",
+  "write.touch.more": "Daugiau",
+  "write.touch.handleStart": "Žymėjimo pradžia",
+  "write.touch.handleEnd": "Žymėjimo pabaiga"
 }

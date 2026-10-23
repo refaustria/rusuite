@@ -378,3 +378,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | nederīga attiecība | reader warnings |
 | Custom show (PowerPoint) | Pielāgota slaidrāde | `reader.pptx.customShow.*` |
 | Pivot cache | rakurstabulas kešatmiņa | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | pieskarties („Pieskaries …”) | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | ilgs pieskāriens | (context menu as a sheet; no catalog text yet) |
+| pinch | savilkšana | (zoom; no catalog text yet) |
+| swipe | pavilkšana | (no catalog text yet) |
+| selection handle | turis | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | panelis (ne „lapa” = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | pirkstu nospiedums | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | laidienu atslēga | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notarizēta | `portal.dl.signed.macos` |
+| More | Vairāk | `compact.more` |
+| More commands | Vairāk komandu | `compact.moreSheet` |
+| Fill | Aizpildīt | `calc.touch.fill` |
+| Fill series | Aizpildīt sēriju | `calc.touch.fillSeries` |
+| Copy cells | Kopēt šūnas | `calc.touch.copyCells` |
+| Ref | Ats. | `calc.keys.refShort` |
+| Share as PDF… | Kopīgot kā PDF… | `backstage.sharePdf` |
+| Export PDF | Eksportēt PDF | `print.exportPdf` |
+| Multi-select | Vairākkārtēja atlase | `show.touch.multiSelect` |

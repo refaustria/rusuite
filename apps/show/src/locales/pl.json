@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Motyw pakietu Office",
   "show.master.phText": "Tekst",
   "show.prompt.picture": "Kliknij ikonę, aby dodać obraz",
-  "show.insertPictureInto": "Wstaw obraz"
+  "show.insertPictureInto": "Wstaw obraz",
+  "show.touch.layoutMenu": "Układ…",
+  "show.touch.transitionMenu": "Przejście…",
+  "show.touch.timing": "Czas…",
+  "show.touch.multiSelect": "Zaznaczanie wielu",
+  "show.touch.showMenu": "Menu pokazu slajdów",
+  "show.touch.backToShow": "Powrót do pokazu",
+  "show.touch.goToSlide": "Przejdź do slajdu…",
+  "show.touch.tapToPlay": "Dotknij, aby odtworzyć"
 }

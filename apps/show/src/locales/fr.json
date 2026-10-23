@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Thème Office",
   "show.master.phText": "Texte",
   "show.prompt.picture": "Clique sur l’icône pour ajouter une image",
-  "show.insertPictureInto": "Insérer une image"
+  "show.insertPictureInto": "Insérer une image",
+  "show.touch.layoutMenu": "Disposition…",
+  "show.touch.transitionMenu": "Transition…",
+  "show.touch.timing": "Minutage…",
+  "show.touch.multiSelect": "Sélection multiple",
+  "show.touch.showMenu": "Menu du diaporama",
+  "show.touch.backToShow": "Retour au diaporama",
+  "show.touch.goToSlide": "Atteindre la diapositive…",
+  "show.touch.tapToPlay": "Appuie pour lire"
 }

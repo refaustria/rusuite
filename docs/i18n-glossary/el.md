@@ -378,3 +378,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | ανύπαρκτη σχέση | reader warnings |
 | Custom show (PowerPoint) | Προσαρμοσμένη προβολή | `reader.pptx.customShow.*` |
 | Pivot cache | κρυφή μνήμη συγκεντρωτικού πίνακα | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | πάτημα («Πάτησε …») | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | παρατεταμένο πάτημα | (context menu as a sheet; no catalog text yet) |
+| pinch | τσίμπημα | (zoom; no catalog text yet) |
+| swipe | σάρωση | (no catalog text yet) |
+| selection handle | λαβή | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | πλαίσιο (όχι «φύλλο» = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | δακτυλικό αποτύπωμα | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | κλειδί εκδόσεων | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | επικυρωμένη (notarized) | `portal.dl.signed.macos` |
+| More | Περισσότερα | `compact.more` |
+| More commands | Περισσότερες εντολές | `compact.moreSheet` |
+| Fill | Γέμισμα | `calc.touch.fill` |
+| Fill series | Συμπλήρωση σειράς | `calc.touch.fillSeries` |
+| Copy cells | Αντιγραφή κελιών | `calc.touch.copyCells` |
+| Ref | Αναφ. | `calc.keys.refShort` |
+| Share as PDF… | Κοινή χρήση ως PDF… | `backstage.sharePdf` |
+| Export PDF | Εξαγωγή σε PDF | `print.exportPdf` |
+| Multi-select | Πολλαπλή επιλογή | `show.touch.multiSelect` |
