@@ -397,7 +397,7 @@ test.describe("calc touch @mobile", () => {
       for (const c of [cells.first(), cells.last()]) {
         const b = (await c.boundingBox())!;
         expect(b.height).toBeGreaterThanOrEqual(40);
-        expect(b.width).toBeGreaterThanOrEqual(34);
+        expect(b.width).toBeGreaterThanOrEqual(40);
       }
       expect(await overflow()).toBeLessThanOrEqual(0);
       await cells.first().tap();

@@ -137,7 +137,12 @@ next to it.
   link and package with the expected ids, versions, intent filters and document types; the picker / write-back /
   share / Open with flows are implemented against the platform APIs but untested on hardware.
 - Print is hidden (P10-M6). Show's presenter view cannot open its second window on mobile (no permission in the
-  mobile capability, one display); whether its single-window fallback takes over is untested (P10-M5).
+  mobile capability, one display); the single-window fallback (the show in the main window with swipe and menu) is
+  covered by the touch e2e tests (P10-M5).
+- Write shows the page fit-width on a phone (P10-M4): on a 412 px screen the zoom is ≈ 49 %, so 11 pt body text is ≈ 7 px
+  tall and meant for orientation only – double-tap (fit-width ↔ 100 %) or pinch to read and edit.
+- Show's two-finger pinch zooms the slide only in Fit mode (50–300 % of the fitted size); with a fixed zoom chosen in the
+  zoom menu the slide is scrolled with one finger and the zoom changed there.
 - iOS cold start with a document: tao delivers `scene:openURLContexts:`; a document passed in the scene's connection
   options at a cold launch may not reach `RunEvent::Opened` (then the user opens it again from Files or Recent).
 - An iOS export to a provider that refuses bookmarks leaves the document untitled (the next Save asks again).

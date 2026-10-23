@@ -42,7 +42,10 @@ export function lockLandscape(): () => void {
   };
 }
 
-const BTN = "flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/10 px-4 text-sm text-white hover:bg-white/20 aria-pressed:bg-orange-600";
+const BTN_BASE = "flex min-h-11 min-w-11 items-center justify-center rounded-full px-4 text-sm text-white";
+const BTN = `${BTN_BASE} bg-white/10 hover:bg-white/20 aria-pressed:bg-orange-600`;
+/** "End show" has its own fill (no bg-white/10 next to it: two background utilities on one element are decided by CSS order). */
+const BTN_END = `${BTN_BASE} bg-orange-700 hover:bg-orange-600`;
 
 export function TouchShowOverlay({ deck, slides, media, current, width, tools, setTools, onGoto, onExit, onClose }: {
   deck: DeckContext;
@@ -96,7 +99,7 @@ export function TouchShowOverlay({ deck, slides, media, current, width, tools, s
         <button type="button" className={BTN} onClick={onClose}>
           {t("show.touch.backToShow")}
         </button>
-        <button type="button" className={`${BTN} bg-orange-700`} onClick={onExit}>
+        <button type="button" className={BTN_END} onClick={onExit}>
           {t("show.endShow")}
         </button>
       </div>
