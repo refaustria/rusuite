@@ -1,0 +1,5 @@
+Jaunumi versijā 3.1415
+• Lietotnes tālrunim un planšetdatoram ar skārienam piemērotu izkārtojumu
+• Rediģēšana ar pieskārieniem: atlases turi, tālummaiņa ar diviem pirkstiem, žesti
+• Eksportēšana kā PDF
+• Parakstītas darbvirsmas lietotnes operētājsistēmām Windows, macOS un Linux

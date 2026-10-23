@@ -1,0 +1,5 @@
+Uut versioonis 3.1415
+• Rakendused telefonile ja tahvelarvutile puutetundliku paigutusega
+• Muutmine puudutusega: valikukäepidemed, suumimine kahe sõrmega, žestid
+• Eksport PDF-ina
+• Allkirjastatud lauaarvuti rakendused Windowsile, macOS-ile ja Linuxile
