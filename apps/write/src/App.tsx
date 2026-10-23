@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import { applyPageRange, AutosaveStatus, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, type AnySession } from "@rusuite/ui-shared";
+import { applyPageRange, AutosaveStatus, useCompact, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, type AnySession } from "@rusuite/ui-shared";
 import { buildWritePrintDoc, DEFAULT_WRITE_PRINT, type WritePrintOptions } from "./print/writePrintDoc";
 import { printWrite, WritePrintPage } from "./print/WritePrintPage";
 import { WriteApi, type WriteBackend } from "./backend";
@@ -36,6 +36,8 @@ import { CommentsFrame, CommentsPane, UserNameDialog } from "./comments/Comments
 import { loadUser } from "./comments/model";
 import { AssistantPane } from "@rusuite/ui-shared";
 import { writeAiAdapter } from "./ai/writeAi";
+import { sectionFrames } from "./features/layout/sectionFrames";
+import { useTouchZoom } from "./touch/useTouchZoom";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -188,6 +190,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const aiAdapter = useMemo(() => editor && writeAiAdapter(editor, ctl), [editor, ctl]);
   // The sticky ruler covers the top of the scroll container: ProseMirror's scrollIntoView keeps the caret below it.
   const reserve = rulerReserve(chrome.ruler, zoom);
+  const compact = useCompact();
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const margin = { top: reserve, bottom: 8, left: 8, right: 8 };
@@ -214,6 +217,21 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const firstPage = useSync(ctl, () => ctl.sections[0]?.page ?? ctl.page);
   const sections = useSync(ctl, () => ctl.sections);
   const separators = useSync(ctl, () => ctl.separators);
+
+  // Touch (P10-M4): fit-width on phones, pinch and double tap.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef<HTMLDivElement>(null);
+  const touchZoom = useTouchZoom({
+    compact,
+    view: chrome.view,
+    pageWidth: sectionFrames(sections, firstPage).width,
+    zoom,
+    setZoom,
+    scrollRef,
+    zoomRef,
+    features,
+    editor,
+  });
 
   useEffect(() => {
     if (!editor) return;
@@ -328,18 +346,27 @@ export default function App({ backend }: { backend: WriteBackend }) {
           }
           infoPage={<InfoPanel ctl={ctl} editor={editor} pages={chrome.view === "print" ? chrome.pages : null} />}
           zoom={zoom}
-          onZoom={setZoom}
+          onZoom={touchZoom.onZoom}
         />
       )}
       <div className="flex min-h-0 flex-1">
         {editor && <NavigationPane editor={editor} ctl={ctl} features={features} />}
         <div
+          ref={scrollRef}
           className="write-scroll min-h-0 min-w-0 flex-1 overflow-auto bg-ui-panel p-6"
           data-testid="write-scroll"
           // No scroll anchoring: showing / hiding the ruler must not shift the text under it.
           style={{ scrollPaddingTop: `${rulerReserve(!!editor && chrome.ruler, zoom)}px`, overflowAnchor: "none" }}
         >
-          <div className="write-zoom" data-testid="write-zoom" data-view={chrome.view} style={zoom !== 1 ? { zoom } : undefined}>
+          <div
+            ref={zoomRef}
+            className="write-zoom"
+            data-testid="write-zoom"
+            data-view={chrome.view}
+            data-zoom={zoom}
+            data-fit={touchZoom.fit ? "" : undefined}
+            style={zoom !== 1 ? ({ zoom, "--write-zoom": zoom } as CSSProperties) : undefined}
+          >
             {editor && chrome.ruler && <Ruler editor={editor} ctl={ctl} features={features} page={firstPage} />}
             <CommentsFrame editor={editor} ctl={ctl} features={features} zoom={zoom}>
               <PageFrame

@@ -1276,7 +1276,8 @@ export function WriteRibbon({ editor, ctl, session, page, features, onOpen, onSa
         items: (
           <RibbonStack>
             <select aria-label={t("group.zoom")} className={`${RIBBON_SELECT} w-20`} value={String(zoom)} onChange={(e) => onZoom(Number(e.target.value))}>
-              {WRITE_ZOOM_LEVELS.map((z) => (
+              {/* A pinch or fit-width zoom (P10-M4) between the levels is listed as it is. */}
+              {(WRITE_ZOOM_LEVELS.includes(zoom) ? WRITE_ZOOM_LEVELS : [...WRITE_ZOOM_LEVELS, zoom].sort((a, b) => a - b)).map((z) => (
                 <option key={z} value={String(z)}>
                   {Math.round(z * 100)} %
                 </option>

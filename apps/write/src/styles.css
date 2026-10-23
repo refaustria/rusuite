@@ -323,3 +323,8 @@ body,
 .comment-composer p { margin: 0; }
 .comment-composer a { color: #2b579a; text-decoration: underline; }
 .comment-mention, .comment-composer a.comment-mention { color: #2b579a; background: #e8e6e4; border-radius: 2px; padding: 0 1px; text-decoration: none; }
+
+/* Touch (P10-M4, docs/ui.md "Write touch"): a pinch is the app's zoom on every touch screen (no browser page zoom);
+   phones get 8 px around the fit-width page. */
+.write-scroll { touch-action: pan-x pan-y; }
+html[data-compact] .write-scroll { padding: 8px; }
