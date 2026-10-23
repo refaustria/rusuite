@@ -394,3 +394,83 @@ test.describe("Show touch transforms @mobile", () => {
     errors.expectNone();
   });
 });
+
+const counter = (page: Page) => page.getByTestId("presenter-counter");
+
+test.describe("Show touch presentation @mobile", () => {
+  test("Present runs full screen in the same window: swipe, tap thirds, long press menu with the slide grid, Exit", async ({ page }) => {
+    const errors = trackErrors(page);
+    const popups: string[] = [];
+    page.on("popup", (p) => popups.push(p.url()));
+    await openDeck(page);
+    await page.getByTestId("compact-topbar").getByRole("button", { name: "Present" }).tap();
+    const presenter = page.getByTestId("presenter");
+    await expect(presenter).toBeVisible();
+    await expect(bar(page)).toBeHidden();
+    await expect(counter(page)).toHaveText("1 / 6");
+    const box = (await presenter.boundingBox())!;
+    expect(Math.round(box.width)).toBe(412);
+    const y = box.y + box.height / 2;
+    // swipe left: next
+    await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: 330 - (240 * k) / 7, y })));
+    await expect(counter(page)).toHaveText("2 / 6");
+    // swipe right: back, then forward again
+    await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: 80 + (240 * k) / 7, y })));
+    await expect(counter(page)).toHaveText("1 / 6");
+    // a tap on the right two thirds: on; on the left third: back
+    await page.waitForTimeout(300);
+    await page.touchscreen.tap(300, y);
+    await expect(counter(page)).toHaveText("2 / 6");
+    await page.waitForTimeout(450);
+    await page.touchscreen.tap(40, y);
+    await expect(counter(page)).toHaveText("1 / 6");
+    // long press: the menu with the slides
+    await longPress(page, 206, y);
+    const menu = page.getByTestId("touch-overlay");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("touch-overlay-counter")).toHaveText("Slide 1 of 6");
+    await expect(menu.getByRole("group", { name: "Go to slide…" }).getByRole("button")).toHaveCount(6);
+    for (const b of await menu.getByRole("button").all()) {
+      const r = (await b.boundingBox())!;
+      expect(Math.min(r.width, r.height)).toBeGreaterThanOrEqual(44);
+    }
+    await page.screenshot({ path: `${SHOTS}/P10-M5-present-menu.png` });
+    await menu.getByRole("button", { name: "Slide 4", exact: true }).tap();
+    await expect(menu).toHaveCount(0);
+    await expect(counter(page)).toHaveText("4 / 6");
+    // the pen draws with one finger, a swipe does not change the slide then
+    await longPress(page, 206, y);
+    await menu.getByRole("button", { name: "Pen" }).tap();
+    await menu.getByRole("button", { name: "Back to the show" }).tap();
+    await expect(presenter).toHaveAttribute("data-tool", "pen");
+    await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: 330 - (240 * k) / 7, y })));
+    await expect(page.getByTestId("ink-layer")).toHaveAttribute("data-strokes", "1");
+    await expect(counter(page)).toHaveText("4 / 6");
+    // Exit (the ink question comes first: discard)
+    await longPress(page, 206, y + 40);
+    await menu.getByRole("button", { name: "End show" }).tap();
+    await page.getByTestId("ink-confirm").getByRole("button", { name: "Discard" }).tap();
+    await expect(presenter).toHaveCount(0);
+    await expect(bar(page)).toBeVisible();
+    await expect(page.getByTestId("slide-count")).toHaveText("Slide 4 of 6");
+    expect(popups).toEqual([]);
+    errors.expectNone();
+  });
+
+  test("the presenter view (Alt+F5) runs as the single-window fallback with the notes toggle, no second window", async ({ page }) => {
+    const errors = trackErrors(page);
+    const popups: string[] = [];
+    page.on("popup", (p) => popups.push(p.url()));
+    await openDeck(page);
+    await stage(page).click({ position: { x: 4, y: 4 } });
+    await page.keyboard.press("Alt+F5");
+    await expect(page.getByTestId("presenter")).toBeVisible();
+    await expect(page.getByTestId("notes-overlay-toggle")).toBeVisible();
+    await page.getByTestId("notes-overlay-toggle").tap();
+    await expect(page.getByTestId("notes-overlay")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("presenter")).toHaveCount(0);
+    expect(popups).toEqual([]);
+    errors.expectNone();
+  });
+});

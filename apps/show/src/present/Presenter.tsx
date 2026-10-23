@@ -20,8 +20,12 @@ import { InkLayer, SeeAll, ToolBar, slideBox, toolsCapture, typingIn, useToolKey
 import { linkAction } from "../links/regions";
 import type { Hyperlink } from "../generated/Hyperlink";
 import { useT } from "../i18n";
+import { lockLandscape, swipeAction, tapAction, TouchShowOverlay } from "./TouchShow";
 
 export const IDLE_CURSOR_MS = 3000;
+
+/** A touch screen (phones, tablets, touch laptops). */
+const touchScreen = () => typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0;
 
 /** One slide scaled into `width` × `height` (letterboxed by the caller). */
 export function SlideImage({
@@ -108,6 +112,8 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
 
   useEffect(() => {
     enterFullscreen();
+    // phones and tablets: landscape while the show runs (P10-M5; refused or unsupported: ignored)
+    const unlock = touchScreen() ? lockLandscape() : () => undefined;
     const onFs = () => {
       if (document.fullscreenElement) entered.current = true;
       else if (entered.current && fullscreenExits) actionRef.current({ type: "exit" }); // the user left fullscreen (Esc)
@@ -118,6 +124,7 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
     return () => {
       document.removeEventListener("fullscreenchange", onFs);
       window.removeEventListener("resize", onResize);
+      unlock();
       if (document.fullscreenElement) void document.exitFullscreen?.()?.catch(() => undefined);
     };
   }, [fullscreenExits]);
@@ -186,6 +193,15 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
   const onTrigger = (key: string) => setFires((f) => ({ index: show.index, keys: [...(f.index === show.index ? f.keys : []), key] }));
   useEffect(() => () => stopShowSounds(), []);
 
+  // ----- touch (P10-M5): swipes, taps on the thirds, a long press for the show menu
+  const press = useRef<{ id: number; x: number; y: number; t: number } | null>(null);
+  const tapTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(tapTimer.current), []);
+  /** The last pointer was a finger (its click is a tap; its long press opens the menu). */
+  const lastTouch = useRef(0);
+  const swiped = useRef(0);
+  const [touchMenu, setTouchMenu] = useState(false);
+
   const slide = slides[show.index];
   const blank = show.ended ? "black" : show.blank;
   return (
@@ -202,13 +218,62 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
       className={`fixed inset-0 z-50 flex select-none items-center justify-center ${blank === "white" ? "bg-white" : "bg-black"} ${idle ? "cursor-none" : "cursor-pointer"}`}
       data-tool={toolsOn ? tools.mode : undefined}
       data-zoom={zoomed && tools.zoom > 1 ? tools.zoom : undefined}
+      style={{ touchAction: "none" }}
       onPointerMove={(e) => {
         pointerAt.current = { x: e.clientX / (window.innerWidth || 1), y: e.clientY / (window.innerHeight || 1) };
       }}
+      onPointerDownCapture={(e) => {
+        // also under the ink layer, which keeps its presses: its long press opens the menu too
+        if (e.pointerType === "touch") lastTouch.current = Date.now();
+      }}
+      onPointerDown={(e) => {
+        if (e.pointerType !== "touch") return;
+        // a new press: the click of an earlier swipe is no longer pending
+        swiped.current = 0;
+        press.current = e.isPrimary ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() } : null;
+      }}
+      onPointerUp={(e) => {
+        const p = press.current;
+        press.current = null;
+        if (!p || p.id !== e.pointerId || mirror || (toolsOn && toolsCapture(tools))) return;
+        const a = swipeAction(e.clientX - p.x, e.clientY - p.y);
+        if (!a) {
+          // A tap shortly after a swipe may get no click from the browser (it ends the "fling"): if none comes,
+          // the tap acts on its own. A click (also one a link or button keeps) cancels this in the capture phase.
+          if (Math.hypot(e.clientX - p.x, e.clientY - p.y) <= 10 && Date.now() - p.t < 500) {
+            const r = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - r.left;
+            const w = r.width || window.innerWidth;
+            window.clearTimeout(tapTimer.current);
+            tapTimer.current = window.setTimeout(() => {
+              tapTimer.current = 0;
+              act(tapAction(x, w));
+            }, 350);
+          }
+          return;
+        }
+        swiped.current = Date.now();
+        act(a);
+      }}
+      onClickCapture={() => {
+        window.clearTimeout(tapTimer.current);
+        tapTimer.current = 0;
+      }}
+      onPointerCancel={() => (press.current = null)}
+      onContextMenu={(e) => {
+        // a long press (touch): the show menu; a right click keeps the browser's
+        if (Date.now() - lastTouch.current > 1500 || mirror) return;
+        e.preventDefault();
+        press.current = null;
+        setTouchMenu(true);
+      }}
       onClick={(e) => {
         if (toolsOn && toolsCapture(tools)) return;
+        if (Date.now() - swiped.current < 600) return;
         const r = e.currentTarget.getBoundingClientRect();
-        act(clickAction(e.clientX - r.left, r.width || window.innerWidth));
+        const w = r.width || window.innerWidth;
+        const touchTap = (e.nativeEvent as PointerEvent).pointerType === "touch" || Date.now() - lastTouch.current < 800;
+        act(touchTap ? tapAction(e.clientX - r.left, w) : clickAction(e.clientX - r.left, w));
       }}
     >
       <div className="absolute inset-0 flex items-center justify-center" style={{ transform: zoomed ? zoomTransform(tools, size.width, size.height) : undefined, transformOrigin: "0 0" }}>
@@ -247,6 +312,26 @@ export function Presenter({ deck, slides, media, mediaVersion, show, onAction, f
         </span>
       )}
       {overlay}
+      {touchMenu && (
+        <TouchShowOverlay
+          deck={deck}
+          slides={slides}
+          media={media}
+          current={show.index}
+          width={size.width}
+          tools={toolsOn ? tools : undefined}
+          setTools={toolsOn ? setTools : undefined}
+          onGoto={(i) => {
+            setTouchMenu(false);
+            act({ type: "goto", index: i });
+          }}
+          onExit={() => {
+            setTouchMenu(false);
+            act({ type: "exit" });
+          }}
+          onClose={() => setTouchMenu(false)}
+        />
+      )}
     </div>
   );
 }

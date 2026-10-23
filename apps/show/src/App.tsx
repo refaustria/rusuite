@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AutosaveStatus, BottomSheet, formatNumber, useCompact, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, BottomSheet, formatNumber, isCompact, useCompact, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
 import { DEFAULT_SHOW_PRINT, type ShowPrintOptions } from "./print/showPrintDoc";
 import { buildShowDoc, printShow, ShowPrintPage } from "./print/ShowPrintPage";
 import { SlideShow } from "./present/SlideShow";
-import { launchAudience, type AudienceLink } from "./present/sync";
+import { launchAudience, presenterWindowAvailable, type AudienceLink } from "./present/sync";
 import { SlideList } from "./sidebar/SlideList";
 import { SlideStrip } from "./sidebar/SlideStrip";
 import { ShortcutLayer } from "./ShortcutLayer";
@@ -267,8 +267,14 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       if (!store.getState().pres?.slides.length) return;
       void store.commitEdit();
       if (store.getState().view === "reading") store.setView("normal");
-      // The audience window opens right here, inside the key / click handler (popup blockers).
-      setPresenting(mode === "presenter" ? { mode, link: launchAudience() } : { mode, rehearse, record, ...(customShow === undefined ? {} : { customShow }) });
+      // The audience window opens right here, inside the key / click handler (popup blockers). Phones, the mobile
+      // shells and pages without window.open never open one: the presenter view runs as the single-window
+      // fallback (the slide with a speaker notes toggle; P10-M5).
+      setPresenting(
+        mode === "presenter"
+          ? { mode, ...(presenterWindowAvailable() && !isCompact() ? { link: launchAudience() } : {}) }
+          : { mode, rehearse, record, ...(customShow === undefined ? {} : { customShow }) },
+      );
     },
     [store],
   );
@@ -313,6 +319,14 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     if (store.getState().current !== null) startPresenting("presenter");
   }, [store, startPresenting]);
   const exit = useCallback(() => setPresenting(null), []);
+  // the compact command bar is hidden while a show runs (styles.css)
+  const showing = presenting !== null;
+  useEffect(() => {
+    if (!showing) return;
+    const root = document.documentElement;
+    root.setAttribute("data-presenting", "");
+    return () => root.removeAttribute("data-presenting");
+  }, [showing]);
 
   // Fit: the canvas area minus its padding (and the rulers); a fixed zoom: the slide at that scale.
   const rulers = showRuler && !masterView ? RULER_PX : 0;

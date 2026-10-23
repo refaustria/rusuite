@@ -1451,5 +1451,9 @@
   "show.touch.layoutMenu": "Layout…",
   "show.touch.transitionMenu": "Transition…",
   "show.touch.timing": "Timing…",
-  "show.touch.multiSelect": "Multi-select"
+  "show.touch.multiSelect": "Multi-select",
+  "show.touch.showMenu": "Slide show menu",
+  "show.touch.backToShow": "Back to the show",
+  "show.touch.goToSlide": "Go to slide…",
+  "show.touch.tapToPlay": "Tap to play"
 }
