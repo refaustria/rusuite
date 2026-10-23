@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office-teema",
   "show.master.phText": "Teksti",
   "show.prompt.picture": "Lisää kuva napsauttamalla kuvaketta",
-  "show.insertPictureInto": "Lisää kuva"
+  "show.insertPictureInto": "Lisää kuva",
+  "show.touch.layoutMenu": "Asettelu…",
+  "show.touch.transitionMenu": "Siirtymä…",
+  "show.touch.timing": "Ajoitus…",
+  "show.touch.multiSelect": "Monivalinta",
+  "show.touch.showMenu": "Diaesityksen valikko",
+  "show.touch.backToShow": "Takaisin esitykseen",
+  "show.touch.goToSlide": "Siirry diaan…",
+  "show.touch.tapToPlay": "Toista napauttamalla"
 }

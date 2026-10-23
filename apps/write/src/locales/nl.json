@@ -1341,5 +1341,9 @@
   "write.notes.sep.line": "Lijn",
   "write.notes.sep.none": "Geen",
   "write.notes.sep.text": "Tekst",
-  "write.notes.sep.reset": "Opnieuw instellen"
+  "write.notes.sep.reset": "Opnieuw instellen",
+  "write.touch.selectionBar": "Selectie",
+  "write.touch.more": "Meer",
+  "write.touch.handleStart": "Begin van de selectie",
+  "write.touch.handleEnd": "Einde van de selectie"
 }

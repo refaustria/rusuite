@@ -385,3 +385,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | ogiltig relation | reader warnings |
 | Custom show (PowerPoint) | Anpassat bildspel | `reader.pptx.customShow.*` |
 | Pivot cache | pivotcache | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | trycka ("Tryck på …") | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | trycka länge | (context menu as a sheet; no catalog text yet) |
+| pinch | nypa | (zoom; no catalog text yet) |
+| swipe | svepa | (no catalog text yet) |
+| selection handle | handtag | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | panel (inte "blad" = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | fingeravtryck | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | releasenyckel | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notariserad | `portal.dl.signed.macos` |
+| More | Mer | `compact.more` |
+| More commands | Fler kommandon | `compact.moreSheet` |
+| Fill | Fyll | `calc.touch.fill` |
+| Fill series | Fyll serie | `calc.touch.fillSeries` |
+| Copy cells | Kopiera celler | `calc.touch.copyCells` |
+| Ref | Ref. | `calc.keys.refShort` |
+| Share as PDF… | Dela som PDF… | `backstage.sharePdf` |
+| Export PDF | Exportera PDF | `print.exportPdf` |
+| Multi-select | Flerval | `show.touch.multiSelect` |

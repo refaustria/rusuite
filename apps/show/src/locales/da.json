@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office-tema",
   "show.master.phText": "Tekst",
   "show.prompt.picture": "Klik på ikonet for at tilføje billede",
-  "show.insertPictureInto": "Indsæt billede"
+  "show.insertPictureInto": "Indsæt billede",
+  "show.touch.layoutMenu": "Layout…",
+  "show.touch.transitionMenu": "Overgang…",
+  "show.touch.timing": "Timing…",
+  "show.touch.multiSelect": "Markér flere",
+  "show.touch.showMenu": "Diasshowmenu",
+  "show.touch.backToShow": "Tilbage til diasshowet",
+  "show.touch.goToSlide": "Gå til dias…",
+  "show.touch.tapToPlay": "Tryk for at afspille"
 }

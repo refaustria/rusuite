@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office-thema",
   "show.master.phText": "Tekst",
   "show.prompt.picture": "Klik op het pictogram om een afbeelding toe te voegen",
-  "show.insertPictureInto": "Afbeelding invoegen"
+  "show.insertPictureInto": "Afbeelding invoegen",
+  "show.touch.layoutMenu": "Indeling…",
+  "show.touch.transitionMenu": "Overgang…",
+  "show.touch.timing": "Timing…",
+  "show.touch.multiSelect": "Meervoudige selectie",
+  "show.touch.showMenu": "Menu van de diavoorstelling",
+  "show.touch.backToShow": "Terug naar de diavoorstelling",
+  "show.touch.goToSlide": "Ga naar dia…",
+  "show.touch.tapToPlay": "Tik om af te spelen"
 }

@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office'i teema",
   "show.master.phText": "Tekst",
   "show.prompt.picture": "Pildi lisamiseks klõpsa ikooni",
-  "show.insertPictureInto": "Lisa pilt"
+  "show.insertPictureInto": "Lisa pilt",
+  "show.touch.layoutMenu": "Küljendus…",
+  "show.touch.transitionMenu": "Üleminek…",
+  "show.touch.timing": "Ajastus…",
+  "show.touch.multiSelect": "Mitmikvalik",
+  "show.touch.showMenu": "Slaidiseansi menüü",
+  "show.touch.backToShow": "Tagasi slaidiseansi juurde",
+  "show.touch.goToSlide": "Mine slaidile…",
+  "show.touch.tapToPlay": "Koputa esitamiseks"
 }

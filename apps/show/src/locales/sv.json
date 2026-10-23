@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office-tema",
   "show.master.phText": "Text",
   "show.prompt.picture": "Klicka på ikonen för att lägga till bild",
-  "show.insertPictureInto": "Infoga bild"
+  "show.insertPictureInto": "Infoga bild",
+  "show.touch.layoutMenu": "Layout…",
+  "show.touch.transitionMenu": "Övergång…",
+  "show.touch.timing": "Tidsinställning…",
+  "show.touch.multiSelect": "Flerval",
+  "show.touch.showMenu": "Bildspelsmeny",
+  "show.touch.backToShow": "Tillbaka till bildspelet",
+  "show.touch.goToSlide": "Gå till bild…",
+  "show.touch.tapToPlay": "Tryck för att spela upp"
 }
