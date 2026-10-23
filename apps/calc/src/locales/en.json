@@ -2167,5 +2167,11 @@
   "calc.keys.prevToken": "Caret one part to the left",
   "calc.keys.nextToken": "Caret one part to the right",
   "calc.keys.cancel": "Cancel the entry",
-  "calc.keys.commit": "Confirm the entry"
+  "calc.keys.commit": "Confirm the entry",
+  "calc.formulaBar.expand": "Expand the formula bar",
+  "calc.formulaBar.collapse": "Collapse the formula bar",
+  "calc.stats.sum": "Sum: {value}",
+  "calc.stats.average": "Average: {value}",
+  "calc.stats.count": "Count: {value}",
+  "calc.stats.next": "Tap for the next statistic"
 }

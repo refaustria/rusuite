@@ -2167,5 +2167,11 @@
   "calc.keys.prevToken": "Cursor einen Teil nach links",
   "calc.keys.nextToken": "Cursor einen Teil nach rechts",
   "calc.keys.cancel": "Eingabe abbrechen",
-  "calc.keys.commit": "Eingabe bestätigen"
+  "calc.keys.commit": "Eingabe bestätigen",
+  "calc.formulaBar.expand": "Bearbeitungsleiste erweitern",
+  "calc.formulaBar.collapse": "Bearbeitungsleiste verkleinern",
+  "calc.stats.sum": "Summe: {value}",
+  "calc.stats.average": "Mittelwert: {value}",
+  "calc.stats.count": "Anzahl: {value}",
+  "calc.stats.next": "Tippe für den nächsten Wert"
 }

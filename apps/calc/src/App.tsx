@@ -1,6 +1,6 @@
 import { WatchWindow } from "./audit/WatchWindow";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AutosaveStatus, applyPageRange, formatNumber, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { useCompact, AutosaveStatus, applyPageRange, formatNumber, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { CalcApi, type CalcBackend } from "./backend/calcApi";
 import { installDevTools, perfOverlayEnabled, pickBackend } from "./dev/devTools";
 import { FormulaBar } from "./FormulaBar";
@@ -23,6 +23,7 @@ import { AssistantPane } from "@rusuite/ui-shared";
 import { calcAiAdapter } from "./ai/calcAi";
 import { lockIcon } from "./protection/icons";
 import { FormulaKeys } from "./touch/FormulaKeys";
+import { StatChip } from "./touch/StatChip";
 
 function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySession; zoom: number }) {
   const revision = useCalc(store, (s) => s.revision);
@@ -51,8 +52,10 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
   });
   // Manual calculation with cells awaiting recalculation (Excel's "Calculate", P9-C4).
   const needsCalc = useCalc(store, (s) => !!s.info?.calc?.needsCalc);
+  // Compact (P10-M3): the selection's Sum / Average / Count as a chip.
+  const compact = useCompact();
   return (
-    <div className="flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted" data-testid="status-bar">
+    <div className={`flex items-center gap-4 border-t border-ui-border bg-ui-panel px-3 py-0.5 text-xs text-ui-muted ${compact ? "min-h-[44px]" : ""}`} data-testid="status-bar">
       <span>{t("calc.status.revision", { revision })}</span>
       <span>{dirty ? t("status.modified") : t("status.saved")}</span>
       <AutosaveStatus session={session} />
@@ -81,6 +84,7 @@ function StatusBar({ store, session, zoom }: { store: CalcStore; session: AnySes
           {t("calc.status.circular", { cell: cycle })}
         </span>
       )}
+      {compact && <StatChip store={store} />}
       <span className="ml-auto" data-testid="zoom">
         {formatNumber(Math.round(zoom * 100))} %
       </span>

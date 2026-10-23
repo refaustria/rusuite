@@ -7,6 +7,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { trackErrors } from "../support/common";
 import { Grid, openCalc } from "../support/calc";
+import { msg } from "../support/i18n";
 
 const SHOTS = "../../shots";
 
@@ -311,4 +312,98 @@ test.describe("calc touch @mobile", () => {
     expect(await grid.input(1, 1)).toBe("1");
     errors.expectNone();
   });
+
+  for (const locale of ["en-US", "de-DE"]) {
+    test(`${locale}: compact chrome – formula bar chip and expand, sheet strip, Sum chip, colour grid; no sideways scroll`, async ({ browser }) => {
+      const lang = locale.slice(0, 2);
+      const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2.625, locale });
+      const page = await ctx.newPage();
+      const errors = trackErrors(page);
+      await openCalc(page);
+      const grid = new Grid(page);
+      const overflow = () => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, document.querySelector<HTMLElement>("[data-rs-app]")!.scrollWidth) - window.innerWidth);
+      expect(await overflow()).toBeLessThanOrEqual(0);
+      // The formula bar: one line; name box chip, ▾ and expand are 44 px targets.
+      const bar = page.getByTestId("formula-bar");
+      for (const el of [page.getByTestId("cell-address"), page.getByTestId("formula-bar-expand"), page.getByLabel(msg(lang, "calc.formulaBar"), { exact: true })]) {
+        const b = (await el.boundingBox())!;
+        expect(b.height).toBeGreaterThanOrEqual(44);
+        expect(b.width).toBeGreaterThanOrEqual(44);
+      }
+      const oneLine = (await bar.boundingBox())!.height;
+      expect(oneLine).toBeLessThan(60);
+      await page.getByTestId("formula-bar-expand").tap();
+      await expect(bar).toHaveAttribute("data-expanded", "");
+      expect((await bar.boundingBox())!.height).toBeGreaterThan(oneLine + 40);
+      await page.getByTestId("formula-bar-expand").tap();
+      await expect(bar).not.toHaveAttribute("data-expanded", "");
+      // A tap on the name box chip edits it: B4 + Enter goes there.
+      await page.getByTestId("cell-address").tap();
+      await expect(page.getByTestId("cell-address")).toBeFocused();
+      await page.keyboard.press("Control+a");
+      await page.keyboard.type("B4");
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("cell-address")).toHaveValue("B4");
+
+      // The sheet strip: "+" adds a sheet, a long press on a tab opens the sheet menu, Rename works from it.
+      const tabs = page.getByRole("tablist", { name: msg(lang, "calc.sheets") });
+      const add = page.getByTestId("add-sheet");
+      expect((await add.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await add.tap();
+      await expect(tabs.getByRole("tab")).toHaveCount(2);
+      for (const tab of await tabs.getByRole("tab").all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      const first = (await tabs.getByRole("tab").first().boundingBox())!;
+      await longPress(page, first.x + first.width / 2, first.y + first.height / 2);
+      const menu = page.getByTestId("context-sheet");
+      await expect(menu).toBeVisible();
+      // (A tap right after the long press would be taken for its tail: installLongPress' quiet time.)
+      await page.waitForTimeout(500);
+      await menu.getByRole("menuitem", { name: msg(lang, "calc.rename.confirm"), exact: true }).tap();
+      const dialog = page.getByRole("dialog", { name: msg(lang, "calc.rename.title") });
+      await expect(dialog).toBeVisible();
+      await dialog.getByLabel(msg(lang, "calc.sheetName")).fill("Data");
+      await dialog.getByRole("button", { name: msg(lang, "calc.rename.confirm"), exact: true }).tap();
+      await expect(dialog).toHaveCount(0);
+      await expect(tabs.getByRole("tab", { name: "Data" })).toBeVisible();
+      for (let i = 0; i < 6; i++) await add.tap();
+      await expect(tabs.getByRole("tab")).toHaveCount(8);
+      // The strip scrolls; the page does not.
+      expect(await tabs.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+      expect(await overflow()).toBeLessThanOrEqual(0);
+      await tabs.getByRole("tab", { name: "Data" }).tap();
+
+      // The Sum chip: B2:B4 = 1, 2, 4 → Sum 7, a tap → Average, a tap → Count.
+      for (const [r, v] of [[1, "1"], [2, "2"], [3, "4"]] as const) await grid.type(r, 1, v);
+      await expect(page.getByTestId("stat-chip")).toHaveCount(0);
+      const b2 = await grid.pos(1, 1);
+      await page.touchscreen.tap(b2.x, b2.y);
+      await drag(page, await handleOn(page, "selection-handle-end", await grid.pos(1, 1, 32, 10)), await grid.pos(3, 1, 32, 10));
+      const chip = page.getByTestId("stat-chip");
+      await expect(chip).toHaveText(msg(lang, "calc.stats.sum").replace("{value}", "7"));
+      expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await chip.tap();
+      await expect(chip).toHaveText(msg(lang, "calc.stats.average").replace("{value}", lang === "de" ? "2,333333333" : "2.333333333"));
+      await chip.tap();
+      await expect(chip).toHaveText(msg(lang, "calc.stats.count").replace("{value}", "3"));
+      await chip.tap();
+      await expect(chip).toHaveAttribute("data-stat", "sum");
+      if (lang === "de") await page.screenshot({ path: `${SHOTS}/P10-M3-chrome-de.png` });
+
+      // Fill colour from the command bar: a sheet with 40 px colour cells.
+      await page.getByTestId("command-tabs").getByRole("tab", { name: msg(lang, "tab.home"), exact: true }).click();
+      await page.locator("[data-compact-strip]").getByRole("button", { name: msg(lang, "fmt.fillColor"), exact: true }).tap();
+      const cells = page.locator("[data-bottom-sheet] button[data-cell]");
+      await expect(cells.first()).toBeVisible();
+      for (const c of [cells.first(), cells.last()]) {
+        const b = (await c.boundingBox())!;
+        expect(b.height).toBeGreaterThanOrEqual(40);
+        expect(b.width).toBeGreaterThanOrEqual(34);
+      }
+      expect(await overflow()).toBeLessThanOrEqual(0);
+      await cells.first().tap();
+      await expect(page.locator("[data-bottom-sheet]")).toHaveCount(0);
+      errors.expectNone();
+      await ctx.close();
+    });
+  }
 });
