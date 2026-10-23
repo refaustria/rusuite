@@ -2,7 +2,7 @@
 // (default: the document's own page setup), with the live preview.
 
 import { useCallback } from "react";
-import { PrintCheck, PrintNumber, PrintPanel, PrintSection, PrintSelect, printDocument, usePrintDoc, type MarginPreset, type PageOrientation, type PaperName, type PrintDoc } from "@rusuite/ui-shared";
+import { PrintCheck, PrintNumber, PrintPanel, PrintSection, PrintSelect, capabilitiesOf, exportPdfDocument, exportPdfOrPrint, pdfFileName, printDocument, usePrintDoc, type MarginPreset, type PageOrientation, type PaperName, type PrintDoc } from "@rusuite/ui-shared";
 import type { Editor } from "@tiptap/react";
 import type { PageSetup } from "../generated/PageSetup";
 import type { Comment } from "../generated/Comment";
@@ -26,18 +26,26 @@ export interface WritePrintPageProps {
   layout?: PageLayout | null;
   /** Flow options of a paragraph (other paper / margins / scale paginate again). */
   flow?: (node: PMNode) => FlowProps;
+  /** The document's file name (`<name>.pdf` for Export PDF, P10-M6). */
+  docName?: string | null;
 }
 
-/** Prints a built document, reporting failures. */
-export async function printWrite(backend: WriteBackend, doc: PrintDoc, onError: (e: unknown) => void): Promise<void> {
+/**
+ * Prints a built document, reporting failures: `print` (the Print button), `pdf` (File › Export PDF…: without a
+ * dialog where the backend renders PDFs, else the print dialog), `share` (Share as PDF, P10-M6).
+ */
+export async function printWrite(backend: WriteBackend, doc: PrintDoc, onError: (e: unknown) => void, mode: "print" | "pdf" | "share" = "print", docName: string | null = null): Promise<void> {
+  const name = pdfFileName(docName ?? "");
   try {
-    await printDocument(doc, backend);
+    if (mode === "print") await printDocument(doc, backend);
+    else if (mode === "pdf") await exportPdfOrPrint(doc, name, backend);
+    else await exportPdfDocument(doc, name, backend, "share");
   } catch (e) {
     onError(e);
   }
 }
 
-export function WritePrintPage({ editor, page, backend, options, onChange, onError, comments = [], layout = null, flow }: WritePrintPageProps) {
+export function WritePrintPage({ editor, page, backend, options, onChange, onError, comments = [], layout = null, flow, docName = null }: WritePrintPageProps) {
   const t = useT();
   const { range, paper, orientation, margins, scale } = options;
   const markup = !!options.markup;
@@ -48,7 +56,9 @@ export function WritePrintPage({ editor, page, backend, options, onChange, onErr
   const { doc, busy, error } = usePrintDoc(build);
   const set = <K extends keyof WritePrintOptions>(k: K, v: WritePrintOptions[K]) => onChange({ ...options, [k]: v });
   return (
-    <PrintPanel doc={doc} busy={busy} error={error} range={range} onRange={(r) => set("range", r)} onPrint={(d) => printWrite(backend, d, onError)}>
+    <PrintPanel doc={doc} busy={busy} error={error} range={range} onRange={(r) => set("range", r)} onPrint={(d) => printWrite(backend, d, onError)}
+      onExportPdf={capabilitiesOf(backend).pdf ? (d) => printWrite(backend, d, onError, "pdf", docName) : undefined}
+    >
       <PrintSection title={t("print.layoutSection")}>
         <PrintSelect label={t("print.orientation")} value={orientation} choices={WRITE_ORIENTATION_CHOICES} onChange={(v) => set("orientation", v as PageOrientation | "document")} />
         <PrintSelect label={t("print.paperSize")} value={paper} choices={WRITE_PAPER_CHOICES} onChange={(v) => set("paper", v as PaperName | "document")} />

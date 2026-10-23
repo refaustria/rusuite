@@ -170,13 +170,14 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
     store.clearShowRequest();
     startPresenting("single", false, showRequest.customShow);
   }, [showRequest, store, startPresenting]);
-  // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
-  const exportPdf = useCallback(() => {
+  // File › Export PDF… / Share as PDF: the Print pipeline with the current settings – a PDF without a dialog where
+  // the backend renders PDFs (P10-M6), else straight to the system dialog ("Save as PDF").
+  const exportPdf = useCallback((mode?: "share") => {
     void (async () => {
       await store.commitEdit();
       // the slide range and section are applied while building
       const doc = await buildShowDoc(store, printOptions);
-      await printShow(store, backend, doc);
+      await printShow(store, backend, doc, mode === "share" ? "share" : "pdf");
     })().catch((e) => store.pushError(e));
   }, [backend, store, printOptions]);
   const presentFrom = useCallback(

@@ -4,7 +4,7 @@
 
 import { useCallback } from "react";
 import {
-  ORIENTATION_CHOICES, PAPER_CHOICES, PrintCheck, PrintNumber, PrintPanel, PrintSection, PrintSelect, PrintText, printDocument, usePrintDoc,
+  ORIENTATION_CHOICES, PAPER_CHOICES, PrintCheck, PrintNumber, PrintPanel, PrintSection, PrintSelect, PrintText, capabilitiesOf, exportPdfDocument, exportPdfOrPrint, pdfFileName, printDocument, usePrintDoc,
   type HeaderFooterSlots, type PageOrientation, type PaperName, type PrintDoc,
 } from "@rusuite/ui-shared";
 import type { CalcStore } from "../state/store";
@@ -12,10 +12,17 @@ import { useT } from "../i18n";
 import { buildCalcPrintDoc } from "./calcPrintDoc";
 import { CALC_COMMENTS_CHOICES, CALC_MARGIN_CHOICES, CALC_SCALE_CHOICES, CALC_WHAT_CHOICES, type CalcCommentsMode, type CalcMarginPreset, type CalcPrintOptions, type CalcPrintWhat, type CalcScaleMode } from "./layout";
 
-/** Prints with the given settings (File › Export PDF… and the Print button). */
-export async function printCalc(store: CalcStore, doc: PrintDoc): Promise<void> {
+/**
+ * Prints with the given settings: the Print button (`print`), File › Export PDF… (`pdf`: without a dialog where the
+ * backend renders PDFs, else the print dialog) and Share as PDF (`share`, P10-M6).
+ */
+export async function printCalc(store: CalcStore, doc: PrintDoc, mode: "print" | "pdf" | "share" = "print"): Promise<void> {
+  const backend = store.api.backend;
+  const name = pdfFileName(store.getState().name ?? "");
   try {
-    await printDocument(doc, store.api.backend);
+    if (mode === "print") await printDocument(doc, backend);
+    else if (mode === "pdf") await exportPdfOrPrint(doc, name, backend);
+    else await exportPdfDocument(doc, name, backend, "share");
   } catch (e) {
     store.pushError(e);
   }
@@ -48,6 +55,7 @@ export function CalcPrintPage({ store, options, onChange }: { store: CalcStore; 
       range={range}
       onRange={(r) => set("range", r)}
       onPrint={(d) => printCalc(store, d)}
+      onExportPdf={capabilitiesOf(store.api.backend).pdf ? (d) => printCalc(store, d, "pdf") : undefined}
       before={
         <PrintSection title={t("print.settings")}>
           <PrintSelect label={t("print.whatToPrint")} value={options.what} choices={CALC_WHAT_CHOICES} onChange={(v) => set("what", v as CalcPrintWhat)} />
