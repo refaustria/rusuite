@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – компактен офис пакет с ядро на Rust: Calc, Write и Show, в браузъра и на настолния компютър.",
   "portal.downloads": "Изтегляния за настолен компютър",
   "portal.dl.title": "Изтегляния – Rusuite",
-  "portal.dl.heading": "Изтегляния за настолен компютър",
+  "portal.dl.heading": "Изтегляния",
   "portal.dl.nav": "Изтегляния",
   "portal.dl.lead": "Rusuite {tag} за Windows, macOS и Linux",
   "portal.dl.none": "Все още не е публикувана настолна версия. Версиите се появяват в <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

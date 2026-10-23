@@ -2,4 +2,4 @@ Novità della versione 3.1415
 • App per smartphone e tablet con un layout pensato per il tocco
 • Modifica al tocco: maniglie di selezione, zoom con due dita, gesti
 • Esportazione in PDF
-• App desktop firmate per Windows, macOS e Linux
+• App desktop firmate per macOS (notarizzate) e Linux (GPG)

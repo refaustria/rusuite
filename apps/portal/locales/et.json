@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – väike kontoritarkvara komplekt Rusti tuumaga: Calc, Write ja Show, brauseris ja töölaual.",
   "portal.downloads": "Töölaua allalaadimised",
   "portal.dl.title": "Allalaadimised – Rusuite",
-  "portal.dl.heading": "Töölaua allalaadimised",
+  "portal.dl.heading": "Allalaadimised",
   "portal.dl.nav": "Allalaadimised",
   "portal.dl.lead": "Rusuite {tag} Windowsile, macOS-ile ja Linuxile",
   "portal.dl.none": "Töölauaväljalaset pole veel avaldatud. Järgud ilmuvad lehel <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

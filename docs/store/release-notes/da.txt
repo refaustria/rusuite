@@ -2,4 +2,4 @@ Nyt i 3.1415
 • Apps til telefon og tablet med et touchvenligt layout
 • Redigering med berøring: markeringshåndtag, zoom med to fingre, bevægelser
 • Eksport som PDF
-• Signerede skrivebordsapps til Windows, macOS og Linux
+• Signerede skrivebordsapps til macOS (notariserede) og Linux (GPG)

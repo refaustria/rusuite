@@ -53,6 +53,8 @@ jobs:
         run: scripts/check-versions.sh
       - name: Portal downloads page generator
         run: node --test scripts/gen-downloads.test.mjs
+      - name: Version helper tests (wix/public version, version code)
+        run: scripts/versions-lib.test.sh
       - name: Store and signing script tests
         run: node --test scripts/store/*.test.mjs scripts/signing/*.test.mjs
       - run: pnpm i18n:check

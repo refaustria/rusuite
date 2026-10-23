@@ -2,4 +2,4 @@ Novinky vo verzii 3.1415
 • Aplikácie pre telefón a tablet s rozložením pre dotykové ovládanie
 • Úpravy dotykom: úchytky výberu, priblíženie dvoma prstami, gestá
 • Export do PDF
-• Podpísané aplikácie pre Windows, macOS a Linux
+• Podpísané aplikácie pre macOS (notarizované) a Linux (GPG)

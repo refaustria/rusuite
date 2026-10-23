@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – suite żgħira tal-uffiċċju b'qalba tar-Rust: Calc, Write u Show, fil-brawżer tiegħek u fuq id-desktop.",
   "portal.downloads": "Tniżżil għad-desktop",
   "portal.dl.title": "Tniżżil – Rusuite",
-  "portal.dl.heading": "Tniżżil għad-desktop",
+  "portal.dl.heading": "Tniżżil",
   "portal.dl.nav": "Tniżżil",
   "portal.dl.lead": "Rusuite {tag} għal Windows, macOS u Linux",
   "portal.dl.none": "Għadu ma ġie ppubblikat l-ebda rilaxx tad-desktop. Il-builds jidhru fuq <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

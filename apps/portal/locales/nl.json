@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – een kleine officesuite met een Rust-kern: Calc, Write en Show, in je browser en op de desktop.",
   "portal.downloads": "Desktopdownloads",
   "portal.dl.title": "Downloads – Rusuite",
-  "portal.dl.heading": "Desktopdownloads",
+  "portal.dl.heading": "Downloads",
   "portal.dl.nav": "Downloads",
   "portal.dl.lead": "Rusuite {tag} voor Windows, macOS en Linux",
   "portal.dl.none": "Er is nog geen desktopversie gepubliceerd. Builds verschijnen op <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

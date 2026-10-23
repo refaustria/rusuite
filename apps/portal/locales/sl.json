@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – majhen pisarniški paket z jedrom v Rustu: Calc, Write in Show v brskalniku in na namizju.",
   "portal.downloads": "Prenosi za namizje",
   "portal.dl.title": "Prenosi – Rusuite",
-  "portal.dl.heading": "Prenosi za namizje",
+  "portal.dl.heading": "Prenosi",
   "portal.dl.nav": "Prenosi",
   "portal.dl.lead": "Rusuite {tag} za Windows, macOS in Linux",
   "portal.dl.none": "Namizna izdaja še ni bila objavljena. Gradnje se bodo pojavile na <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

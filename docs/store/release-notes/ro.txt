@@ -2,4 +2,4 @@ Noutăți în versiunea 3.1415
 • Aplicații pentru telefon și tabletă cu un aspect adaptat atingerii
 • Editare prin atingere: mânere de selecție, mărire cu două degete, gesturi
 • Export în PDF
-• Aplicații desktop semnate pentru Windows, macOS și Linux
+• Aplicații desktop semnate pentru macOS (notarizate) și Linux (GPG)

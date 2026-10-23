@@ -2,4 +2,4 @@ Novedades de la versión 3.1415
 • Aplicaciones para móvil y tableta con un diseño pensado para el tacto
 • Edición táctil: controladores de selección, zoom con dos dedos, gestos
 • Exportación a PDF
-• Aplicaciones de escritorio firmadas para Windows, macOS y Linux
+• Aplicaciones de escritorio firmadas para macOS (notarizadas) y Linux (GPG)

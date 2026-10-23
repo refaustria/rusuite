@@ -2,4 +2,4 @@ Nowości w wersji 3.1415
 • Aplikacje na telefon i tablet z układem dostosowanym do dotyku
 • Edycja dotykiem: uchwyty zaznaczenia, powiększanie dwoma palcami, gesty
 • Eksport do PDF
-• Podpisane aplikacje na komputery z Windows, macOS i Linux
+• Podpisane aplikacje na komputery z macOS (notaryzowane) i Linux (GPG)

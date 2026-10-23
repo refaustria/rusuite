@@ -2,4 +2,4 @@ Novinky ve verzi 3.1415
 • Aplikace pro telefon a tablet s rozložením pro dotykové ovládání
 • Úpravy dotykem: úchyty výběru, přiblížení dvěma prsty, gesta
 • Export do PDF
-• Podepsané aplikace pro Windows, macOS a Linux
+• Podepsané aplikace pro macOS (notarizované) a Linux (GPG)

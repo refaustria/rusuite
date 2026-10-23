@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – uma pequena suite de escritório com um núcleo em Rust: Calc, Write e Show, no teu navegador e no computador.",
   "portal.downloads": "Transferências para computador",
   "portal.dl.title": "Transferências – Rusuite",
-  "portal.dl.heading": "Transferências para computador",
+  "portal.dl.heading": "Transferências",
   "portal.dl.nav": "Transferências",
   "portal.dl.lead": "Rusuite {tag} para Windows, macOS e Linux",
   "portal.dl.none": "Ainda não foi publicada nenhuma versão para computador. As compilações aparecem em <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

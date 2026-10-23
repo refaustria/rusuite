@@ -11,4 +11,6 @@ One file per language (`<lang>.json`, the 24 UI languages) with the keys `calc`,
 - "New in 3.1415" lists four bullets in this order: phone and tablet apps, touch editing, **PDF export**, signed
   desktop apps. The PDF bullet is the third line of `whatsNew` (and of the end of `fullDescription`/`description`):
   remove that line from all files (and the release notes) if P10-M6 is not part of the release.
+- The signed-desktop-apps bullet follows the real signing status: switch it in all 24 languages with
+  `node scripts/store/signing-wording.mjs all|macLinux|none` (table in `scripts/store/signing-wording-table.mjs`; 3.1415 ships `macLinux`).
 - The texts are generated from short per-language sources; edit the JSON files directly from now on.
