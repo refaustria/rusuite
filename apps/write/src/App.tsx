@@ -41,6 +41,7 @@ import { useTouchZoom } from "./touch/useTouchZoom";
 import { installTouchMode } from "./touch/touchMode";
 import { TouchSelection } from "./touch/TouchSelection";
 import { TableGutters } from "./touch/TableGutters";
+import { CARET_CLEARANCE_PX, installCaretKeeper } from "./touch/keepCaretVisible";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -196,7 +197,8 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const compact = useCompact();
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const margin = { top: reserve, bottom: 8, left: 8, right: 8 };
+    // Phones: the caret keeps clear of the command bar (and the keyboard above which it sits).
+    const margin = { top: reserve, bottom: compact ? CARET_CLEARANCE_PX : 8, left: 8, right: 8 };
     editor.setOptions({ editorProps: { ...editor.options.editorProps, scrollMargin: margin, scrollThreshold: margin } });
     // The ruler just appeared (or the zoom changed): bring the caret out from under it.
     if (!reserve) return;
@@ -204,7 +206,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.scrollIntoView().setMeta("addToHistory", false));
     });
     return () => cancelAnimationFrame(frame);
-  }, [editor, reserve]);
+  }, [editor, reserve, compact]);
   // A new zoom lays the pages out again (60 ms debounce).
   useEffect(() => {
     if (!editor) return;
@@ -221,11 +223,20 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const sections = useSync(ctl, () => ctl.sections);
   const separators = useSync(ctl, () => ctl.separators);
 
-  // Touch (P10-M4): fit-width on phones, pinch and double tap, the touch mode on the root.
+  // Touch (P10-M4): fit-width on phones, pinch and double tap, the touch mode on the root, the caret above the keyboard.
   const rootRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
   useEffect(() => (rootRef.current ? installTouchMode(rootRef.current) : undefined), []);
+  useEffect(() => {
+    if (!editor || !compact) return;
+    return installCaretKeeper(editor.view, (fn) => {
+      // The caret only: a selection being extended with its handles scrolls itself.
+      const onSel = () => editor.state.selection.empty && fn();
+      editor.on("selectionUpdate", onSel);
+      return () => editor.off("selectionUpdate", onSel);
+    });
+  }, [editor, compact]);
   const touchZoom = useTouchZoom({
     compact,
     view: chrome.view,

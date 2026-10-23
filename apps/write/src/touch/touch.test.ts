@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "@tiptap/pm/model";
 import { clampZoom, fitWidthZoom, gapForZoom } from "./zoomGestures";
 import { autoScrollSpeed, barPosition, wordAt } from "./selection";
+import { caretScrollDelta } from "./keepCaretVisible";
 import { installTouchMode, isTouchMode, setTouchMode } from "./touchMode";
 
 const schema = new Schema({
@@ -53,6 +54,15 @@ describe("bar and handles", () => {
     expect(autoScrollSpeed(300, 50, 700)).toBe(0);
     expect(autoScrollSpeed(55, 50, 700)).toBeLessThan(0);
     expect(autoScrollSpeed(695, 50, 700)).toBeGreaterThan(0);
+  });
+});
+
+describe("caret above the keyboard", () => {
+  it("scrolls down by what the caret is below the limit, never past the band's top", () => {
+    expect(caretScrollDelta({ top: 480, bottom: 500 }, 50, 440)).toBe(60);
+    expect(caretScrollDelta({ top: 100, bottom: 120 }, 50, 440)).toBe(0);
+    expect(caretScrollDelta({ top: 20, bottom: 40 }, 50, 440)).toBe(-30);
+    expect(caretScrollDelta({ top: 80, bottom: 500 }, 50, 100)).toBe(30);
   });
 });
 

@@ -349,3 +349,7 @@ html[data-compact] .write-scroll { padding: 8px; }
 [data-rs-app][data-touch] .image-handle-s { left: calc(50% - var(--hit) / 2); bottom: calc(var(--hit) / -2); }
 [data-rs-app][data-touch] .image-handle-sw { left: calc(var(--hit) / -2); bottom: calc(var(--hit) / -2); }
 [data-rs-app][data-touch] .image-handle-w { left: calc(var(--hit) / -2); top: calc(50% - var(--hit) / 2); }
+/* Room under the last line so it can scroll clear of the command bar, the keyboard, a sheet (set by the caret keeper). */
+html[data-compact] .write-scroll { padding-bottom: max(8px, var(--write-touch-pad, 0px)); }
+/* Phones: the find bar sits above the command bar (full width), clear of the text at the top. */
+html[data-compact] [data-testid="find-bar"] { top: auto; left: 8px; right: 8px; width: auto; max-width: none; bottom: calc(var(--rs-kb-inset, 0px) + var(--rs-command-bar-h, 0px) + 8px); }

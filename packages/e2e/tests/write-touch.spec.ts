@@ -182,6 +182,83 @@ test.describe("Write touch @mobile", () => {
     await pictureFlow(page, "mobile");
   });
 
+  test("the keyboard: the caret at the last paragraph stays 60 px above the command bar; sheets and the find bar keep clear of it", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openFixture(page, "provisional-41-long-document.docx");
+    const last = page.locator(".ProseMirror > p").last();
+    await last.scrollIntoViewIfNeeded();
+    const lb = (await last.boundingBox())!;
+    await page.touchscreen.tap(lb.x + 20, lb.y + 4);
+    await page.keyboard.press("End");
+    const caret = () =>
+      page.evaluate(() => {
+        const ed = (document.querySelector(".ProseMirror") as unknown as { editor: { view: { coordsAtPos: (p: number) => { top: number; bottom: number } }; state: { selection: { head: number } } } }).editor;
+        return ed.view.coordsAtPos(ed.state.selection.head);
+      });
+    const barTop = async () => (await page.getByTestId("command-bar").boundingBox())!.y;
+    // The keyboard opens: 400 px of the 915 are left.
+    await page.evaluate(() => {
+      (window as unknown as { __RUSUITE_VISUAL_VIEWPORT__: unknown }).__RUSUITE_VISUAL_VIEWPORT__ = { height: 400, offsetTop: 0 };
+      window.dispatchEvent(new Event("rusuite:visualviewport"));
+    });
+    await expect(page.locator("html")).toHaveAttribute("data-keyboard", "");
+    await expect.poll(async () => Math.round((await barTop()) + (await page.getByTestId("command-bar").boundingBox())!.height)).toBe(400);
+    await expect.poll(async () => (await barTop()) - (await caret()).bottom).toBeGreaterThanOrEqual(60);
+    expect((await caret()).top).toBeGreaterThan(0);
+    // Typing at the end keeps it there.
+    await page.keyboard.type(" More words at the end.");
+    await expect.poll(async () => (await barTop()) - (await caret()).bottom).toBeGreaterThanOrEqual(60);
+    await page.screenshot({ path: `${SHOTS}/P10-M4-keyboard.png` });
+    // The find bar sits above the command bar, below the caret line.
+    await page.keyboard.press("Control+f");
+    const find = page.getByTestId("find-bar");
+    await expect(find).toBeVisible();
+    await expect.poll(async () => (await find.boundingBox())!.y - (await caret()).bottom).toBeGreaterThanOrEqual(0);
+    expect((await find.boundingBox())!.y + (await find.boundingBox())!.height).toBeLessThanOrEqual(await barTop());
+    await page.keyboard.press("Escape");
+    await expect(find).toHaveCount(0);
+    await editor(page).focus();
+    // The keyboard closes again.
+    await page.evaluate(() => {
+      (window as unknown as { __RUSUITE_VISUAL_VIEWPORT__?: unknown }).__RUSUITE_VISUAL_VIEWPORT__ = undefined;
+      window.dispatchEvent(new Event("rusuite:visualviewport"));
+    });
+    // The Paragraph sheet does not cover the caret line.
+    await page.getByTestId("command-tabs").getByRole("tab", { name: "Home", exact: true }).click();
+    await page.locator("[data-compact-strip]").getByRole("button", { name: "Paragraph settings", exact: true }).tap();
+    const sheet = page.getByTestId("dialog-sheet");
+    await expect(sheet).toBeVisible();
+    await editor(page).evaluate(() => undefined);
+    await expect.poll(async () => (await sheet.boundingBox())!.y - (await caret()).bottom).toBeGreaterThanOrEqual(0);
+    await page.keyboard.press("Escape");
+    errors.expectNone();
+  });
+
+  test("the Styles gallery and the font size list in sheets have 44 px rows", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await page.getByTestId("command-tabs").getByRole("tab", { name: "Home", exact: true }).click();
+    const strip = page.locator("[data-compact-strip]");
+    await strip.getByRole("button", { name: "Paragraph styles", exact: true }).tap();
+    const gallery = page.getByTestId("popup-sheet");
+    await expect(gallery).toBeVisible();
+    const items = gallery.locator("[data-gallery-item]");
+    expect(await items.count()).toBeGreaterThan(3);
+    for (const it of await items.all()) expect((await it.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: `${SHOTS}/P10-M4-styles-sheet.png` });
+    await page.keyboard.press("Escape");
+    await expect(gallery).toHaveCount(0);
+    // Font sizes are inputs with the sizes as the browser's own list (the OS picker on phones): 44 px in the strip and
+    // in the Font sheet.
+    expect((await strip.getByRole("combobox", { name: "Font size" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await strip.getByRole("button", { name: "Font…", exact: true }).tap();
+    const font = page.getByTestId("dialog-sheet");
+    await expect(font).toBeVisible();
+    expect((await font.getByLabel("Size (pt)").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: `${SHOTS}/P10-M4-font-size.png` });
+    await page.keyboard.press("Escape");
+    errors.expectNone();
+  });
 });
 
 test.describe("Write touch in German @mobile", () => {
