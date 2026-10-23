@@ -1,0 +1,17 @@
+# Task P10-X1 – Mobile polish before the store builds (icons, rough edges, screenshot refresh)
+
+Read `docs/tasks/COMMON.md` first (incl. "Cycle 3.1415": Android env, push rule for mobile CI branches), then `docs/mobile.md`, `docs/ui.md` (compact + the three touch sections), `docs/store/SCREENSHOTS.md`, `scripts/store/screenshots.mjs`, the STATUS.md task-board notes of P10-M1…M7 ("rough edges"), `apps/*/src-tauri/icons/` and `gen/apple/Assets.xcassets`, `apps/portal/logos/*.svg` (the source logos: full-bleed tile with 22 % corner radius).
+
+Branch `p10/x1-mobile-polish`, worktree `/home/bojan/rusuite-wt/p10-x1-mobile-polish`. Model: Sonnet. e2e port 5021.
+
+## Items (one commit each)
+1. **Icons.** The iOS `AppIcon` set and the Play icon must be full-bleed squares without alpha and without baked-in rounded corners (Apple masks them; Google masks adaptive icons). Generate from `apps/portal/logos/<app>.svg` a **square, full-bleed** source (the tile colour fills the whole square, the glyph centred and sized as in the SVG's live area) → `src-tauri/icons/icon-fullbleed.png` (1024², RGB) and run `tauri icon` for the iOS set from it (Android adaptive icons: foreground = glyph on transparent, background = tile colour via `ic_launcher_background`/`ic_launcher_foreground` in `gen/android/app/src/main/res` – keep the legacy mipmaps consistent); desktop icons (`icon.png`, `.icns`, `.ico`) keep the rounded tile. Regenerate `docs/store/graphics/*/appstore-1024.png` and `icon-512.png` from the full-bleed source (`scripts/store/png.mjs`), verify no alpha with a PNG header read.
+2. **Rough edges from M2–M5:** Show's "End show" button colour (class conflict), Calc colour-grid cells at 412 px (allow a 2-row wrap so each cell is ≥ 40 px wide), the long-press quiet window (400 ms) → 250 ms in `installLongPress` if the tests still pass, Show pinch zoom only in Fit mode (allow in all modes or document), `docs/mobile.md`: the single-window presentation fallback is now tested (M5) – update the sentence; Write: `docs/mobile.md` note on body text size at fit-width.
+3. **Screenshot refresh.** `node scripts/store/screenshots.mjs all` after a web build of the three apps (compact UI now has handles/key row/strip): regenerate all 150 PNGs, check dimensions and the ≤ 60 MB budget, update `docs/store/SCREENSHOTS.md` if the shot list changed; keep the Write phone shots at fit-width (M4) rather than a fixed 50 %.
+4. **CI hygiene.** Add `node --test scripts/store/*.test.mjs scripts/signing/*.test.mjs` to the `frontend` job of `.github/workflows/ci.yml` (idea from M8/S1 reports); `scripts/privacy-check.sh` unchanged.
+
+## In scope
+`apps/*/src-tauri/icons/**`, `apps/*/src-tauri/gen/android/app/src/main/res/**`, `apps/*/src-tauri/gen/apple/Assets.xcassets/**`, the listed small UI fixes in `apps/show/src/**`, `apps/calc/src/**` (colour grid only), `packages/ui-shared/src/compact/longPress.ts`, `docs/store/screenshots/**`, `docs/store/graphics/**`, `docs/store/SCREENSHOTS.md`, `docs/mobile.md`, `.github/workflows/ci.yml`, `scripts/store/png.mjs` (additive).
+
+## Verification
+`pnpm typecheck`; `pnpm test`; `pnpm i18n:check`; `scripts/privacy-check.sh`; `cargo fmt --all --check`; web builds; full e2e on port 5021; local `pnpm --filter calc tauri android build --apk --target aarch64` succeeds (icons compile); push the branch so `mobile.yml` runs (iOS asset catalog compiles – paste the run URL). Report (≤ 30 lines).

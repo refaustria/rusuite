@@ -3,8 +3,18 @@
 - Status: **in progress – cycle 3.1415** ([plan-3.1415.md](plan-3.1415.md), Block M). Done: **P10-M1** mobile shells, mobile
   `Backend` and mobile CI ([mobile.md](mobile.md)); **P10-M2** compact layout under 900 px (top bar, bottom command bar from
   the ribbon definitions, bottom sheets, 44 px targets, soft-keyboard handling via `visualViewport`, safe areas, long-press
-  context menus; see [ui.md › Compact layout](ui.md#compact-layout-for-phones-p10-m2)). **P10-M5** Show touch editing and presenting (thumbnail strip, notes and Timing sheets, tap/drag/pinch/twist with 44 px handles, canvas pinch zoom and pan, swipe/tap/long-press slide show in the same window, presenter view only where a second window can open; see [ui.md › Show with touch](ui.md#show-with-touch-p10-m5)). Next: touch editing for Calc and Write (M3, M4),
+  context menus; see [ui.md › Compact layout](ui.md#compact-layout-for-phones-p10-m2)); **P10-M3** Calc touch editing
+  (handles, pinch, touch fill handle, formula keys with Ref mode, compact formula bar / sheet strip / Sum chip; see
+  [ui.md › Calc with touch](ui.md#calc-with-touch-p10-m3)); **P10-M4** Write touch editing (fit-width page, long-press
+  selection with floating bar and handles, picture/table handles; see [ui.md › Write touch](ui.md#write-touch-p10-m4));
+  **P10-M5** Show touch editing and presenting (thumbnail strip, notes and Timing sheets, tap/drag/pinch/twist with 44 px
+  handles, canvas pinch zoom and pan, swipe/tap/long-press slide show in the same window, presenter view only where a
+  second window can open; see [ui.md › Show with touch](ui.md#show-with-touch-p10-m5)). Next: PDF export (M6),
   PDF for mobile (M6), store assets and publishing (M7–M9). *Was: considered, not scheduled (owner, 2026-10-15).*
+- **P10-M4 (Write touch): done** – fit-width page with pinch and double tap, long-press word selection with selection
+  handles and a floating format bar, 44 px picture handles, column border strips and table gutters, the caret kept above
+  the keyboard, sheets and the find bar; the same touch handling on tablets with the ribbon
+  ([ui.md › Write touch](ui.md#write-touch-p10-m4)).
 - Owner of this document: PM.
 
 ## What we already have that carries over

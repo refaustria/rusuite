@@ -1,0 +1,15 @@
+Rusuite Calc, Rusuite Write and Rusuite Show (App Review notes, version 3.1415)
+
+What the apps do
+Rusuite Calc is a spreadsheet app (opens and saves .xlsx), Rusuite Write a word processor (.docx) and Rusuite Show a presentation app (.pptx). They are free and open source (MIT, https://github.com/refaustria/rusuite). All editing happens on the device; the document engine is a Rust library bundled in the app.
+
+No account, no demo login
+There is no sign-in, no registration and no purchase of any kind. The apps work fully offline and contain no ads, no analytics and no third-party SDKs. Nothing is collected and nothing is sent to a server: documents stay on the device (they are only read from and written to the location the user picks in the system document picker). The App Privacy answer is "Data Not Collected". Connectors (WebDAV) and the AI assistant exist only in the desktop apps and are not part of the iOS builds.
+
+How to try the app (no sample file needed)
+1. Start the app. It opens with an empty document.
+2. Calc: tap a cell, type a number or a formula such as =SUM(A1:A3), press Enter. Write: tap into the page and type; use the command bar at the bottom for Bold, lists and tables. Show: tap the title placeholder, type, and use "New slide" in the command bar.
+3. Open an existing file: tap File (top left) > Open and pick a .xlsx / .docx / .pptx from Files. Sample files are available at https://github.com/refaustria/rusuite/tree/main/testdata (xlsx/provisional-charts-c6.xlsx, docx/provisional-47-report.docx, pptx/provisional-25-pitch-deck.pptx); download one in Safari and open it with "Open in Rusuite ..." from the share sheet or from Files.
+4. Save: File > Save writes back to the opened file; for a new document or Save As the system document picker ("Save to Files") opens. Export as PDF (new in 3.1415) goes through the share sheet.
+
+Contact: bojan@referee.at

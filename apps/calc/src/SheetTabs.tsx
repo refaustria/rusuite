@@ -4,7 +4,7 @@
 // tab shows its colour as an underline.
 
 import { useRef, useState } from "react";
-import { ContextMenu, cssColor, OFFICE_THEME, type ContextMenuItem } from "@rusuite/ui-shared";
+import { ContextMenu, cssColor, OFFICE_THEME, useCompact, type ContextMenuItem } from "@rusuite/ui-shared";
 import { unhideableSheets, useCalc, visibleSheets, type CalcStore } from "./state/store";
 import { t, useT } from "./i18n";
 import { sheetProtection, toggleSheetProtection } from "./protection/protection";
@@ -42,6 +42,8 @@ export function sheetMenu(store: CalcStore, sheet: number, rename: () => void): 
 
 export function SheetTabs({ store }: { store: CalcStore }) {
   const t = useT();
+  // Compact (P10-M3): a strip of 44 px tabs that scrolls sideways, "+" pinned at its end; a long press opens the menu.
+  const compact = useCompact();
   const all = useCalc(store, (s) => s.info?.sheets) ?? [];
   // Hidden sheets get no tab; drag positions are mapped back to the full order.
   const sheets = visibleSheets(all);
@@ -74,7 +76,12 @@ export function SheetTabs({ store }: { store: CalcStore }) {
   };
 
   return (
-    <div role="tablist" aria-label={t("calc.sheets")} className="flex items-stretch gap-0.5 border-t border-ui-border bg-ui-panel px-2 text-sm text-ui-fg">
+    <div
+      role="tablist"
+      aria-label={t("calc.sheets")}
+      data-testid="sheet-tabs"
+      className={`flex items-stretch gap-0.5 border-t border-ui-border bg-ui-panel text-sm text-ui-fg ${compact ? "rs-touch overflow-x-auto pl-2 [scrollbar-width:none]" : "px-2"}`}
+    >
       {sheets.map((s, index) => {
         const color = s.tabColor ? cssColor(s.tabColor, OFFICE_THEME) : undefined;
         // Excel: an inactive coloured tab is filled with its colour; the active one shows it as a bar.
@@ -84,7 +91,7 @@ export function SheetTabs({ store }: { store: CalcStore }) {
             key={s.id}
             aria-label={t("calc.sheetName")}
             autoFocus
-            className="w-28 border border-ui-focus bg-ui-bg px-2 outline-none"
+            className={`border border-ui-focus bg-ui-bg px-2 outline-none ${compact ? "w-36 shrink-0" : "w-28"}`}
             value={renaming.name}
             onChange={(e) => setRenaming({ id: s.id, name: e.target.value })}
             onBlur={() => finish(true)}
@@ -100,7 +107,7 @@ export function SheetTabs({ store }: { store: CalcStore }) {
             role="tab"
             draggable
             aria-selected={s.id === active}
-            className={`relative border-x border-b-2 px-3 py-1 ${
+            className={`relative border-x border-b-2 px-3 py-1 ${compact ? "shrink-0 whitespace-nowrap" : ""} ${
               s.id === active ? "border-x-ui-border border-b-[#217346] bg-ui-bg font-medium" : "border-transparent hover:bg-ui-hover"
             } ${dropAt === index ? "shadow-[inset_2px_0_0_#217346]" : ""} ${
               dropAt === index + 1 && index === sheets.length - 1 ? "shadow-[inset_-2px_0_0_#217346]" : ""
@@ -152,13 +159,20 @@ export function SheetTabs({ store }: { store: CalcStore }) {
           </button>
         );
       })}
-      <button type="button" aria-label={t("calc.addSheet")} className="px-2 py-1 hover:bg-ui-hover" onClick={() => void store.addSheet()}>
+      <button
+        type="button"
+        aria-label={t("calc.addSheet")}
+        data-testid="add-sheet"
+        className={`px-2 py-1 hover:bg-ui-hover ${compact ? "sticky right-0 shrink-0 bg-ui-panel text-lg" : ""}`}
+        onClick={() => void store.addSheet()}
+      >
         +
       </button>
       <ContextMenu
         at={menu?.at ?? null}
         label={t("calc.sheet")}
-        items={menu ? sheetMenu(store, menu.id, () => setRenaming({ id: menu.id, name: menu.name })) : []}
+        // Compact: Rename opens the rename dialog as a sheet (an inline field in a tab is too small for a finger).
+        items={menu ? sheetMenu(store, menu.id, () => (compact ? store.openDialog({ kind: "renameSheet", sheet: menu.id }) : setRenaming({ id: menu.id, name: menu.name }))) : []}
         onClose={() => setMenu(null)}
       />
     </div>

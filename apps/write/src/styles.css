@@ -323,3 +323,33 @@ body,
 .comment-composer p { margin: 0; }
 .comment-composer a { color: #2b579a; text-decoration: underline; }
 .comment-mention, .comment-composer a.comment-mention { color: #2b579a; background: #e8e6e4; border-radius: 2px; padding: 0 1px; text-decoration: none; }
+
+/* Touch (P10-M4, docs/ui.md "Write touch"): a pinch is the app's zoom on every touch screen (no browser page zoom);
+   phones get 8 px around the fit-width page. */
+.write-scroll { touch-action: pan-x pan-y; }
+html[data-compact] .write-scroll { padding: 8px; }
+/* Selection handles: a 24 px round knob below each end of the selection, 44 px to hit (screen px, outside the zoom). */
+.write-sel-handle { position: fixed; z-index: 20; display: flex; justify-content: center; align-items: flex-start; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.write-sel-handle > span { display: block; margin-top: 6px; border-radius: 50%; background: #2b579a; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
+/* Table gutters: a thin bar along the table's top and left edge inside a 44 px strip; a tap selects the column / row. */
+.write-table-gutters { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+.write-gutter { position: fixed; pointer-events: auto; background: transparent; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.write-gutter::after { content: ""; position: absolute; background: color-mix(in srgb, #2b579a 25%, transparent); border-radius: 2px; }
+.write-gutter-col::after { left: 1px; right: 1px; bottom: 4px; height: 8px; }
+.write-gutter-row::after { top: 1px; bottom: 1px; right: 4px; width: 8px; }
+.write-gutter[data-selected]::after { background: #2b579a; }
+/* Pictures: 44 px handles (screen px at any zoom) with a 14 px knob; the move area keeps the native scrolling off. */
+[data-rs-app][data-touch] .image-handle { --hit: calc(44px / var(--write-zoom, 1)); width: var(--hit); height: var(--hit); background: transparent; border: none; touch-action: none; }
+[data-rs-app][data-touch] .image-handle::after { content: ""; position: absolute; left: 50%; top: 50%; width: calc(14px / var(--write-zoom, 1)); height: calc(14px / var(--write-zoom, 1)); transform: translate(-50%, -50%); box-sizing: border-box; background: #fff; border: calc(1.5px / var(--write-zoom, 1)) solid #4472c4; border-radius: 50%; }
+[data-rs-app][data-touch] .image-handle-nw { left: calc(var(--hit) / -2); top: calc(var(--hit) / -2); }
+[data-rs-app][data-touch] .image-handle-n { left: calc(50% - var(--hit) / 2); top: calc(var(--hit) / -2); }
+[data-rs-app][data-touch] .image-handle-ne { right: calc(var(--hit) / -2); top: calc(var(--hit) / -2); }
+[data-rs-app][data-touch] .image-handle-e { right: calc(var(--hit) / -2); top: calc(50% - var(--hit) / 2); }
+[data-rs-app][data-touch] .image-handle-se { right: calc(var(--hit) / -2); bottom: calc(var(--hit) / -2); }
+[data-rs-app][data-touch] .image-handle-s { left: calc(50% - var(--hit) / 2); bottom: calc(var(--hit) / -2); }
+[data-rs-app][data-touch] .image-handle-sw { left: calc(var(--hit) / -2); bottom: calc(var(--hit) / -2); }
+[data-rs-app][data-touch] .image-handle-w { left: calc(var(--hit) / -2); top: calc(50% - var(--hit) / 2); }
+/* Room under the last line so it can scroll clear of the command bar, the keyboard, a sheet (set by the caret keeper). */
+html[data-compact] .write-scroll { padding-bottom: max(8px, var(--write-touch-pad, 0px)); }
+/* Phones: the find bar sits above the command bar (full width), clear of the text at the top. */
+html[data-compact] [data-testid="find-bar"] { top: auto; left: 8px; right: 8px; width: auto; max-width: none; bottom: calc(var(--rs-kb-inset, 0px) + var(--rs-command-bar-h, 0px) + 8px); }

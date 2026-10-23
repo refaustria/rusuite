@@ -387,6 +387,8 @@ export interface PaginationOptions {
   hideWhiteSpace?: () => boolean;
   /** Endnotes at the end of each section (`w:endnotePr/w:pos="sectEnd"`) instead of the document. */
   endnotesAtSectionEnd?: () => boolean;
+  /** The band between pages (layout px; P10-M4: smaller on phones); default `PAGE_GAP_PX`. */
+  pageGap?: () => number | null;
 }
 
 interface PaginationState {
@@ -809,6 +811,7 @@ function toLayout(
   page: PageSetup | null,
   geoOf: (section: number) => PageGeometry,
   hide: boolean,
+  gap: number = hide ? HIDDEN_GAP_PX : PAGE_GAP_PX,
 ): PageLayout {
   const infos: PageInfo[] = result.pages.map((p) => ({
     section: p.section,
@@ -892,7 +895,7 @@ function toLayout(
     sheets,
     origin: result.origin,
     height: result.height,
-    gap: hide ? HIDDEN_GAP_PX : PAGE_GAP_PX,
+    gap,
     hide,
     flow,
     result,
@@ -999,6 +1002,7 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
         const sections = opts.sections?.() ?? [];
         const page = opts.page();
         const hide = !!opts.hideWhiteSpace?.();
+        const gap = hide ? HIDDEN_GAP_PX : (opts.pageGap?.() ?? PAGE_GAP_PX);
         const doc = view.state.doc;
         const endAtSection = !!opts.endnotesAtSectionEnd?.();
         const { measures, positions } = measurer.measure(opts.flow ?? (() => ({})), endAtSection);
@@ -1031,7 +1035,7 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
         };
         // Incremental: resume at the last page decided before the first changed unit; a section's page setup
         // (or columns, numbering) changed: before that section's first unit.
-        const inputs = `${hide}|${total}|${endAtSection}|${sections.length ? "" : JSON.stringify(page)}`;
+        const inputs = `${hide}|${gap}|${total}|${endAtSection}|${sections.length ? "" : JSON.stringify(page)}`;
         let resume: { prev: PaginateResult; from: number } | undefined;
         let tFirst = performance.now();
         if (!wasForcedRun && prev && prev.inputs === inputs) {
@@ -1050,12 +1054,12 @@ export function paginationPlugin(opts: PaginationOptions): Plugin<PaginationStat
           resume,
           pageBox,
           numberStart: (s) => (sections[s]?.pageNumberStart ?? null),
-          gap: hide ? HIDDEN_GAP_PX : PAGE_GAP_PX,
+          gap,
           noteSeparator: NOTE_SEPARATOR_PX,
         });
         prev = { flow, result, inputs, sections };
         const t2 = performance.now();
-        const layout = toLayout(doc, result, flow, positions, sections, page, geoOf, hide);
+        const layout = toLayout(doc, result, flow, positions, sections, page, geoOf, hide, gap);
         const tLayout = performance.now();
         // For tools and the perf scripts: the last layout and its timings (ms).
         const pageOfUnit = new Map<number, number>();
