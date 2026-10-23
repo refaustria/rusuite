@@ -6,6 +6,7 @@
 // editor.
 
 import { aiRibbonGroup, HelpMenu, useCompact } from "@rusuite/ui-shared";
+import { setTouchSelect, useTouchSelect } from "../canvas/touch";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
@@ -214,6 +215,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   const theme = state.pres?.theme;
   const hasSlide = state.current !== null;
   const compact = useCompact();
+  const multiSelect = useTouchSelect();
   const slideCount = state.pres?.slides.length ?? 0;
   const palette = themePalette(theme);
   const masterView = state.masterView !== null;
@@ -484,7 +486,13 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
       },
       {
         label: t("group.editing"),
-        items: <RibbonMenuButton label={t("show.select")} icon={DI.select} showLabel disabled={!hasSlide} menu={selectMenu} />,
+        items: (
+          <>
+            <RibbonMenuButton label={t("show.select")} icon={DI.select} showLabel disabled={!hasSlide} menu={selectMenu} />
+            {/* compact (P10-M5): taps add shapes to the selection / remove them, like Shift-click */}
+            {compact && <RibbonButton label={t("show.touch.multiSelect")} icon={DI.select} pressed={multiSelect} disabled={!hasSlide} onClick={() => setTouchSelect(!multiSelect)} />}
+          </>
+        ),
       },
       aiRibbonGroup(session.ai),
     ],

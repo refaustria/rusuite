@@ -1450,5 +1450,6 @@
   "show.insertPictureInto": "Insert Picture",
   "show.touch.layoutMenu": "Layout…",
   "show.touch.transitionMenu": "Transition…",
-  "show.touch.timing": "Timing…"
+  "show.touch.timing": "Timing…",
+  "show.touch.multiSelect": "Multi-select"
 }

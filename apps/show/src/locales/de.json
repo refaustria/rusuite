@@ -1450,5 +1450,6 @@
   "show.insertPictureInto": "Bild einfügen",
   "show.touch.layoutMenu": "Layout…",
   "show.touch.transitionMenu": "Übergang…",
-  "show.touch.timing": "Anzeigedauer…"
+  "show.touch.timing": "Anzeigedauer…",
+  "show.touch.multiSelect": "Mehrfachauswahl"
 }

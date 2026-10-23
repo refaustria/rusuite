@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AutosaveStatus, BottomSheet, formatNumber, useCompact, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
@@ -33,6 +33,7 @@ import { FormatShapePane } from "./ui/FormatShapePane";
 import { RULER_PX, RulerFrame } from "./canvas/Rulers";
 import { rulerUnit } from "./canvas/guides";
 import { AssistantPane } from "@rusuite/ui-shared";
+import { clampTouchZoom, pinchMetrics, touchDevice } from "./canvas/touch";
 import { showAiAdapter } from "./ai/showAi";
 
 /** Observes an element's client size. A callback ref, so a remounted element is measured and observed again. */
@@ -114,6 +115,68 @@ function StatusBar({ store, backend, session, zoom, notesSheet }: {
   );
 }
 
+/**
+ * Touch on the canvas area (P10-M5): two fingers (outside the stage's own gestures) zoom the fitted slide,
+ * one finger pans the area when the slide is larger than it. The stage stops the touches it handles itself.
+ */
+function useCanvasTouch(
+  area: HTMLDivElement | null,
+  zoomRef: React.MutableRefObject<number>,
+  setZoom: (z: number) => void,
+  anchor: React.MutableRefObject<{ fx: number; fy: number; cx: number; cy: number } | null>,
+) {
+  useEffect(() => {
+    if (!area) return;
+    let gesture: { kind: "zoom"; d0: number; z0: number; z: number } | { kind: "pan"; x: number; y: number; left: number; top: number } | null = null;
+    const pt = (t: Touch) => ({ x: t.clientX, y: t.clientY });
+    const start = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const z0 = zoomRef.current;
+        gesture = { kind: "zoom", d0: Math.max(1, pinchMetrics(pt(e.touches[0]!), pt(e.touches[1]!)).dist), z0, z: z0 };
+      } else if (e.touches.length === 1) {
+        const scrolls = area.scrollWidth > area.clientWidth + 1 || area.scrollHeight > area.clientHeight + 1;
+        gesture = scrolls ? { kind: "pan", x: e.touches[0]!.clientX, y: e.touches[0]!.clientY, left: area.scrollLeft, top: area.scrollTop } : null;
+      }
+    };
+    const move = (e: TouchEvent) => {
+      if (!gesture) return;
+      if (gesture.kind === "pan") {
+        if (e.touches.length !== 1) return;
+        if (e.cancelable) e.preventDefault();
+        area.scrollLeft = gesture.left - (e.touches[0]!.clientX - gesture.x);
+        area.scrollTop = gesture.top - (e.touches[0]!.clientY - gesture.y);
+        return;
+      }
+      if (e.touches.length < 2) return;
+      if (e.cancelable) e.preventDefault();
+      const m = pinchMetrics(pt(e.touches[0]!), pt(e.touches[1]!));
+      const z = clampTouchZoom(gesture.z0 * (m.dist / gesture.d0));
+      if (z === gesture.z) return;
+      gesture.z = z;
+      const host = area.querySelector<HTMLElement>("[data-testid=stage-host]")?.getBoundingClientRect();
+      const ar = area.getBoundingClientRect();
+      anchor.current = host && host.width > 0 && host.height > 0
+        ? { fx: (m.mid.x - host.left) / host.width, fy: (m.mid.y - host.top) / host.height, cx: m.mid.x - ar.left, cy: m.mid.y - ar.top }
+        : null;
+      setZoom(z);
+    };
+    const end = (e: TouchEvent) => {
+      if (e.touches.length === 0 || gesture?.kind === "zoom") gesture = null;
+    };
+    area.addEventListener("touchstart", start, { passive: false });
+    area.addEventListener("touchmove", move, { passive: false });
+    area.addEventListener("touchend", end);
+    area.addEventListener("touchcancel", end);
+    return () => {
+      area.removeEventListener("touchstart", start);
+      area.removeEventListener("touchmove", move);
+      area.removeEventListener("touchend", end);
+      area.removeEventListener("touchcancel", end);
+    };
+  }, [area, zoomRef, setZoom, anchor]);
+}
+
 export default function App({ backend, store: given }: { backend: ShowBackend; store?: ShowStore }) {
   const locale = useLocale();
   // Recent files, autosave, crash recovery: the store talks through the session's backend.
@@ -152,6 +215,28 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   // the compact layout (P10-M5): the slide strip, the notes as a sheet
   const compact = useCompact();
   const [notesSheet, setNotesSheet] = useState(false);
+  // two fingers on the empty slide zoom the fitted slide (50–300 %), one finger pans it when it is larger (P10-M5)
+  const [touchZoom, setTouchZoom] = useState(1);
+  const touch = useMemo(() => compact || touchDevice(), [compact]);
+  const [area, setArea] = useState<HTMLDivElement | null>(null);
+  const areaRef = useCallback((el: HTMLDivElement | null) => {
+    canvasRef(el);
+    setArea(el);
+  }, [canvasRef]);
+  /** Where the fingers' midpoint was over the slide (fractions) and the area (px), kept there while zooming. */
+  const zoomAnchor = useRef<{ fx: number; fy: number; cx: number; cy: number } | null>(null);
+  const touchZoomRef = useRef(touchZoom);
+  touchZoomRef.current = touchZoom;
+  useCanvasTouch(area, touchZoomRef, setTouchZoom, zoomAnchor);
+  useLayoutEffect(() => {
+    const a = zoomAnchor.current;
+    const host = area?.querySelector<HTMLElement>("[data-testid=stage-host]");
+    if (!a || !area || !host) return;
+    const r = host.getBoundingClientRect();
+    const ar = area.getBoundingClientRect();
+    area.scrollLeft += r.left + a.fx * r.width - (ar.left + a.cx);
+    area.scrollTop += r.top + a.fy * r.height - (ar.top + a.cy);
+  }, [touchZoom, area]);
 
   useEffect(() => {
     void store.init().then(() => store.probeFileIo()).then(() => store.loadThemes());
@@ -232,9 +317,10 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   // Fit: the canvas area minus its padding (and the rulers); a fixed zoom: the slide at that scale.
   const rulers = showRuler && !masterView ? RULER_PX : 0;
   const pad = compact ? 16 : 32;
+  const tz = zoom === "fit" ? touchZoom : 1;
   const stageSize =
     zoom === "fit" || !pres
-      ? { width: Math.max(0, size.width - pad - rulers), height: Math.max(0, size.height - pad - rulers) }
+      ? { width: Math.max(0, size.width - pad - rulers) * tz, height: Math.max(0, size.height - pad - rulers) * tz }
       : { width: slidePx(pres.slideSize).width * zoom, height: slidePx(pres.slideSize).height * zoom };
   const stageScale = pres ? fitScale(stageSize.width, stageSize.height, pres.slideSize) : 0;
   const stage = <EditorStage store={store} width={stageSize.width} height={stageSize.height} />;
@@ -256,9 +342,11 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         ) : (
         <div className="flex min-w-0 flex-1 flex-col">
         <div
-          ref={canvasRef}
-          className={`flex min-w-0 flex-1 bg-ui-hover ${compact ? "p-2" : "p-4"} ${zoom === "fit" || view === "notesPage" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
+          ref={areaRef}
+          className={`flex min-w-0 flex-1 bg-ui-hover ${compact ? "p-2" : "p-4"} ${(zoom === "fit" && tz <= 1) || view === "notesPage" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
+          style={touch ? { touchAction: "pan-x pan-y" } : undefined}
           data-testid="canvas-area"
+          data-touch-zoom={tz !== 1 ? Math.round(tz * 100) / 100 : undefined}
           data-view={masterView ? "master" : view}
         >
           {view === "notesPage" && !masterView ? (
@@ -299,7 +387,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       {view === "reading" && !masterView && !presenting && <ReadingView store={store} onPresent={() => presentFrom(false)} />}
       <PosterInput store={store} />
       <SoundInput store={store} />
-      <StatusBar store={store} backend={backend} session={session} zoom={zoom} notesSheet={compact ? { open: notesSheet, toggle: () => setNotesSheet((v) => !v) } : undefined} />
+      <StatusBar store={store} backend={backend} session={session} zoom={tz !== 1 ? stageScale : zoom} notesSheet={compact ? { open: notesSheet, toggle: () => setNotesSheet((v) => !v) } : undefined} />
       {compact && notesSheet && (
         <BottomSheet label={t("show.speakerNotes")} onClose={() => setNotesSheet(false)} testId="notes-sheet">
           <NotesPane store={store} sheet />

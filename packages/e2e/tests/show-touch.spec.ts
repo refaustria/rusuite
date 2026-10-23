@@ -206,3 +206,191 @@ test.describe("Show touch chrome @mobile", () => {
     errors.expectNone();
   });
 });
+
+/** The selected shape's transform (EMU) from the stage's `data-selection-box`. */
+async function selectionBox(page: Page) {
+  const v = await stage(page).getAttribute("data-selection-box");
+  expect(v, "one shape selected").toBeTruthy();
+  const [x, y, w, h, rot] = v!.split(",").map(Number);
+  return { x: x!, y: y!, w: w!, h: h!, rot: rot! };
+}
+
+/** The screen box (viewport px) of the selected shape and the slide scale, through Konva's stage. */
+async function selectedOnScreen(page: Page) {
+  return page.evaluate(() => {
+    const K = (window as unknown as { Konva: { stages: { container(): HTMLElement; findOne(s: string): unknown; scaleX(): number }[] } }).Konva;
+    const st = K.stages.find((s) => s.container().closest('[data-testid="editor-stage"]'))!;
+    const tr = st.findOne("Transformer") as { nodes(): { getClientRect(): { x: number; y: number; width: number; height: number } }[] };
+    const r = tr.nodes()[0]!.getClientRect();
+    const c = st.container().getBoundingClientRect();
+    return { x: c.left + r.x, y: c.top + r.y, width: r.width, height: r.height, scale: st.scaleX() };
+  });
+}
+
+/**
+ * For every visible anchor of the transformer: its centre and whether the stage's hit test still finds it 20 px
+ * away from it (outwards and, for big boxes, along the edges) – i.e. its hit area is at least 40 + px wide.
+ */
+async function anchorHits(page: Page) {
+  return page.evaluate(() => {
+    type N = { name(): string; visible(): boolean; getClientRect(): { x: number; y: number; width: number; height: number } };
+    const K = (window as unknown as { Konva: { stages: { container(): HTMLElement; findOne(s: string): unknown; getIntersection(p: { x: number; y: number }): N | null }[] } }).Konva;
+    const st = K.stages.find((s) => s.container().closest('[data-testid="editor-stage"]'))!;
+    const tr = st.findOne("Transformer") as { find(s: string): N[]; getClientRect(): { x: number; y: number; width: number; height: number } };
+    const out: { name: string; ok: boolean }[] = [];
+    for (const a of tr.find("._anchor")) {
+      if (!a.visible()) continue;
+      const r = a.getClientRect();
+      const c = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      const name = a.name().split(" ")[0]!;
+      const offsets = [[-21, 0], [21, 0], [0, -21], [0, 21]];
+      const ok = offsets.every(([dx, dy]) => st.getIntersection({ x: c.x + dx!, y: c.y + dy! })?.name().split(" ")[0] === name);
+      out.push({ name, ok });
+    }
+    return out;
+  });
+}
+
+async function insertRectangle(page: Page) {
+  await chip(page, "Insert").click();
+  await strip(page).getByRole("button", { name: "Shapes", exact: true }).tap();
+  await page.getByRole("dialog", { name: "Shapes" }).getByRole("group", { name: "Rectangles" }).getByRole("button", { name: "Rectangle", exact: true }).press("Enter");
+  await expect(chip(page, "Shape Format")).toBeVisible();
+  await expect(stage(page)).toHaveAttribute("data-selection-count", "1");
+}
+
+test.describe("Show touch transforms @mobile", () => {
+  test("tap selects, drag moves, pinch scales, twist turns (snapped), the handles have 44 px hit areas", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    await insertRectangle(page);
+    const b0 = await selectionBox(page);
+    // a tap on the empty slide deselects, a tap on the shape selects it again
+    const st = (await stage(page).boundingBox())!;
+    await page.touchscreen.tap(st.x + 6, st.y + st.height - 6);
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "0");
+    const k = await page.evaluate(() => (window as unknown as { Konva: { stages: { container(): HTMLElement; scaleX(): number }[] } }).Konva.stages.find((s) => s.container().closest('[data-testid="editor-stage"]'))!.scaleX());
+    await page.touchscreen.tap(st.x + ((b0.x + b0.w / 2) / 9525) * k, st.y + ((b0.y + b0.h / 2) / 9525) * k);
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "1");
+
+    // one finger drags it 60 px to the right
+    const scr = await selectedOnScreen(page);
+    const c = { x: scr.x + scr.width / 2, y: scr.y + scr.height / 2 };
+    await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: c.x + (60 * k) / 7, y: c.y })));
+    await expect.poll(async () => (await selectionBox(page)).x).toBeGreaterThan(b0.x);
+    const b1 = await selectionBox(page);
+    const emuPerScreenPx = 9525 / scr.scale;
+    expect(Math.abs(b1.x - b0.x - 60 * emuPerScreenPx)).toBeLessThan(6 * emuPerScreenPx);
+    expect(b1.y).toBe(b0.y);
+    expect(b1.w).toBe(b0.w);
+
+    // two fingers apart: three times the size
+    const cdp = await page.context().newCDPSession(page);
+    const c1 = { x: c.x + 60, y: c.y };
+    await twoFingers(cdp, page, { x: c1.x - 20, y: c1.y }, { x: c1.x + 20, y: c1.y }, { x: c1.x - 60, y: c1.y }, { x: c1.x + 60, y: c1.y });
+    await expect.poll(async () => (await selectionBox(page)).w).toBeGreaterThan(b1.w * 1.5);
+    const b2 = await selectionBox(page);
+    expect(b2.w / b1.w).toBeGreaterThan(2.8);
+    expect(b2.w / b1.w).toBeLessThan(3.2);
+    expect(b2.h / b1.h).toBeCloseTo(b2.w / b1.w, 1);
+    expect(b2.rot).toBe(0);
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+
+    // a twist by 88°: 90° (snapped)
+    const r = 40;
+    const a = (88 * Math.PI) / 180;
+    await twoFingers(cdp, page, { x: c1.x - r, y: c1.y }, { x: c1.x + r, y: c1.y }, { x: c1.x - r * Math.cos(a), y: c1.y - r * Math.sin(a) }, { x: c1.x + r * Math.cos(a), y: c1.y + r * Math.sin(a) }, 12);
+    await expect.poll(async () => (await selectionBox(page)).rot).toBe(90);
+    // 30° further: not snapped
+    const a2 = (60 * Math.PI) / 180;
+    await twoFingers(cdp, page, { x: c1.x, y: c1.y - r }, { x: c1.x, y: c1.y + r }, { x: c1.x + r * Math.cos(a2), y: c1.y - r * Math.sin(a2) }, { x: c1.x - r * Math.cos(a2), y: c1.y + r * Math.sin(a2) }, 12);
+    await expect.poll(async () => (await selectionBox(page)).rot).toBe(120);
+    await cdp.detach();
+
+    // the handles: hit 20 px off their centre (44 px areas), the rotate handle too
+    const hits = await anchorHits(page);
+    expect(hits.map((h) => h.name)).toContain("rotater");
+    expect(hits.length).toBeGreaterThanOrEqual(5);
+    expect(hits.filter((h) => !h.ok)).toEqual([]);
+    await page.screenshot({ path: `${SHOTS}/P10-M5-transformer.png` });
+    errors.expectNone();
+  });
+
+  test("long press on a shape: the context sheet; a tap on the selected text shape edits its text", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    // the title of slide 1 (its centre is the slide's upper middle)
+    const st = (await stage(page).boundingBox())!;
+    const title = { x: st.x + st.width / 2, y: st.y + st.height * 0.38 };
+    await longPress(page, title.x, title.y);
+    const sheet = page.getByTestId("context-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "1");
+    const items = (await sheet.getByRole("menuitem").allInnerTexts()).map((x) => x.replace(/\s+/g, " ").trim());
+    for (const want of ["Cut", "Copy", "Paste"]) expect(items.some((i) => i.startsWith(want)), want).toBe(true);
+    expect(items.some((i) => i.startsWith("Format shape"))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    // the shape is selected: a tap edits it (not after the long press)
+    await expect(page.getByTestId("text-overlay")).toHaveCount(0);
+    await page.touchscreen.tap(title.x, title.y);
+    const editor = page.getByTestId("text-overlay");
+    await expect(editor).toBeVisible();
+    await expect(editor).toBeFocused();
+    // the editor lies over the shape
+    const box = (await page.getByTestId("text-overlay-box").boundingBox())!;
+    expect(box.x).toBeLessThan(title.x);
+    expect(box.x + box.width).toBeGreaterThan(title.x);
+    await page.keyboard.press("End");
+    await page.keyboard.type(" touch");
+    await expect(editor).toContainText("touch");
+    await page.touchscreen.tap(st.x + 6, st.y + st.height - 6);
+    await expect(editor).toHaveCount(0);
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "0");
+    await expect(page.getByTestId("dirty")).toHaveText("Modified");
+    errors.expectNone();
+  });
+
+  test("two fingers on the empty slide zoom the canvas (50–300 %), one finger pans it; Multi-select taps add shapes", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openDeck(page);
+    const st0 = (await stage(page).boundingBox())!;
+    const cdp = await page.context().newCDPSession(page);
+    const m = { x: st0.x + 20, y: st0.y + st0.height - 20 };
+    await twoFingers(cdp, page, { x: m.x, y: m.y - 10 }, { x: m.x + 30, y: m.y - 10 }, { x: m.x - 20, y: m.y - 10 }, { x: m.x + 100, y: m.y - 10 });
+    await expect(page.getByTestId("canvas-area")).toHaveAttribute("data-touch-zoom", /.+/);
+    const z = Number(await page.getByTestId("canvas-area").getAttribute("data-touch-zoom"));
+    expect(z).toBeGreaterThan(3.5 * 0.7);
+    expect(z).toBeLessThanOrEqual(3);
+    const st1 = (await stage(page).boundingBox())!;
+    expect(st1.width / st0.width).toBeCloseTo(z, 1);
+    expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    // one finger on the empty slide pans the area
+    const area = page.getByTestId("canvas-area");
+    const left = await area.evaluate((el) => el.scrollLeft);
+    const ab = (await area.boundingBox())!;
+    const p0 = { x: ab.x + ab.width / 2, y: ab.y + ab.height - 30 };
+    await touchPath(page, Array.from({ length: 8 }, (_, k) => ({ x: p0.x - (100 * k) / 7, y: p0.y })));
+    await expect.poll(() => area.evaluate((el) => el.scrollLeft)).toBeGreaterThan(left + 60);
+    // pinch in: down to 50 %
+    const c = { x: ab.x + ab.width / 2, y: ab.y + ab.height / 2 };
+    for (let i = 0; i < 3; i++) await twoFingers(cdp, page, { x: c.x - 150, y: c.y + 200 }, { x: c.x + 150, y: c.y + 200 }, { x: c.x - 20, y: c.y + 200 }, { x: c.x + 20, y: c.y + 200 });
+    await expect(area).toHaveAttribute("data-touch-zoom", "0.5");
+    await cdp.detach();
+
+    // Multi-select (Home): taps add to the selection
+    await chip(page, "Home").click();
+    const multi = strip(page).getByRole("button", { name: "Multi-select" });
+    await multi.tap();
+    await expect(multi).toHaveAttribute("aria-pressed", "true");
+    const st = (await stage(page).boundingBox())!;
+    await page.touchscreen.tap(st.x + st.width / 2, st.y + st.height * 0.38);
+    await page.touchscreen.tap(st.x + st.width / 2, st.y + st.height * 0.6);
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "2");
+    await page.touchscreen.tap(st.x + st.width / 2, st.y + st.height * 0.6);
+    await expect(stage(page)).toHaveAttribute("data-selection-count", "1");
+    await multi.tap();
+    await expect(multi).toHaveAttribute("aria-pressed", "false");
+    errors.expectNone();
+  });
+});
