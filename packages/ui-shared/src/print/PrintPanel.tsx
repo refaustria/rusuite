@@ -94,6 +94,11 @@ export interface PrintPanelProps {
   onRange: (range: string) => void;
   /** Prints the document limited to the range (system print dialog). */
   onPrint: (doc: PrintDoc) => Promise<void> | void;
+  /**
+   * P10-M6: the "Export PDF" button next to Print – the document limited to the range as a PDF without the print
+   * dialog. Pass it only where the backend renders PDFs (`capabilities.pdf`).
+   */
+  onExportPdf?: (doc: PrintDoc) => Promise<void> | void;
   /** Settings above the page range (Calc: what to print). */
   before?: ReactNode;
   /** Settings below the page range (orientation, paper, margins, scaling, app options). */
@@ -110,7 +115,7 @@ export interface PrintPanelProps {
   rangeLabel?: string;
 }
 
-export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, children, disabledReason, rangeAppliedByApp = false, rangeLabel }: PrintPanelProps) {
+export function PrintPanel({ doc, busy, error, range, onRange, onPrint, onExportPdf, before, children, disabledReason, rangeAppliedByApp = false, rangeLabel }: PrintPanelProps) {
   const t = useT();
   const [custom, setCustom] = useState(range !== "");
   const [text, setText] = useState(range);
@@ -122,15 +127,16 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
   const shown = doc ? (rangeAppliedByApp ? doc : applyPageRange(doc, range)) : null;
   const blocked = disabledReason ?? (error ? error : rangeError ? rangeError : !shown || shown.pages.length === 0 ? (busy ? t("print.preparing") : t("print.nothing")) : undefined);
 
-  const print = async () => {
+  const run = async (fn: (doc: PrintDoc) => Promise<void> | void) => {
     if (!shown || blocked || printing) return;
     setPrinting(true);
     try {
-      await onPrint(shown);
+      await fn(shown);
     } finally {
       setPrinting(false);
     }
   };
+  const print = () => run(onPrint);
 
   return (
     <div className="flex min-h-0 flex-1 gap-6" data-testid="print-panel">
@@ -149,6 +155,19 @@ export function PrintPanel({ doc, busy, error, range, onRange, onPrint, before, 
             <RibbonIcon name="print" size={24} />
             {t("backstage.print")}
           </button>
+          {onExportPdf && (
+            <button
+              type="button"
+              data-testid="print-export-pdf"
+              disabled={!!blocked || printing}
+              title={blocked ?? t("print.exportPdfTip")}
+              className={`flex h-16 w-20 flex-col items-center justify-center gap-1 rounded border border-ui-border bg-ui-panel text-sm hover:bg-ui-hover disabled:opacity-50 ${FOCUS_RING}`}
+              onClick={() => void run(onExportPdf)}
+            >
+              <RibbonIcon name="pdf" size={24} />
+              {t("print.exportPdf")}
+            </button>
+          )}
           <p className="text-xs text-ui-muted" data-testid="print-os-note">
             {t("print.osNote")}
           </p>

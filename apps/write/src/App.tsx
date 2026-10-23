@@ -330,12 +330,13 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const [printOptions, setPrintOptions] = useState<WritePrintOptions>(DEFAULT_WRITE_PRINT);
   const pushError = useCallback((e: unknown) => ctl.pushError(e), [ctl]);
   const flowOf = useCallback((node: PMNode) => features.flow(node), [features]);
-  // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
-  const exportPdf = useCallback(() => {
+  // File › Export PDF… / Share as PDF: the Print pipeline with the current settings – a PDF without a dialog where
+  // the backend renders PDFs (P10-M6), else straight to the system dialog ("Save as PDF").
+  const exportPdf = useCallback((mode?: "share") => {
     if (!editor) return;
     try {
       const doc = buildWritePrintDoc(editor.view.dom as HTMLElement, ctl.page, printOptions, ctl.comments, currentLayout(editor.state), flowOf);
-      void printWrite(backend, applyPageRange(doc, printOptions.range), pushError);
+      void printWrite(backend, applyPageRange(doc, printOptions.range), pushError, mode === "share" ? "share" : "pdf", ctl.getState().name);
     } catch (e) {
       pushError(e);
     }
@@ -358,7 +359,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
           onReplace={chrome.onReplace}
           onExportPdf={exportPdf}
           print={
-            <WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} comments={comments} layout={chrome.layout} flow={flowOf} />
+            <WritePrintPage editor={editor} page={page} backend={backend} options={printOptions} onChange={setPrintOptions} onError={pushError} comments={comments} layout={chrome.layout} flow={flowOf} docName={ctl.getState().name} />
           }
           infoPage={<InfoPanel ctl={ctl} editor={editor} pages={chrome.view === "print" ? chrome.pages : null} />}
           zoom={zoom}

@@ -132,11 +132,12 @@ export default function App({ backend }: { backend: CalcBackend }) {
       ...(v.headings !== sheetView.showHeadings ? { showHeadings: v.headings } : {}),
     });
   };
-  // File › Export PDF…: the Print pipeline with the current settings, straight to the system dialog ("Save as PDF").
-  const exportPdf = useCallback(() => {
+  // File › Export PDF… / Share as PDF: the Print pipeline with the current settings – a PDF without a dialog where
+  // the backend renders PDFs (P10-M6), else straight to the system dialog ("Save as PDF").
+  const exportPdf = useCallback((mode?: "share") => {
     store.cancelEdit();
     void buildCalcPrintDoc(store, printOptions)
-      .then((doc) => printCalc(store, applyPageRange(doc, printOptions.range)))
+      .then((doc) => printCalc(store, applyPageRange(doc, printOptions.range), mode === "share" ? "share" : "pdf"))
       .catch((e) => store.pushError(e));
   }, [store, printOptions]);
   useEffect(() => {

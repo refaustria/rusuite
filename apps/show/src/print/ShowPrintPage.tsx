@@ -3,7 +3,7 @@
 // live preview.
 
 import { useCallback } from "react";
-import { PrintCheck, PrintNumber, PrintPanel, PrintSection, PrintSelect, printDocument, usePrintDoc, type PageOrientation, type PaperName, type PrintDoc } from "@rusuite/ui-shared";
+import { PrintCheck, PrintNumber, PrintPanel, PrintSection, PrintSelect, capabilitiesOf, exportPdfDocument, exportPdfOrPrint, pdfFileName, printDocument, usePrintDoc, type PageOrientation, type PaperName, type PrintDoc } from "@rusuite/ui-shared";
 import { useShow, type ShowStore } from "../state/store";
 import type { ShowBackend } from "../backend";
 import { renderSlideImages } from "./slideImages";
@@ -24,10 +24,16 @@ export async function buildShowDoc(store: ShowStore, o: ShowPrintOptions): Promi
   return buildShowPrintDoc(slides, images, pres.slideSize, o);
 }
 
-/** Prints a built document, reporting failures. */
-export async function printShow(store: ShowStore, backend: ShowBackend, doc: PrintDoc): Promise<void> {
+/**
+ * Prints a built document, reporting failures: `print` (the Print button), `pdf` (File › Export PDF…: without a
+ * dialog where the backend renders PDFs, else the print dialog), `share` (Share as PDF, P10-M6).
+ */
+export async function printShow(store: ShowStore, backend: ShowBackend, doc: PrintDoc, mode: "print" | "pdf" | "share" = "print"): Promise<void> {
+  const name = pdfFileName(store.getState().name ?? "");
   try {
-    await printDocument(doc, backend);
+    if (mode === "print") await printDocument(doc, backend);
+    else if (mode === "pdf") await exportPdfOrPrint(doc, name, backend);
+    else await exportPdfDocument(doc, name, backend, "share");
   } catch (e) {
     store.pushError(e);
   }
@@ -57,6 +63,7 @@ export function ShowPrintPage({ store, backend, options, onChange }: { store: Sh
       rangeLabel={t("show.print.slides")}
       onRange={(r) => set("range", r)}
       onPrint={(d) => printShow(store, backend, d)}
+      onExportPdf={capabilitiesOf(backend).pdf ? (d) => printShow(store, backend, d, "pdf") : undefined}
       disabledReason={pres && pres.slides.length === 0 ? t("show.print.noSlides") : undefined}
       before={
         <PrintSection title={t("print.settings")}>

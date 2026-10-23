@@ -20,6 +20,11 @@ echo "$badging" | grep -q "^package: name='dev.rusuite.$app' versionCode='$VERSI
 echo "$badging" | grep -q "^sdkVersion:'26'"
 echo "$badging" | grep -q "^targetSdkVersion:'36'"
 echo "$badging" | grep -q "native-code: 'arm64-v8a' 'x86_64'"
+# No new permission (P10-M6: printing and PDF export need none): exactly INTERNET plus androidx's own receiver
+# permission.
+perms=$(echo "$badging" | sed -n "s/^uses-permission: name='\([^']*\)'.*/\1/p" | sort | tr '\n' ' ')
+expected="android.permission.INTERNET dev.rusuite.$app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION "
+if [ "$perms" != "$expected" ]; then echo "::error::$app: unexpected permissions: $perms (expected: $expected)"; exit 1; fi
 tree=$("$bt/aapt" dump xmltree "$apk" AndroidManifest.xml)
 echo "$tree" | grep -E 'android.intent.action.(VIEW|EDIT)|mimeType|pathPattern' | sed 's/ (Raw.*//'
 echo "$tree" | grep -q 'android.intent.action.VIEW'

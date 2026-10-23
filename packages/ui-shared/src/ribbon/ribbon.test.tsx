@@ -12,6 +12,7 @@ import { CONTEXT_COLORS, contextualTabs, openBackstage, Ribbon, tabRuns, visible
 import { collapseOrder, collapsedWidth, groupsThatFit } from "./groups";
 import { comboEventInit, triggerShortcut } from "./triggerShortcut";
 import { publicVersion, RUSUITE_VERSION } from "../version";
+import { exportPdfDocument } from "../print";
 
 afterEach(cleanup);
 
@@ -312,6 +313,48 @@ describe("Backstage", () => {
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "New" }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByTestId("file-disabled").textContent).toBe("No file access");
+  });
+
+  it("mobile shells with a PDF renderer (P10-M6): Print, Export PDF… and Share as PDF…; the busy sheet while a PDF is made", async () => {
+    const state = { recent: [], keepAutosave: true };
+    const session = {
+      backend: { capabilities: { print: true, saveAs: true, share: true, pdf: true } },
+      ai: null,
+      connectors: null,
+      storage: null,
+      subscribe: () => () => {},
+      getState: () => state,
+      refresh: async () => {},
+      canSaveRemote: () => false,
+    } as never;
+    const onExportPdf = vi.fn();
+    const { user } = setup({ backstage: { session, onExportPdf, print: <div data-testid="print-panel" /> } });
+    await user.click(tab("File"));
+    let view = screen.getByRole("dialog", { name: "File" });
+    expect(within(view).getByRole("button", { name: "Print" })).toBeTruthy();
+    await user.click(within(view).getByRole("button", { name: "Share as PDF…" }));
+    expect(onExportPdf).toHaveBeenLastCalledWith("share");
+    await user.click(tab("File"));
+    view = screen.getByRole("dialog", { name: "File" });
+    await user.click(within(view).getByRole("button", { name: "Export PDF…" }));
+    expect(onExportPdf).toHaveBeenLastCalledWith();
+    // Without the share sheet (desktop) there is no Share as PDF.
+    cleanup();
+    const desktop = { ...(session as object), backend: { capabilities: { print: true, saveAs: true, share: false, pdf: true } } } as never;
+    const second = setup({ backstage: { session: desktop, onExportPdf } });
+    await second.user.click(tab("File"));
+    expect(screen.queryByRole("button", { name: "Share as PDF…" })).toBeNull();
+    expect(screen.queryByTestId("pdf-busy")).toBeNull();
+    let finish!: (v: string) => void;
+    const exporting = exportPdfDocument({ widthIn: 8.27, heightIn: 11.69, css: "", pages: ["<p>x</p>"] }, "a.pdf", { exportPdf: () => new Promise<string>((r) => (finish = r)) });
+    const sheet = await screen.findByTestId("pdf-busy");
+    expect(sheet.getAttribute("data-busy")).toBe("true");
+    expect(sheet.textContent).toContain("Creating PDF…");
+    await act(async () => {
+      finish("a.pdf");
+      await exporting;
+    });
+    expect(screen.queryByTestId("pdf-busy")).toBeNull();
   });
 
   it("Enter on the File tab opens it from the keyboard", () => {

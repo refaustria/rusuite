@@ -26,6 +26,35 @@ export type { DispatchError };
 export function simulatedDesktop(): boolean {
   return (globalThis as { __RUSUITE_PLATFORM__?: unknown }).__RUSUITE_PLATFORM__ === "desktop";
 }
+/**
+ * Whether the shell renders PDFs with the webview's own renderer (P10-M6): its `tauri-plugin-rusuite-mobile` marks
+ * the page with `window.__RUSUITE_PDF__` (Android, iOS, the Linux desktop), before any app code runs.
+ */
+export function shellRendersPdf(): boolean {
+  return (globalThis as { __RUSUITE_PDF__?: unknown }).__RUSUITE_PDF__ === true;
+}
+
+/**
+ * e2e hook (P10-M6): with `simulatedDesktop()`, a page function `window.__RUSUITE_TEST_INVOKE__(cmd, args)` stands
+ * in for the shell's PDF commands, so the web build shows the shell's Export PDF path (`capabilities.pdf`). Nothing
+ * else reads it.
+ */
+function testInvoke(): ((cmd: string, args: Record<string, unknown>) => Promise<unknown>) | null {
+  if (!simulatedDesktop()) return null;
+  const f = (globalThis as { __RUSUITE_TEST_INVOKE__?: unknown }).__RUSUITE_TEST_INVOKE__;
+  return typeof f === "function" ? (f as (cmd: string, args: Record<string, unknown>) => Promise<unknown>) : null;
+}
+
+/** The sheet size of a PDF's pages (the print document's `@page` size as laid out: landscape = wider than high). */
+export interface PdfPaper {
+  widthMm: number;
+  heightMm: number;
+  landscape: boolean;
+}
+
+/** A4 portrait, when a print gives no paper. */
+export const DEFAULT_PDF_PAPER: PdfPaper = { widthMm: 210, heightMm: 297, landscape: false };
+
 // Recent files, autosave and crash recovery (P5-3).
 export * from "./recent";
 
@@ -75,17 +104,25 @@ export function savedName(result: SaveResult, suggested: string): string {
  * `false`; an absent `capabilities` (test fakes) means everything is available.
  */
 export interface BackendCapabilities {
-  /** `Backend.print` opens a print dialog (mobile shells: no, until P10-M6 brings PDF + share sheet). */
+  /**
+   * `Backend.print` prints (desktop and web: the print dialog; mobile shells: the system print service with the
+   * page's PDF, P10-M6).
+   */
   print: boolean;
+  /**
+   * `Backend.exportPdf` writes a PDF without a print dialog, through the webview's own PDF renderer (P10-M6:
+   * Android, iOS, the Linux desktop). `false`: File › Export PDF… opens the print dialog ("Save as PDF").
+   */
+  pdf: boolean;
   /** Save As can pick a new name and place (desktop dialog, mobile "save to" picker, web download name). */
   saveAs: boolean;
   /** `Backend.share` hands a copy to the system share sheet (mobile shells only). */
   share: boolean;
 }
 
-/** `Backend.capabilities` with the defaults of an absent object (everything but `share`). */
+/** `Backend.capabilities` with the defaults of an absent object (everything but `share` and `pdf`). */
 export function capabilitiesOf(backend: Pick<Backend, "capabilities">): BackendCapabilities {
-  return backend.capabilities ?? { print: true, saveAs: true, share: false };
+  return { print: true, saveAs: true, share: false, pdf: false, ...backend.capabilities };
 }
 
 /** A platform feature the backend does not have (`Backend.print` in the mobile shells). */
@@ -147,10 +184,18 @@ export interface Backend<Req = unknown, Body = unknown> {
    * printer or "Save as PDF"). Web: `window.print()`. Desktop: the shell's
    * `print_webview` command (`WebviewWindow::print`: the native WebKitGTK /
    * WKWebView print operation, `window.print()` in WebView2), falling back
-   * to `window.print()` if the command fails. Mobile shells: rejects with an `UnsupportedError` (hidden by
-   * `capabilities.print`).
+   * to `window.print()` if the command fails. Mobile shells (P10-M6): the page's PDF on `paper` (the mounted
+   * print root's) handed to the system print service (`print_pdf`).
    */
-  print(): Promise<void>;
+  print(paper?: PdfPaper): Promise<void>;
+  /**
+   * `capabilities.pdf` (P10-M6): renders the mounted print root to a PDF on `paper` with the webview's own
+   * renderer and lets the user pick where it goes (desktop: the save dialog first; mobile: the system "save to"
+   * picker). The chosen file name, `null` when cancelled.
+   */
+  exportPdf?(suggestedName: string, paper: PdfPaper): Promise<string | null>;
+  /** Mobile shells (`capabilities.pdf` and `share`): the same PDF handed to the system share sheet. */
+  sharePdf?(suggestedName: string, paper: PdfPaper): Promise<void>;
   /** What the platform offers (P10-M1); absent in test fakes (= `capabilitiesOf`'s defaults). */
   readonly capabilities?: BackendCapabilities;
   /** Mobile shells: hands a copy of the document to the system share sheet (`capabilities.share`). */
@@ -223,10 +268,11 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
   constructor(
     private readonly fileTypeLabel?: () => string,
     accept = ".xlsx",
-    options: { mobile?: boolean } = {},
+    options: { mobile?: boolean; pdf?: boolean } = {},
   ) {
     this.mobile = options.mobile ?? isMobile();
-    this.capabilities = { print: !this.mobile, saveAs: true, share: this.mobile };
+    const pdf = options.pdf ?? shellRendersPdf();
+    this.capabilities = { print: !this.mobile || pdf, saveAs: true, share: this.mobile, pdf };
     // Mobile windows have no title bar: the page title is enough (and needs no window permission).
     this.title = new TitleDecorator(
       this.mobile
@@ -293,6 +339,18 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
     await invoke("share_document", { suggestedName, bytesBase64 });
   }
 
+  /** The shell's `export_pdf` (`capabilities.pdf`): desktop asks for the path in the native save dialog first. */
+  async exportPdf(suggestedName: string, paper: PdfPaper): Promise<string | null> {
+    if (!this.capabilities.pdf) throw new UnsupportedError("pdf");
+    return invoke<string | null>("export_pdf", { suggestedName, paper, dialog: { title: t("dialog.exportPdf.title") } });
+  }
+
+  /** Mobile: the page's PDF to the share sheet (`share_pdf`). */
+  async sharePdf(suggestedName: string, paper: PdfPaper): Promise<void> {
+    if (!this.mobile || !this.capabilities.pdf) throw new UnsupportedError("share");
+    await invoke("share_pdf", { suggestedName, paper });
+  }
+
   /** Mobile: the "Open with" document, once (`take_launch_document`); the desktop shells: always `null`. */
   async takeLaunchDocument(): Promise<OpenedFile | null> {
     if (!this.mobile) return null;
@@ -304,8 +362,12 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
     return this.title.set(title);
   }
 
-  async print(): Promise<void> {
-    if (this.mobile) throw new UnsupportedError("print");
+  async print(paper?: PdfPaper): Promise<void> {
+    if (this.mobile) {
+      if (!this.capabilities.pdf) throw new UnsupportedError("print");
+      await invoke("print_pdf", { suggestedName: pdfJobName(), paper: paper ?? DEFAULT_PDF_PAPER });
+      return;
+    }
     try {
       await invoke("print_webview");
     } catch {
@@ -324,7 +386,9 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
   readonly storage?: DocStorage;
   readonly connectors?: Connectors;
   readonly ai?: Assistant;
-  readonly capabilities: BackendCapabilities = { print: true, saveAs: true, share: false };
+  readonly capabilities: BackendCapabilities;
+  /** The e2e stand-in for the shell's PDF commands (`testInvoke`); `null` in real browsers. */
+  private readonly pdfInvoke = testInvoke();
   private title = new TitleDecorator(async (title) => {
     document.title = title;
   });
@@ -335,6 +399,7 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
     options: WasmFileOptions | string = {},
   ) {
     const o = typeof options === "string" ? { accept: options } : options;
+    this.capabilities = { print: true, saveAs: true, share: false, pdf: this.pdfInvoke !== null };
     this.accept = o.accept ?? `.xlsx,${XLSX_MIME}`;
     this.mime = o.mime ?? XLSX_MIME;
     this.ext = (this.accept.split(",")[0] ?? "").trim().toLowerCase();
@@ -427,6 +492,23 @@ export class WasmBackend<Req = unknown, Body = unknown> implements Backend<Req, 
   async print(): Promise<void> {
     window.print();
   }
+
+  /** Only with the e2e hook (`capabilities.pdf`): the browser itself has no dialog-free PDF path. */
+  async exportPdf(suggestedName: string, paper: PdfPaper): Promise<string | null> {
+    if (!this.pdfInvoke) throw new UnsupportedError("pdf");
+    return (await this.pdfInvoke("export_pdf", { suggestedName, paper, dialog: { title: t("dialog.exportPdf.title") } })) as string | null;
+  }
+}
+
+/** `<document name>.pdf`: the name without its extension (`Budget.xlsx` → `Budget.pdf`); untitled when empty. */
+export function pdfFileName(documentName: string): string {
+  const name = documentName.replace(/^\s*•\s*|\s*•\s*$/g, "").trim().replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  return `${name || t("doc.untitled")}.pdf`;
+}
+
+/** The print job's name: the page title without the app name and the unsaved mark. */
+function pdfJobName(): string {
+  return pdfFileName((typeof document === "undefined" ? "" : document.title).split(/\s+[–-]\s+/)[0]!);
 }
 
 /** Applies window titles with the remote connection's name (re-applied when the binding changes). */

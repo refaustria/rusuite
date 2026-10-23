@@ -9,7 +9,8 @@
 // printed (mounted in `#rusuite-print-root`, the only thing visible under
 // `@media print`), so the preview's page count is the printed one.
 
-import type { Backend } from "./backend";
+import type { Backend, PdfPaper } from "./backend";
+import { capabilitiesOf } from "./backend";
 import { withLabel } from "./i18n/localized";
 import { t } from "./i18n/locale";
 
@@ -217,12 +218,12 @@ export function mountPrintRoot(doc: PrintDoc): HTMLElement {
  * Prints and resolves once printing is over: on `afterprint`, or shortly
  * after `backend.print()` returned if the webview never fires it.
  */
-export async function printAndWait(backend: Pick<Backend, "print">, graceMs = 1500): Promise<void> {
+export async function printAndWait(backend: Pick<Backend, "print">, graceMs = 1500, paper?: PdfPaper): Promise<void> {
   let done!: () => void;
   const finished = new Promise<void>((r) => (done = r));
   window.addEventListener("afterprint", done, { once: true });
   try {
-    await backend.print();
+    await (paper ? backend.print(paper) : backend.print());
     const timer = setTimeout(done, graceMs);
     await finished;
     clearTimeout(timer);
@@ -244,13 +245,82 @@ export async function printDocument(doc: PrintDoc, backend: Pick<Backend, "print
   if (doc.pages.length === 0) throw new Error(t("print.nothing"));
   mountPrintRoot(doc);
   try {
-    await printAndWait(backend);
+    // The mobile shells print the PDF of the print root on its paper (P10-M6); the others ignore it.
+    await printAndWait(backend, 1500, pdfPaperOf(doc));
   } finally {
     if (backend.kind === "tauri") {
       clearTimeout(unmountTimer);
       unmountTimer = setTimeout(unmountPrintRoot, DESKTOP_PRINT_KEEP_MS);
     } else unmountPrintRoot();
   }
+}
+
+// ------------------------------------------------------------ PDF export (P10-M6)
+
+/** The PDF paper of `doc`: its `@page` size (every page of a print document has the first page's size). */
+export function pdfPaperOf(doc: Pick<PrintDoc, "widthIn" | "heightIn">): PdfPaper {
+  const mm = (inches: number) => Math.round(inches * 25.4 * 100) / 100;
+  return { widthMm: mm(doc.widthIn), heightMm: mm(doc.heightIn), landscape: doc.widthIn > doc.heightIn };
+}
+
+type BusyListener = (busy: boolean) => void;
+let pdfBusy = false;
+const busyListeners = new Set<BusyListener>();
+
+/** Whether a PDF is being created (the "Creating PDF…" sheet, `PdfBusySheet`). */
+export function isPdfBusy(): boolean {
+  return pdfBusy;
+}
+
+/** Follows `isPdfBusy`; returns the unsubscribe function. */
+export function subscribePdfBusy(listener: BusyListener): () => void {
+  busyListeners.add(listener);
+  return () => busyListeners.delete(listener);
+}
+
+function setPdfBusy(busy: boolean): void {
+  pdfBusy = busy;
+  for (const l of busyListeners) l(busy);
+}
+
+/** A failed PDF export as the toast's text (the shells' messages are English). */
+function pdfError(e: unknown): Error {
+  return new Error(t("pdf.failed", { message: e instanceof Error ? e.message : String(e) }));
+}
+
+/**
+ * Exports `doc` as a PDF without a print dialog (`capabilities.pdf`): mounts the print root exactly like printing,
+ * lets the backend render it with the webview's PDF renderer on the first page's paper (`exportPdf`; `share`:
+ * `sharePdf`), unmounts. Shows the "Creating PDF…" sheet meanwhile. The chosen file name (`null`: cancelled; share:
+ * `name`); failures reject with a localized message.
+ */
+export async function exportPdfDocument(doc: PrintDoc, name: string, backend: Pick<Backend, "exportPdf" | "sharePdf">, mode: "save" | "share" = "save"): Promise<string | null> {
+  if (doc.pages.length === 0) throw new Error(t("print.nothing"));
+  if (!(mode === "share" ? backend.sharePdf : backend.exportPdf)) throw pdfError(new Error("unsupported"));
+  const paper = pdfPaperOf(doc);
+  mountPrintRoot(doc);
+  setPdfBusy(true);
+  try {
+    if (mode === "share") {
+      await backend.sharePdf!(name, paper);
+      return name;
+    }
+    return (await backend.exportPdf!(name, paper)) ?? null;
+  } catch (e) {
+    throw pdfError(e);
+  } finally {
+    setPdfBusy(false);
+    unmountPrintRoot();
+  }
+}
+
+/**
+ * File › Export PDF…: `exportPdfDocument` where the backend renders PDFs itself (`capabilities.pdf`), else the
+ * print dialog with "Save as PDF" (`printDocument`).
+ */
+export async function exportPdfOrPrint(doc: PrintDoc, name: string, backend: Pick<Backend, "print" | "kind" | "capabilities" | "exportPdf" | "sharePdf">): Promise<void> {
+  if (capabilitiesOf(backend).pdf && backend.exportPdf) await exportPdfDocument(doc, name, backend);
+  else await printDocument(doc, backend);
 }
 
 // ------------------------------------------------------------ header / footer

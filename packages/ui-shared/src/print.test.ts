@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PRINT_ROOT_ID, applyPageRange, expandHeaderFooter, headerFooterHtml, mountPrintRoot, pageRule, pageSizeCss, paperSize, parsePageRange, printAndWait,
-  printDocCss, printDocHtml, printDocument, unmountPrintRoot,
+  printDocCss, printDocHtml, printDocument, unmountPrintRoot, exportPdfDocument, exportPdfOrPrint, isPdfBusy, pdfPaperOf, subscribePdfBusy,
 } from "./print";
 import { WasmBackend } from "./backend";
 
@@ -128,5 +128,57 @@ describe("header and footer tokens", () => {
     expect(html).toContain('class="rs-hf-center"');
     expect(html).not.toContain("rs-hf-right");
     expect(headerFooterHtml({ left: "", center: "", right: "" }, ctx, "header", 0.3, 0.7, 0.7)).toBe("");
+  });
+});
+
+describe("PDF export (P10-M6)", () => {
+  const doc = { widthIn: 11.69, heightIn: 8.27, css: ".x{}", pages: ["<p>one</p>", "<p>two</p>"] };
+
+  it("pdfPaperOf: the @page size in mm, landscape when wider", () => {
+    expect(pdfPaperOf(doc)).toEqual({ widthMm: 296.93, heightMm: 210.06, landscape: true });
+    expect(pdfPaperOf({ widthIn: 8.5, heightIn: 11 })).toEqual({ widthMm: 215.9, heightMm: 279.4, landscape: false });
+  });
+
+  it("exportPdfDocument mounts the print root while the backend renders, shows the busy state, then unmounts", async () => {
+    const seen: unknown[] = [];
+    const busy: boolean[] = [];
+    const off = subscribePdfBusy((b) => busy.push(b));
+    const exportPdf = vi.fn(async (name: string, paper: unknown) => {
+      const root = document.getElementById(PRINT_ROOT_ID);
+      seen.push(name, paper, root?.querySelectorAll(".rs-print-page").length, isPdfBusy());
+      return "saved.pdf";
+    });
+    expect(await exportPdfDocument(doc, "Book.pdf", { exportPdf })).toBe("saved.pdf");
+    off();
+    expect(seen).toEqual(["Book.pdf", { widthMm: 296.93, heightMm: 210.06, landscape: true }, 2, true]);
+    expect(busy).toEqual([true, false]);
+    expect(document.getElementById(PRINT_ROOT_ID)).toBeNull();
+    expect(isPdfBusy()).toBe(false);
+  });
+
+  it("cancel → null; share → the name; errors are localized and still unmount", async () => {
+    expect(await exportPdfDocument(doc, "a.pdf", { exportPdf: async () => null })).toBeNull();
+    const sharePdf = vi.fn(async () => {});
+    expect(await exportPdfDocument(doc, "a.pdf", { sharePdf }, "share")).toBe("a.pdf");
+    expect(sharePdf).toHaveBeenCalledWith("a.pdf", pdfPaperOf(doc));
+    const err = await exportPdfDocument(doc, "a.pdf", { exportPdf: async () => Promise.reject(new Error("disk full")) }).catch((e: Error) => e);
+    expect((err as Error).message).toBe("Could not create the PDF: disk full");
+    expect(document.getElementById(PRINT_ROOT_ID)).toBeNull();
+    await expect(exportPdfDocument({ ...doc, pages: [] }, "a.pdf", { exportPdf: async () => "x" })).rejects.toThrow();
+    await expect(exportPdfDocument(doc, "a.pdf", {})).rejects.toThrow("Could not create the PDF");
+  });
+
+  it("exportPdfOrPrint: the PDF path with capabilities.pdf, else the print dialog with the paper", async () => {
+    const exportPdf = vi.fn(async () => "x.pdf");
+    const print = vi.fn(async () => {
+      setTimeout(() => window.dispatchEvent(new Event("afterprint")), 1);
+    });
+    await exportPdfOrPrint(doc, "a.pdf", { kind: "wasm", print, exportPdf, capabilities: { print: true, saveAs: true, share: false, pdf: true } });
+    expect(exportPdf).toHaveBeenCalledOnce();
+    expect(print).not.toHaveBeenCalled();
+    await exportPdfOrPrint(doc, "a.pdf", { kind: "wasm", print, exportPdf });
+    expect(exportPdf).toHaveBeenCalledOnce();
+    expect(print).toHaveBeenCalledWith(pdfPaperOf(doc));
+    expect(document.getElementById(PRINT_ROOT_ID)).toBeNull();
   });
 });

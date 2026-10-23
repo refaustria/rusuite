@@ -21,3 +21,10 @@ tauri = { version = "=2.12.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+# Linux desktop PDF export (P10-M6): WebKitGTK's print-to-file through the webview handle (`with_webview` needs
+# Tauri's `wry` feature). Both crates are already in the tree through `wry`; versions pinned to its.
+[target.'cfg(target_os = "linux")'.dependencies]
+tauri = { version = "=2.12.0", default-features = false, features = ["wry"] }
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+gtk = "=0.18.2"

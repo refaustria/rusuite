@@ -17,7 +17,7 @@
 //!
 //! A document is addressed by an opaque **handle**: the content URI on Android, `bm:<base64 bookmark>` (or a
 //! `file://` URL when no bookmark can be made) on iOS. Desktop builds compile everything, and every call returns
-//! [`Error::Unsupported`].
+//! [`Error::Unsupported`] (except the Linux desktop's [`print_to_pdf`]).
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,9 @@ use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime};
 
 mod error;
+pub mod pdf;
 pub use error::{Error, Result};
+pub use pdf::{pdf_file_name, print_to_pdf, Paper, DESKTOP_PDF, PDF_EXPORT};
 
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_rusuite_mobile);
@@ -111,6 +113,13 @@ struct HandleArgs<'a> {
 struct WriteArgs<'a> {
     handle: &'a str,
     bytes_base64: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PdfArgs<'a> {
+    name: &'a str,
+    paper: Paper,
 }
 
 #[derive(Serialize)]
@@ -220,6 +229,42 @@ impl<R: Runtime> RusuiteMobile<R> {
         self.run::<Nothing>("shareDocument", args).map(|_| ())
     }
 
+    /// Renders the webview's print media (the mounted print root) to a PDF on `paper` and lets the user pick
+    /// where it goes (the system "save to" picker); the chosen name, `None` when cancelled. No handle: the apps
+    /// cannot open a PDF, so it never enters the recent list.
+    pub fn export_pdf(&self, name: &str, paper: Paper) -> Result<Option<String>> {
+        let name = pdf_file_name(name);
+        let args = PdfArgs {
+            name: &name,
+            paper: paper.validated()?,
+        };
+        Ok(self
+            .run::<Reply<ExportedDocument>>("exportPdf", args)?
+            .document
+            .map(|d| d.name))
+    }
+
+    /// The same PDF handed to the system print service (Android `PrintManager`, iOS
+    /// `UIPrintInteractionController`): printers and "Save as PDF" are chosen there.
+    pub fn print_pdf(&self, name: &str, paper: Paper) -> Result<()> {
+        let name = pdf_file_name(name);
+        let args = PdfArgs {
+            name: &name,
+            paper: paper.validated()?,
+        };
+        self.run::<Nothing>("printPdf", args).map(|_| ())
+    }
+
+    /// The same PDF handed to the system share sheet.
+    pub fn share_pdf(&self, name: &str, paper: Paper) -> Result<()> {
+        let name = pdf_file_name(name);
+        let args = PdfArgs {
+            name: &name,
+            paper: paper.validated()?,
+        };
+        self.run::<Nothing>("sharePdf", args).map(|_| ())
+    }
+
     /// The document the app was opened with ("Open with", a tap in Files), once; `None` when there is none.
     pub fn take_launch_document(&self) -> Result<Option<PickedDocument>> {
         if cfg!(target_os = "ios") {
@@ -256,8 +301,12 @@ impl<R: Runtime, T: Manager<R>> RusuiteMobileExt<R> for T {
 /// keeps the documents iOS opens the app with.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     let mut builder = Builder::<R>::new("rusuite-mobile");
-    if let Some(os) = MOBILE_OS {
-        builder = builder.js_init_script(init_script(os));
+    let mut script = MOBILE_OS.map(init_script).unwrap_or_default();
+    if PDF_EXPORT {
+        script.push_str(pdf::pdf_init_script());
+    }
+    if !script.is_empty() {
+        builder = builder.js_init_script(script);
     }
     builder
         .setup(|app, api| {
@@ -350,5 +399,21 @@ mod tests {
             "Object.defineProperty(window, \"__RUSUITE_MOBILE__\", { value: \"ios\", configurable: false });"
         );
         assert_eq!(MOBILE_OS, None);
+    }
+
+    #[test]
+    fn pdf_args_use_the_bridge_names() {
+        let a = PdfArgs {
+            name: "a.pdf",
+            paper: Paper {
+                width_mm: 210.0,
+                height_mm: 297.0,
+                landscape: false,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&a).unwrap(),
+            serde_json::json!({"name": "a.pdf", "paper": {"widthMm": 210.0, "heightMm": 297.0, "landscape": false}})
+        );
     }
 }

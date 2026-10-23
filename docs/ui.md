@@ -1755,7 +1755,8 @@ Deferred items of the exploratory test ([qa/show-2026-10.md](qa/show-2026-10.md)
 **File › Print** (Ctrl+P) is the Office print page: on the left the **Print** button, a note that copies, printer and
 two-sided printing are chosen in the system print dialog (where "Save as PDF" makes a PDF), and the settings; on the right
 the **preview** with page navigation and the page count. **File › Export PDF…** is a secondary entry: the same pipeline with
-the current settings, straight to the system dialog (desktop and browser alike: pick "Save as PDF" there).
+the current settings, straight to the system dialog (browser, macOS, Windows: pick "Save as PDF" there) – or, where the
+shell renders PDFs itself (Android, iOS, the Linux desktop; P10-M6, below), without any print dialog.
 
 - **Pipeline** (`packages/ui-shared/src/print.ts`): each app builds a `PrintDoc` – one HTML string per page, every page laid
   out on the whole sheet (margins are padding; `@page { size: W H; margin: 0 }`), so the preview's page count is the printed
@@ -1787,6 +1788,28 @@ on macOS", but wry implements all three):
   print, in case the pages are rendered after the dialog returned.
 - **macOS (WKWebView)**: `NSPrintOperation` (macOS 11+) with the system print panel, whose PDF menu saves a PDF.
 - **Windows (WebView2)**: wry evaluates `window.print()` – Chromium's print preview dialog with "Save as PDF".
+
+### PDF without a print dialog (P10-M6)
+Where the shell can render PDFs with the **webview's own PDF renderer** (`Backend.capabilities.pdf`, from the plugin's page
+marker `window.__RUSUITE_PDF__`), **File › Export PDF…** and the Print page's **Export PDF** button skip the print dialog:
+`exportPdfOrPrint` → `exportPdfDocument(doc, "<document name>.pdf", backend)` mounts `#rusuite-print-root` exactly like
+printing, sends the first page's `@page` size as the paper (`pdfPaperOf`: `{ widthMm, heightMm, landscape }`), shows the
+"Creating PDF…" sheet (`PdfBusySheet`, `data-testid="pdf-busy"`, `data-busy`) while `Backend.exportPdf` runs, unmounts, and
+turns failures into a toast ("Could not create the PDF: …"). Without `capabilities.pdf` (web, macOS, Windows) Export PDF… stays
+the print dialog. Text stays text in every path (vector PDF, one page per print page).
+
+| Platform | Export PDF… | Print… | Share as PDF… |
+|---|---|---|---|
+| Android | `WebView.createPrintDocumentAdapter()` driven by hand (`onStart`, `onLayout` with a custom media size from the paper and no margins, `onWrite` of all pages into `cacheDir/pdf`, `onFinish`), then `ACTION_CREATE_DOCUMENT` (`application/pdf`) | the same PDF via `PrintManager.print` with an adapter over the file (printers and "Save as PDF" in the system dialog) | `ACTION_SEND` of the PDF |
+| iOS | `UIPrintPageRenderer` + the webview's `viewPrintFormatter()` paginated on the paper (`paperRect` = `printableRect`), drawn into a PDF context, then `UIDocumentPickerViewController(forExporting:)` | `UIPrintInteractionController` with `printingItem` = the PDF data | `UIActivityViewController` |
+| Linux desktop | the native save dialog (PDF filter) first, then WebKitGTK `PrintOperation::print()` without a dialog: printer "Print to File", `output-file-format=pdf`, `output-uri`, a custom `GtkPaperSize` with zero margins | print dialog (unchanged) | – |
+| macOS, Windows | print dialog ("Save as PDF"): `WKWebView.createPDF` / WebView2 `PrintToPdf` are reachable only through raw pointers or COM calls, i.e. `unsafe` code, which the shells forbid | print dialog | – |
+| Web | print dialog | print dialog | – |
+
+iOS uses the print formatter rather than `WKWebView.createPDF(configuration:)`, which renders the *screen* media (where the
+print root is hidden) as one long page; the formatter renders the print media and paginates on the given paper rect, which
+equals the pages' `@page` size, so the page breaks fall between our fixed-size pages. The Linux path is covered by
+`--smoke` with `RUSUITE_SMOKE_PDF=<file>` (the shell prints the loaded page to that file before reporting).
 ## Logos and the portal (P7-10)
 
 One family in `apps/portal/logos/` (hand-written SVG, 1024 viewBox): a full-bleed rounded tile (`rx` 225 = 22 %) in the app's
