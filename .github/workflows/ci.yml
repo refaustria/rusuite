@@ -75,7 +75,7 @@ jobs:
   e2e:
     needs: frontend
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -90,7 +90,19 @@ jobs:
         with:
           name: dist-web
       - run: tar xzf dist-web.tgz
-      - run: pnpm --filter e2e exec playwright install --with-deps chromium
+      # The browser download is cached per Playwright version; the system libraries are installed every time (apt).
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('./packages/e2e/package.json').devDependencies['@playwright/test']")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter e2e exec playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter e2e exec playwright install-deps chromium
       - run: pnpm e2e
       - name: Upload failure screenshots and traces
         if: failure()
