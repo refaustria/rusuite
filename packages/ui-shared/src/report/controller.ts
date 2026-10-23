@@ -3,6 +3,7 @@
 // app (`setDocStats`, counts only) and the last uncaught error message of the page. Nothing is sent before `submit`.
 
 import { getLocale } from "../i18n/locale";
+import { isMobile } from "../mobile/platform";
 import { captureWindow, type Capture } from "./capture";
 import { relayUrl, sendReport, type ReportFetch, type SendResult } from "./client";
 import { instanceId, localStore, nextAllowedAt, recordSubmitted, setNextAllowedAt, waitMs } from "./instance";
@@ -45,6 +46,14 @@ const browserEnv = () => ({
   width: typeof window === "undefined" ? 0 : window.innerWidth,
   height: typeof window === "undefined" ? 0 : window.innerHeight,
 });
+
+/**
+ * Whether "Report a problem" is offered: not in the mobile shells (it sends text, screenshots and diagnostics to
+ * rusuit.es, and the store privacy declarations say "no data collected"); the web and desktop builds keep it.
+ */
+export function reportAvailable(): boolean {
+  return !isMobile();
+}
 
 export class ReportController {
   private state: ReportState;
@@ -107,6 +116,7 @@ export class ReportController {
   }
 
   open(): void {
+    if (!reportAvailable()) return;
     const env = this.env();
     let stats: DocStats | null | undefined = null;
     try {

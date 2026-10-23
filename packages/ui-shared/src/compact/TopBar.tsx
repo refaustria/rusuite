@@ -7,7 +7,7 @@ import { FOCUS_RING } from "../Popover";
 import { LanguageSelect, useT } from "../i18n/react";
 import { RibbonIcon, type RibbonIconName } from "../ribbon/icons";
 import { triggerShortcut } from "../ribbon/triggerShortcut";
-import { reportProblem } from "../report/controller";
+import { reportAvailable, reportProblem } from "../report/controller";
 import { ReportIcon } from "../report/ui/hooks";
 import { BottomSheet } from "./BottomSheet";
 
@@ -118,7 +118,7 @@ export function TopBar({ documentTitle, accent, onFile, fileExpanded, undo, righ
           <div role="menu" aria-label={t("compact.moreSheet")} className="flex flex-col">
             {onOptions && item("options", t("backstage.options"), "options", onOptions)}
             {item("shortcuts", t("shortcuts.title"), "keyboard", () => triggerShortcut("Mod+/"))}
-            {item("report", t("report.menu"), <ReportIcon size={18} />, () => reportProblem.open())}
+            {reportAvailable() && item("report", t("report.menu"), <ReportIcon size={18} />, () => reportProblem.open())}
           </div>
           <LanguageSelect className="mt-2 border-t border-ui-border px-2 pt-3 [&_select]:min-h-11" />
         </BottomSheet>

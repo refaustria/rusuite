@@ -65,6 +65,8 @@ shell):
   `/data/user/0/dev.rusuite.<app>/…`, iOS `Library/Application Support/dev.rusuite.<app>`).
 - **No connections, no AI assistant** (owner rule): the mobile `TauriBackend` has neither, so File › Options › AI and
   Connections never appear; the shells are built without the connector commands and the OS keyring.
+  Nor "Report a problem" (Help menu, File, the compact "⋯" sheet; `reportAvailable()`): it sends text, screenshots
+  and diagnostics to rusuit.es, and the store privacy declarations say "no data collected" (web and desktop keep it).
 - Permissions: Android only `INTERNET` (Tauri's webview loads the bundled pages from `http://tauri.localhost`, which
   Chromium treats as a network load, and `tauri android dev` from the dev server – the apps make no network
   requests); no storage permission (the pickers grant access per document). iOS: none.

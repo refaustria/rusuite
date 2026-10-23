@@ -6,7 +6,7 @@ import { RibbonMenu, usePopup, type RibbonMenuItem } from "../../ribbon/controls
 import { triggerShortcut } from "../../ribbon/triggerShortcut";
 import { FOCUS_RING } from "../../Popover";
 import { useT } from "../../i18n/react";
-import { reportProblem, type ReportController } from "../controller";
+import { reportAvailable, reportProblem, type ReportController } from "../controller";
 import type { DocStats } from "../types";
 import { ReportIcon } from "./hooks";
 import { useCompact } from "../../compact/useCompact";
@@ -28,8 +28,9 @@ export function HelpMenu({ docStats, controller = reportProblem }: { docStats?: 
     setOpen(false);
     btn.current?.focus();
   };
+  // Mobile shells: no "Report a problem" (no data leaves the device, `reportAvailable`).
   const items: RibbonMenuItem[] = [
-    { id: "report", label: t("report.menu"), icon: <ReportIcon />, onSelect: () => controller.open() },
+    ...(reportAvailable() ? [{ id: "report", label: t("report.menu"), icon: <ReportIcon />, onSelect: () => controller.open() }] : []),
     { id: "shortcuts", label: t("shortcuts.title"), icon: "keyboard", shortcut: "Mod+/", onSelect: () => triggerShortcut("Mod+/") },
   ];
   return (
@@ -71,9 +72,10 @@ export function HelpMenu({ docStats, controller = reportProblem }: { docStats?: 
   );
 }
 
-/** File › Report a problem… (`pick` leaves the backstage first). */
+/** File › Report a problem… (`pick` leaves the backstage first); absent in the mobile shells (`reportAvailable`). */
 export function ReportBackstageItem({ pick, controller = reportProblem }: { pick: (fn: () => void) => void; controller?: ReportController }) {
   const t = useT();
+  if (!reportAvailable()) return null;
   return (
     <li>
       <button
