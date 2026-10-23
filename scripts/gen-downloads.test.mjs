@@ -126,6 +126,8 @@ test("publicName drops a trailing .0 patch only (π numbering, docs/versioning.m
   assert.equal(publicName("v3.141.0"), "3.141");
   assert.equal(publicName("3.141.0"), "3.141");
   assert.equal(publicName("v3.1415.0"), "3.1415");
+  assert.equal(publicName("v3.14159.0"), "3.14159");
+  assert.equal(publicName("v3.1415.1"), "3.1415.1");
   assert.equal(publicName("v3.141.1"), "3.141.1");
   assert.equal(publicName("v3.141.10"), "3.141.10");
   assert.equal(publicName("v3.141.0-rc.1"), "3.141.0-rc.1");

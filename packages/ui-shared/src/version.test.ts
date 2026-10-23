@@ -6,12 +6,15 @@ describe("publicVersion", () => {
   it("drops a trailing .0 patch (π numbering, docs/versioning.md)", () => {
     expect(publicVersion("3.141.0")).toBe("3.141");
     expect(publicVersion("3.1415.0")).toBe("3.1415");
+    expect(publicVersion("3.14159.0")).toBe("3.14159");
+    expect(publicVersion("v3.1415.0")).toBe("3.1415");
     expect(publicVersion("v3.141.0")).toBe("3.141");
     expect(publicVersion("3.141.0-rc.1")).toBe("3.141.0-rc.1");
   });
   it("keeps hotfix numbers and anything that is not a semver", () => {
     expect(publicVersion("3.141.1")).toBe("3.141.1");
     expect(publicVersion("3.141.10")).toBe("3.141.10");
+    expect(publicVersion("3.1415.1")).toBe("3.1415.1");
     expect(publicVersion("3.140.0")).toBe("3.140");
     expect(publicVersion("unknown")).toBe("unknown");
   });
