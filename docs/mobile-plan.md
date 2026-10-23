@@ -21,7 +21,7 @@
 | File access | Android Storage Access Framework / iOS document picker via `tauri-plugin-dialog` mobile support or `tauri-plugin-fs` scoped paths; "Open with" intents / document types registration for .xlsx/.docx/.pptx; share sheet for Save a copy and PDF | 1–2 weeks |
 | UI: phone + tablet layouts | A compact command bar replacing the ribbon under ~900 px (the ribbon groups already map to actions; keep the backstage), bottom sheets for dialogs, larger hit targets, no hover-only affordances | 2–3 weeks |
 | Touch editing | Calc: touch selection handles, pinch zoom, fill handle drag, on-screen formula keyboard row (`= + - * / ( ) : ;`); Write: Tiptap works with touch, but the page view and image/table handles need touch sizes; Show: Konva touch transforms (pinch rotate/scale), presenter view on a second screen via AirPlay/Chromecast is out of scope initially | 3–4 weeks |
-| Printing / PDF | No `window.print()` on mobile webviews: render the existing print pages to PDF in Rust (a small PDF writer or `printpdf`) and hand it to the share sheet – also useful on desktop/web later | 1–2 weeks |
+| Printing / PDF | No `window.print()` on mobile webviews: render the existing print pages to PDF with the webview's own renderer (P10-M6, guardrail 7; *was*: in Rust) and hand it to the picker, print service or share sheet | 1–2 weeks |
 | Performance & memory | Native Rust (not wasm) on mobile is faster, but memory limits are tighter (iOS ~1–1.5 GB): keep documents sparse (they are), lazy media (ROADMAP), avoid full-document JSON for Write on load (ADR 0007 §6 revisit) | 1 week + ongoing |
 | Testing | Android emulator in CI (headless), iOS simulator on macOS runners; Playwright-style flows via WebDriver on the emulator (tauri-driver has no mobile support yet) | 1–2 weeks |
 Total: roughly 10–16 weeks of focused work for all three apps, less if phones are deferred and tablets come first (tablets keep the ribbon and most desktop interactions).
@@ -34,7 +34,9 @@ Total: roughly 10–16 weeks of focused work for all three apps, less if phones 
 5. Keep the app crates free of desktop-only Rust dependencies outside `src-tauri`; `print_webview` and native dialogs are desktop-only commands and must degrade gracefully.
 6. Keep the generated icon sets: `tauri icon` already produces Android/iOS icons – **done (P10-M1)**: the Android mipmaps live in
    `gen/android/app/src/main/res`, the iOS set in `src-tauri/icons/ios` and the Xcode asset catalog; nothing deletes them.
-7. Prefer PDF generation in Rust when printing is revisited, so mobile and desktop share it.
+7. PDF: the webview's own PDF renderer (P10-M6 decision, supersedes "PDF in Rust"): the print pages are HTML, and the
+   platform renderers (Android `createPrintDocumentAdapter`, iOS `UIPrintPageRenderer`, WebKitGTK print-to-file) give the
+   highest fidelity with real text. A Rust PDF writer stays a ROADMAP idea.
 
 ## Open questions for the owner (when scheduling)
 - Phones and tablets, or tablets first? (Tablets are much cheaper.)
