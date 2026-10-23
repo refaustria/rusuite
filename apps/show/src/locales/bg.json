@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Тема на Office",
   "show.master.phText": "Текст",
   "show.prompt.picture": "Щракни върху иконата, за да добавиш картина",
-  "show.insertPictureInto": "Вмъкване на картина"
+  "show.insertPictureInto": "Вмъкване на картина",
+  "show.touch.layoutMenu": "Оформление…",
+  "show.touch.transitionMenu": "Преход…",
+  "show.touch.timing": "Време…",
+  "show.touch.multiSelect": "Множествена селекция",
+  "show.touch.showMenu": "Меню на слайдшоуто",
+  "show.touch.backToShow": "Обратно към слайдшоуто",
+  "show.touch.goToSlide": "Отиди на слайд…",
+  "show.touch.tapToPlay": "Докосни за възпроизвеждане"
 }

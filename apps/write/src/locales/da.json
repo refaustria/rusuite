@@ -1341,5 +1341,9 @@
   "write.notes.sep.line": "Linje",
   "write.notes.sep.none": "Ingen",
   "write.notes.sep.text": "Tekst",
-  "write.notes.sep.reset": "Nulstil"
+  "write.notes.sep.reset": "Nulstil",
+  "write.touch.selectionBar": "Markering",
+  "write.touch.more": "Mere",
+  "write.touch.handleStart": "Markeringens start",
+  "write.touch.handleEnd": "Markeringens slutning"
 }

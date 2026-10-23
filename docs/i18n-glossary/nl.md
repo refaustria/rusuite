@@ -382,3 +382,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | ongeldige relatie | reader warnings |
 | Custom show (PowerPoint) | Aangepaste voorstelling | `reader.pptx.customShow.*` |
 | Pivot cache | draaitabelcache | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | tikken ("Tik op …") | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | lang indrukken | (context menu as a sheet; no catalog text yet) |
+| pinch | knijpen | (zoom; no catalog text yet) |
+| swipe | vegen | (no catalog text yet) |
+| selection handle | greep | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | paneel (niet "blad" = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | vingerafdruk | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | releasesleutel | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | genotariseerd | `portal.dl.signed.macos` |
+| More | Meer | `compact.more` |
+| More commands | Meer opdrachten | `compact.moreSheet` |
+| Fill | Doorvoeren | `calc.touch.fill` |
+| Fill series | Reeks doorvoeren | `calc.touch.fillSeries` |
+| Copy cells | Cellen kopiëren | `calc.touch.copyCells` |
+| Ref | Verw. | `calc.keys.refShort` |
+| Share as PDF… | Delen als PDF… | `backstage.sharePdf` |
+| Export PDF | PDF exporteren | `print.exportPdf` |
+| Multi-select | Meervoudige selectie | `show.touch.multiSelect` |

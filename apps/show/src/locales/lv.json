@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Office motīvs",
   "show.master.phText": "Teksts",
   "show.prompt.picture": "Noklikšķini uz ikonas, lai pievienotu attēlu",
-  "show.insertPictureInto": "Ievietot attēlu"
+  "show.insertPictureInto": "Ievietot attēlu",
+  "show.touch.layoutMenu": "Izkārtojums…",
+  "show.touch.transitionMenu": "Pāreja…",
+  "show.touch.timing": "Hronometrāža…",
+  "show.touch.multiSelect": "Vairākkārtēja atlase",
+  "show.touch.showMenu": "Slaidrādes izvēlne",
+  "show.touch.backToShow": "Atpakaļ uz slaidrādi",
+  "show.touch.goToSlide": "Doties uz slaidu…",
+  "show.touch.tapToPlay": "Pieskaries, lai atskaņotu"
 }

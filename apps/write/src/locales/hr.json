@@ -1349,5 +1349,9 @@
   "write.notes.sep.line": "Crta",
   "write.notes.sep.none": "Nema",
   "write.notes.sep.text": "Tekst",
-  "write.notes.sep.reset": "Ponovno postavi"
+  "write.notes.sep.reset": "Ponovno postavi",
+  "write.touch.selectionBar": "Odabir",
+  "write.touch.more": "Više",
+  "write.touch.handleStart": "Početak odabira",
+  "write.touch.handleEnd": "Kraj odabira"
 }

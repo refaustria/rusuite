@@ -384,3 +384,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`) as the ca
 | dangling relationship | viseči odnos | reader warnings |
 | Custom show (PowerPoint) | Projekcija po meri | `reader.pptx.customShow.*` |
 | Pivot cache | predpomnilnik vrtilne tabele | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | tapniti (»Tapni …«) | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | dolg pritisk | (context menu as a sheet; no catalog text yet) |
+| pinch | ščip | (zoom; no catalog text yet) |
+| swipe | podrsati | (no catalog text yet) |
+| selection handle | ročica | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | plošča (ne »list« = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | prstni odtis | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | ključ za izdaje | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notarsko overjeno | `portal.dl.signed.macos` |
+| More | Več | `compact.more` |
+| More commands | Več ukazov | `compact.moreSheet` |
+| Fill | Zapolni | `calc.touch.fill` |
+| Fill series | Zapolni niz | `calc.touch.fillSeries` |
+| Copy cells | Kopiraj celice | `calc.touch.copyCells` |
+| Ref | Sklic | `calc.keys.refShort` |
+| Share as PDF… | Deli kot PDF… | `backstage.sharePdf` |
+| Export PDF | Izvozi v PDF | `print.exportPdf` |
+| Multi-select | Večkratni izbor | `show.touch.multiSelect` |

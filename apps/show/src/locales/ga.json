@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Téama Office",
   "show.master.phText": "Téacs",
   "show.prompt.picture": "Cliceáil ar an deilbhín chun pictiúr a chur leis",
-  "show.insertPictureInto": "Cuir Pictiúr Isteach"
+  "show.insertPictureInto": "Cuir Pictiúr Isteach",
+  "show.touch.layoutMenu": "Leagan amach…",
+  "show.touch.transitionMenu": "Aistriú…",
+  "show.touch.timing": "Uainiú…",
+  "show.touch.multiSelect": "Ilroghnú",
+  "show.touch.showMenu": "Roghchlár an taispeántais sleamhnán",
+  "show.touch.backToShow": "Ar ais chuig an taispeántas",
+  "show.touch.goToSlide": "Téigh go sleamhnán…",
+  "show.touch.tapToPlay": "Tapáil le seinm"
 }

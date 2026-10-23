@@ -383,3 +383,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | relație nevalidă | reader warnings |
 | Custom show (PowerPoint) | Expunere particularizată | `reader.pptx.customShow.*` |
 | Pivot cache | cache PivotTable | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | a atinge („Atinge …”) | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | apăsare lungă | (context menu as a sheet; no catalog text yet) |
+| pinch | ciupire | (zoom; no catalog text yet) |
+| swipe | glisare | (no catalog text yet) |
+| selection handle | ghidaj | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | panou (nu „foaie” = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | amprentă | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | cheie de lansare | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notarizată | `portal.dl.signed.macos` |
+| More | Mai multe | `compact.more` |
+| More commands | Mai multe comenzi | `compact.moreSheet` |
+| Fill | Umplere | `calc.touch.fill` |
+| Fill series | Umplere serie | `calc.touch.fillSeries` |
+| Copy cells | Copiere celule | `calc.touch.copyCells` |
+| Ref | Ref. | `calc.keys.refShort` |
+| Share as PDF… | Partajare ca PDF… | `backstage.sharePdf` |
+| Export PDF | Exportare PDF | `print.exportPdf` |
+| Multi-select | Selecție multiplă | `show.touch.multiSelect` |

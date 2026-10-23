@@ -1357,5 +1357,9 @@
   "write.notes.sep.line": "Linia",
   "write.notes.sep.none": "Brak",
   "write.notes.sep.text": "Tekst",
-  "write.notes.sep.reset": "Resetuj"
+  "write.notes.sep.reset": "Resetuj",
+  "write.touch.selectionBar": "Zaznaczenie",
+  "write.touch.more": "Więcej",
+  "write.touch.handleStart": "Początek zaznaczenia",
+  "write.touch.handleEnd": "Koniec zaznaczenia"
 }

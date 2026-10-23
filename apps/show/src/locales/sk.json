@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Motív Office",
   "show.master.phText": "Text",
   "show.prompt.picture": "Kliknutím na ikonu pridáš obrázok",
-  "show.insertPictureInto": "Vložiť obrázok"
+  "show.insertPictureInto": "Vložiť obrázok",
+  "show.touch.layoutMenu": "Rozloženie…",
+  "show.touch.transitionMenu": "Prechod…",
+  "show.touch.timing": "Časovanie…",
+  "show.touch.multiSelect": "Viacnásobný výber",
+  "show.touch.showMenu": "Ponuka prezentácie",
+  "show.touch.backToShow": "Späť do prezentácie",
+  "show.touch.goToSlide": "Prejsť na snímku…",
+  "show.touch.tapToPlay": "Ťuknutím prehráš"
 }

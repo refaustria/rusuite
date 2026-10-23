@@ -1357,5 +1357,9 @@
   "write.notes.sep.line": "Črta",
   "write.notes.sep.none": "Brez",
   "write.notes.sep.text": "Besedilo",
-  "write.notes.sep.reset": "Ponastavi"
+  "write.notes.sep.reset": "Ponastavi",
+  "write.touch.selectionBar": "Izbor",
+  "write.touch.more": "Več",
+  "write.touch.handleStart": "Začetek izbora",
+  "write.touch.handleEnd": "Konec izbora"
 }

@@ -26,7 +26,7 @@ Office check pack in `/home/bojan/rusuite-office-check/rusuite-office-check-3.14
    portal footer shows "Rusuite 3.141 · Build …".
 
 ## 1. Prepare `main`
-1. `main` is green in CI (`rust`, `frontend`, `e2e`), and `pnpm i18n:check:strict` passes (no pending translation keys, docs/i18n.md). Last green: 2026-10-18 (P9-LF pass 2, all 22 translated languages, including the P9-A1/A2 AI and P9-X2 reader-warning keys); P9-R1 then added 8 portal keys (`portal.new.*`, `portal.soon.item8`) that P9-LF pass 3 translates before the tag.
+1. `main` is green in CI (`rust`, `frontend`, `e2e`), and `pnpm i18n:check:strict` passes (no pending translation keys, docs/i18n.md). Last green: 2026-10-23 (P10-LF, cycle 3.1415: the 48 keys of the compact layout and bottom sheets, Calc/Write/Show touch, PDF export and the portal's signing/Downloads texts in all 22 translated languages; the i18n e2e now also scans the compact layout at 412 px in every language). Earlier: 2026-10-18 (P9-LF pass 2); a release task that adds keys ("New in …" on the portal) needs another pass before the tag.
 2. Set the version everywhere and commit it:
    ```
    scripts/set-version.sh 3.141.0         # workspace Cargo.toml (+ members with a literal version), Cargo.lock,

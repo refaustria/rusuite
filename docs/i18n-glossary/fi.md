@@ -387,3 +387,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | irrallinen suhde | reader warnings |
 | Custom show (PowerPoint) | Mukautettu esitys | `reader.pptx.customShow.*` |
 | Pivot cache | pivot-välimuisti | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | napauttaa ("Napauta …") | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | pitkä painallus | (context menu as a sheet; no catalog text yet) |
+| pinch | nipistää | (zoom; no catalog text yet) |
+| swipe | pyyhkäistä | (no catalog text yet) |
+| selection handle | kahva | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | paneeli (ei "taulukko" = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | sormenjälki | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | julkaisuavain | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | notarisoitu | `portal.dl.signed.macos` |
+| More | Lisää | `compact.more` |
+| More commands | Lisää komentoja | `compact.moreSheet` |
+| Fill | Täyttö | `calc.touch.fill` |
+| Fill series | Täytä sarja | `calc.touch.fillSeries` |
+| Copy cells | Kopioi solut | `calc.touch.copyCells` |
+| Ref | Viit. | `calc.keys.refShort` |
+| Share as PDF… | Jaa PDF-tiedostona… | `backstage.sharePdf` |
+| Export PDF | Vie PDF-muotoon | `print.exportPdf` |
+| Multi-select | Monivalinta | `show.touch.multiSelect` |

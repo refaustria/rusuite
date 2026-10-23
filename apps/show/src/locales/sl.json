@@ -1447,5 +1447,13 @@
   "show.design.themeFilter": "Officeova tema",
   "show.master.phText": "Besedilo",
   "show.prompt.picture": "Klikni ikono za dodajanje slike",
-  "show.insertPictureInto": "Vstavi sliko"
+  "show.insertPictureInto": "Vstavi sliko",
+  "show.touch.layoutMenu": "Postavitev…",
+  "show.touch.transitionMenu": "Prehod…",
+  "show.touch.timing": "Časovni potek…",
+  "show.touch.multiSelect": "Večkratni izbor",
+  "show.touch.showMenu": "Meni diaprojekcije",
+  "show.touch.backToShow": "Nazaj na diaprojekcijo",
+  "show.touch.goToSlide": "Pojdi na diapozitiv…",
+  "show.touch.tapToPlay": "Tapni za predvajanje"
 }

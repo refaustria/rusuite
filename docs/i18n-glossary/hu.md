@@ -394,3 +394,28 @@ Animation effects (`show.fx.*`) and slide transitions (`show.trans.*`), named as
 | dangling relationship | érvénytelen kapcsolat | reader warnings |
 | Custom show (PowerPoint) | Egyéni vetítés | `reader.pptx.customShow.*` |
 | Pivot cache | kimutatás-gyorsítótár | `reader.xlsx.pivotCache.*` |
+
+## Touch, compact layout and PDF export (P10-LF, 2026-10-23)
+
+One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact bars and sheets, the touch UI of Calc/Write/Show, PDF export, the portal's signing texts).
+
+| English | Term | Used in |
+| --- | --- | --- |
+| tap | koppintás („Koppints …”) | `calc.keys.ref`, `calc.stats.next`, `show.touch.tapToPlay` |
+| long press | hosszú lenyomás | (context menu as a sheet; no catalog text yet) |
+| pinch | csippentés | (zoom; no catalog text yet) |
+| swipe | pöccintés | (no catalog text yet) |
+| selection handle | fogópont | `write.touch.handleStart` / `handleEnd` |
+| bottom sheet | panel (nem „munkalap” = worksheet) | `compact.moreSheet`, `compact.closeSheet` (aria labels) |
+| fingerprint (GPG) | ujjlenyomat | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| release key | kiadási kulcs | `portal.dl.signed.linux`, `portal.dl.sums.text` |
+| notarized (Apple) | hitelesített | `portal.dl.signed.macos` |
+| More | Továbbiak | `compact.more` |
+| More commands | További parancsok | `compact.moreSheet` |
+| Fill | Kitöltés | `calc.touch.fill` |
+| Fill series | Kitöltés sorozattal | `calc.touch.fillSeries` |
+| Copy cells | Cellák másolása | `calc.touch.copyCells` |
+| Ref | Hiv. | `calc.keys.refShort` |
+| Share as PDF… | Megosztás PDF-ként… | `backstage.sharePdf` |
+| Export PDF | Exportálás PDF-be | `print.exportPdf` |
+| Multi-select | Többszörös kijelölés | `show.touch.multiSelect` |

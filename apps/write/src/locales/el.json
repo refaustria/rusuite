@@ -1341,5 +1341,9 @@
   "write.notes.sep.line": "Γραμμή",
   "write.notes.sep.none": "Κανένα",
   "write.notes.sep.text": "Κείμενο",
-  "write.notes.sep.reset": "Επαναφορά"
+  "write.notes.sep.reset": "Επαναφορά",
+  "write.touch.selectionBar": "Επιλογή",
+  "write.touch.more": "Περισσότερα",
+  "write.touch.handleStart": "Αρχή επιλογής",
+  "write.touch.handleEnd": "Τέλος επιλογής"
 }

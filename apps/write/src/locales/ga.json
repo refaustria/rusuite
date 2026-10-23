@@ -1365,5 +1365,9 @@
   "write.notes.sep.line": "Líne",
   "write.notes.sep.none": "Dada",
   "write.notes.sep.text": "Téacs",
-  "write.notes.sep.reset": "Athshocraigh"
+  "write.notes.sep.reset": "Athshocraigh",
+  "write.touch.selectionBar": "Roghnúchán",
+  "write.touch.more": "Tuilleadh",
+  "write.touch.handleStart": "Tús an roghnúcháin",
+  "write.touch.handleEnd": "Deireadh an roghnúcháin"
 }
