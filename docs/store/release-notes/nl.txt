@@ -2,4 +2,4 @@ Nieuw in 3.1415
 • Apps voor telefoon en tablet met een indeling voor aanraking
 • Bewerken met aanraking: selectiehandvatten, zoomen met twee vingers, gebaren
 • Exporteren naar PDF
-• Ondertekende desktop-apps voor Windows, macOS en Linux
+• Ondertekende desktop-apps voor macOS (genotariseerd) en Linux (GPG)

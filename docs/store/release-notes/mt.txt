@@ -2,4 +2,4 @@ Il-ġdid fil-verżjoni 3.1415
 • Apps għat-telefon u għat-tablet b'disinn magħmul għall-mess
 • Editjar bil-mess: manku tal-għażla, zoom b'żewġ swaba', ġesti
 • Esportazzjoni bħala PDF
-• Apps iffirmati għad-desktop għal Windows, macOS u Linux
+• Apps iffirmati għad-desktop għal macOS (notarizzati) u Linux (GPG)
