@@ -163,6 +163,14 @@ test.describe("compact layout @mobile", () => {
         await expect(chip(page, label)).toHaveAttribute("aria-selected", "true");
         await expect(strip(page)).toHaveAttribute("aria-label", /.+/);
         const compact = new Set(await controlNames(strip(page)));
+        // Groups that open as a sheet in the bar (Show's Timing…, P10-M5): their controls are in the sheet.
+        const sheets = strip(page).locator("[data-compact-sheet] button");
+        for (let i = 0; i < (await sheets.count()); i++) {
+          await sheets.nth(i).click();
+          for (const n of await controlNames(page.getByTestId("popup-sheet"))) compact.add(n);
+          await page.keyboard.press("Escape");
+          await expect(page.getByTestId("popup-sheet")).toHaveCount(0);
+        }
         expect(controls.length, `${app} › ${label}: desktop controls found`).toBeGreaterThan(0);
         const missing = controls.filter((c) => !compact.has(c));
         expect(missing, `${app} › ${label}: controls missing in the command bar`).toEqual([]);

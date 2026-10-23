@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AutosaveStatus, formatNumber, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
+import { AutosaveStatus, BottomSheet, formatNumber, useCompact, useLocale, ConfirmDiscard, DocumentSession, RecoveryBanner, UnsavedGuard, readerWarningText, withExtension, type AnySession } from "@rusuite/ui-shared";
 import { ShowApi } from "./api";
 import type { ShowBackend } from "./backend";
 import { EditorStage } from "./canvas/Stage";
@@ -8,6 +8,7 @@ import { buildShowDoc, printShow, ShowPrintPage } from "./print/ShowPrintPage";
 import { SlideShow } from "./present/SlideShow";
 import { launchAudience, type AudienceLink } from "./present/sync";
 import { SlideList } from "./sidebar/SlideList";
+import { SlideStrip } from "./sidebar/SlideStrip";
 import { ShortcutLayer } from "./ShortcutLayer";
 import { ShowStore, useShow } from "./state/store";
 import { fitScale, slidePx } from "./geometry";
@@ -54,7 +55,14 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-function StatusBar({ store, backend, session, zoom }: { store: ShowStore; backend: ShowBackend; session: AnySession; zoom: ShowZoom }) {
+function StatusBar({ store, backend, session, zoom, notesSheet }: {
+  store: ShowStore;
+  backend: ShowBackend;
+  session: AnySession;
+  zoom: ShowZoom;
+  /** Compact layout: the Notes chip opens the notes sheet instead of the pane (P10-M5). */
+  notesSheet?: { open: boolean; toggle: () => void };
+}) {
   const t = useT();
   const pres = useShow(store, (s) => s.pres);
   const current = useShow(store, (s) => s.current);
@@ -80,9 +88,22 @@ function StatusBar({ store, backend, session, zoom }: { store: ShowStore; backen
           {t("status.warnings", { count: warnings.length, first: warnings[0] ? readerWarningText(warnings[0]) : "" })}
         </span>
       )}
-      <button type="button" className={`ml-auto rounded px-1 hover:bg-ui-hover ${notesVisible ? "text-ui-fg" : ""}`} aria-pressed={notesVisible} onClick={() => store.toggleNotes()}>
-        {t("show.notes")}
-      </button>
+      {notesSheet ? (
+        <button
+          type="button"
+          data-testid="notes-chip"
+          aria-haspopup="dialog"
+          aria-pressed={notesSheet.open}
+          className={`ml-auto min-h-11 min-w-11 rounded-full border border-ui-border px-3 text-ui-fg ${notesSheet.open ? "bg-ui-active" : ""}`}
+          onClick={notesSheet.toggle}
+        >
+          {t("show.notes")}
+        </button>
+      ) : (
+        <button type="button" className={`ml-auto rounded px-1 hover:bg-ui-hover ${notesVisible ? "text-ui-fg" : ""}`} aria-pressed={notesVisible} onClick={() => store.toggleNotes()}>
+          {t("show.notes")}
+        </button>
+      )}
       <span data-testid="zoom">
         {zoom === "fit" ? t("show.fitShort") : `${formatNumber(Math.round(zoom * 100))} %`}
       </span>
@@ -128,6 +149,9 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
   const view = useShow(store, (s) => s.view);
   const showRuler = useShow(store, (s) => !!s.pres?.view?.showRuler);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  // the compact layout (P10-M5): the slide strip, the notes as a sheet
+  const compact = useCompact();
+  const [notesSheet, setNotesSheet] = useState(false);
 
   useEffect(() => {
     void store.init().then(() => store.probeFileIo()).then(() => store.loadThemes());
@@ -207,9 +231,10 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
 
   // Fit: the canvas area minus its padding (and the rulers); a fixed zoom: the slide at that scale.
   const rulers = showRuler && !masterView ? RULER_PX : 0;
+  const pad = compact ? 16 : 32;
   const stageSize =
     zoom === "fit" || !pres
-      ? { width: Math.max(0, size.width - 32 - rulers), height: Math.max(0, size.height - 32 - rulers) }
+      ? { width: Math.max(0, size.width - pad - rulers), height: Math.max(0, size.height - pad - rulers) }
       : { width: slidePx(pres.slideSize).width * zoom, height: slidePx(pres.slideSize).height * zoom };
   const stageScale = pres ? fitScale(stageSize.width, stageSize.height, pres.slideSize) : 0;
   const stage = <EditorStage store={store} width={stageSize.width} height={stageSize.height} />;
@@ -223,15 +248,16 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
         zoom={zoom}
         onZoom={setZoom}
       />
+      {compact && !masterView && view !== "outline" && !sorter && <SlideStrip store={store} />}
       <div className="flex min-h-0 flex-1">
-        {masterView ? <MasterPanel store={store} /> : view === "outline" ? <OutlinePane store={store} /> : sorter ? null : <SlideList store={store} />}
+        {masterView ? <MasterPanel store={store} /> : view === "outline" ? <OutlinePane store={store} /> : sorter || compact ? null : <SlideList store={store} />}
         {sorter ? (
           <SlideSorter store={store} />
         ) : (
         <div className="flex min-w-0 flex-1 flex-col">
         <div
           ref={canvasRef}
-          className={`flex min-w-0 flex-1 bg-ui-hover p-4 ${zoom === "fit" || view === "notesPage" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
+          className={`flex min-w-0 flex-1 bg-ui-hover ${compact ? "p-2" : "p-4"} ${zoom === "fit" || view === "notesPage" ? "items-center justify-center overflow-hidden" : "overflow-auto"}`}
           data-testid="canvas-area"
           data-view={masterView ? "master" : view}
         >
@@ -259,7 +285,7 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
             </div>
           )}
         </div>
-        {view !== "notesPage" && <NotesPane store={store} />}
+        {view !== "notesPage" && !compact && <NotesPane store={store} />}
         </div>
         )}
         <AnimationPane store={store} />
@@ -273,7 +299,12 @@ export default function App({ backend, store: given }: { backend: ShowBackend; s
       {view === "reading" && !masterView && !presenting && <ReadingView store={store} onPresent={() => presentFrom(false)} />}
       <PosterInput store={store} />
       <SoundInput store={store} />
-      <StatusBar store={store} backend={backend} session={session} zoom={zoom} />
+      <StatusBar store={store} backend={backend} session={session} zoom={zoom} notesSheet={compact ? { open: notesSheet, toggle: () => setNotesSheet((v) => !v) } : undefined} />
+      {compact && notesSheet && (
+        <BottomSheet label={t("show.speakerNotes")} onClose={() => setNotesSheet(false)} testId="notes-sheet">
+          <NotesPane store={store} sheet />
+        </BottomSheet>
+      )}
       <Toasts store={store} />
       <ShowDialogs store={store} printOptions={printOptions} onPrintOptions={setPrintOptions} />
       <ShortcutLayer store={store} guard={guard} enabled={!presenting} onPresent={presentFrom} onPresenterView={presenterView} />

@@ -1447,5 +1447,8 @@
   "show.design.themeFilter": "Office-Design",
   "show.master.phText": "Text",
   "show.prompt.picture": "Bild hinzufügen",
-  "show.insertPictureInto": "Bild einfügen"
+  "show.insertPictureInto": "Bild einfügen",
+  "show.touch.layoutMenu": "Layout…",
+  "show.touch.transitionMenu": "Übergang…",
+  "show.touch.timing": "Anzeigedauer…"
 }

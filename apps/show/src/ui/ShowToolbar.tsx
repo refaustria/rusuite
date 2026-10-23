@@ -5,7 +5,7 @@
 // is inside `[data-keep-edit]`, so using it does not end the overlay text
 // editor.
 
-import { aiRibbonGroup, HelpMenu } from "@rusuite/ui-shared";
+import { aiRibbonGroup, HelpMenu, useCompact } from "@rusuite/ui-shared";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ColorPicker, FontControls, Icon, ListButtons, RIBBON_SELECT, Ribbon, RibbonButton, RibbonGallery, RibbonIcon, RibbonMenuButton,
@@ -213,6 +213,7 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
   const editing = state.editing !== null;
   const theme = state.pres?.theme;
   const hasSlide = state.current !== null;
+  const compact = useCompact();
   const slideCount = state.pres?.slides.length ?? 0;
   const palette = themePalette(theme);
   const masterView = state.masterView !== null;
@@ -776,8 +777,8 @@ export function ShowRibbon({ store, session, onPresent, onPresenterView, onExpor
     ],
   };
 
-  const transitions = transitionsTab(store, state, t);
-  const animations = animationsTab(store, state, t);
+  const transitions = transitionsTab(store, state, t, compact);
+  const animations = animationsTab(store, state, t, compact);
 
   const fileOff = fileIo ? undefined : t("show.noFileIo");
   return (

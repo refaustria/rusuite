@@ -21,13 +21,13 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "chromium", testIgnore: /compact\.spec\.ts/, use: { ...devices["Desktop Chrome"], viewport: { width: 1400, height: 900 } } },
+    { name: "chromium", testIgnore: /(compact|show-touch)\.spec\.ts/, use: { ...devices["Desktop Chrome"], viewport: { width: 1400, height: 900 } } },
     // P10-M2: the compact (phone) layout on an emulated Pixel 7 (412 × 915, touch, mobile viewport) …
-    { name: "mobile", testMatch: /compact\.spec\.ts/, grep: /@mobile/, use: { ...devices["Pixel 7"], viewport: { width: 412, height: 915 } } },
+    { name: "mobile", testMatch: /(compact|show-touch)\.spec\.ts/, grep: /@mobile/, use: { ...devices["Pixel 7"], viewport: { width: 412, height: 915 } } },
     // … and a tablet in landscape (1024 × 768, touch), which keeps the desktop ribbon.
     {
       name: "tablet",
-      testMatch: /compact\.spec\.ts/,
+      testMatch: /(compact|show-touch)\.spec\.ts/,
       grep: /@tablet/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1024, height: 768 }, hasTouch: true },
     },
