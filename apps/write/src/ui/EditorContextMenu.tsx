@@ -16,6 +16,41 @@ import { numberedParagraphAtCaret } from "../features/listGallery";
 import { followLink, linkAt, objectLink, removeLinkCommand } from "../features/links";
 import type { SyncController } from "../sync/SyncPlugin";
 import { t, useT } from "../i18n";
+import { isTouchMode, lastTouchDown } from "../touch/touchMode";
+import { wordAt } from "../touch/selection";
+
+/** Marks a `contextmenu` event of `openEditorMenu` (the touch bar's "⋯"): it opens the menu as it is. */
+const FORCE_MENU = "__rusuiteForceMenu";
+
+/** Opens the editor's context menu at the viewport point (x, y) for the current selection (the touch bar's "⋯"). */
+export function openEditorMenu(dom: HTMLElement, x: number, y: number): void {
+  const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y });
+  (ev as unknown as Record<string, boolean>)[FORCE_MENU] = true;
+  dom.dispatchEvent(ev);
+}
+
+/**
+ * A long press (touch mode, P10-M4) on a word outside tables selects the word – the touch selection bar takes over –
+ * instead of opening the menu; in a table the word is selected and the menu (with the table items) opens. Returns
+ * true when the menu must not open.
+ */
+function longPressSelect(editor: Editor, e: MouseEvent): boolean {
+  if (!isTouchMode() || Date.now() - lastTouchDown() > 3000) return false;
+  const view = editor.view;
+  let hit: { pos: number; inside: number } | null = null;
+  try {
+    hit = view.posAtCoords({ left: e.clientX, top: e.clientY });
+  } catch {
+    return false;
+  }
+  if (!hit) return false;
+  const word = wordAt(view.state.doc, hit.pos);
+  if (!word) return false;
+  editor.chain().focus().setTextSelection(word).run();
+  const $pos = view.state.doc.resolve(word.from);
+  for (let d = $pos.depth; d > 0; d--) if ($pos.node(d).type.name === "table") return false;
+  return true;
+}
 
 const sep: ContextMenuItem = { separator: true };
 
@@ -142,12 +177,17 @@ export function EditorContextMenu({ editor, ctl, features }: { editor: Editor | 
       e.preventDefault();
       const view = editor.view;
       const target = e.target as HTMLElement;
+      const forced = !!(e as unknown as Record<string, boolean>)[FORCE_MENU];
       // A right-click on a picture selects it; elsewhere outside the selection moves the caret.
       const img = target.closest?.(".inline-image-wrap, .drawing-wrap");
-      if (img && !target.closest(".drawing-text .ProseMirror")) {
+      if (forced) {
+        // The touch bar's "⋯": the menu for the selection as it is.
+      } else if (img && !target.closest(".drawing-text .ProseMirror")) {
         const pos = view.posAtDOM(img, 0);
         const node = view.state.doc.nodeAt(pos);
         if (node?.type.name === "image" || node?.type.name === "drawing") view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)));
+      } else if (longPressSelect(editor, e)) {
+        return;
       } else {
         let hit: { pos: number } | null = null;
         try {

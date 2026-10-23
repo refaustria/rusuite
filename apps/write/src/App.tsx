@@ -38,6 +38,8 @@ import { AssistantPane } from "@rusuite/ui-shared";
 import { writeAiAdapter } from "./ai/writeAi";
 import { sectionFrames } from "./features/layout/sectionFrames";
 import { useTouchZoom } from "./touch/useTouchZoom";
+import { installTouchMode } from "./touch/touchMode";
+import { TouchSelection } from "./touch/TouchSelection";
 
 function useSync<T>(ctl: SyncController, select: (s: SyncState) => T): T {
   return useSyncExternalStore(ctl.subscribe, () => select(ctl.getState()));
@@ -218,9 +220,11 @@ export default function App({ backend }: { backend: WriteBackend }) {
   const sections = useSync(ctl, () => ctl.sections);
   const separators = useSync(ctl, () => ctl.separators);
 
-  // Touch (P10-M4): fit-width on phones, pinch and double tap.
+  // Touch (P10-M4): fit-width on phones, pinch and double tap, the touch mode on the root.
+  const rootRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => (rootRef.current ? installTouchMode(rootRef.current) : undefined), []);
   const touchZoom = useTouchZoom({
     compact,
     view: chrome.view,
@@ -326,7 +330,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
   }, [editor, ctl, backend, printOptions, pushError, flowOf]);
 
   return (
-    <main className="flex h-screen flex-col bg-ui-bg text-ui-fg" data-rs-app="">
+    <main ref={rootRef} className="flex h-screen flex-col bg-ui-bg text-ui-fg" data-rs-app="">
       <TitleSync ctl={ctl} backend={backend} guard={guard} />
       <RecoveryBanner session={session} />
       {editor && (
@@ -405,6 +409,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       {editor && <ManageStylesDialog editor={editor} ctl={ctl} features={features} />}
       <EditorContextMenu editor={editor} ctl={ctl} features={features} />
       <LayoutOptions editor={editor} />
+      {editor && <TouchSelection editor={editor} ctl={ctl} features={features} />}
       <Toasts ctl={ctl} />
       <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} />
       <NewDocumentDialog

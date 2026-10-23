@@ -5,6 +5,7 @@
 // touch, the desktop ribbon) the @tablet ones.
 import { expect, test, type Page } from "@playwright/test";
 import { testdata, trackErrors } from "../support/common";
+import { msg } from "../support/i18n";
 
 const SHOTS = "../../shots";
 const editor = (page: Page) => page.locator(".ProseMirror").first();
@@ -169,5 +170,101 @@ test.describe("Write touch @mobile", () => {
     errors.expectNone();
   });
 
+  test("long press selects a word; the floating bar formats it; the end handle extends the selection; ⋯ opens the menu", async ({ page }) => {
+    await selectionFlow(page, "mobile");
+  });
+
 });
+
+test.describe("Write touch in German @mobile", () => {
+  test("de: the bar's labels, 44 px targets, no sideways scroll", async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2.625, locale: "de-DE" });
+    const page = await ctx.newPage();
+    const errors = trackErrors(page);
+    await openWrite(page);
+    await expect(page.locator("html")).toHaveAttribute("lang", "de");
+    await editor(page).click();
+    await page.keyboard.type("Hallo schöne Welt");
+    const w = await textBox(page, "schöne");
+    await longPress(page, w.x + w.width / 2, w.y + w.height / 2);
+    await expect.poll(() => selectedText(page)).toBe("schöne");
+    const bar = page.getByTestId("selection-bar");
+    await expect(bar).toHaveAttribute("aria-label", msg("de", "write.touch.selectionBar"));
+    for (const k of BAR_KEYS) {
+      const b = bar.getByRole("button", { name: msg("de", k), exact: true });
+      await expect(b).toBeVisible();
+      const box = (await b.boundingBox())!;
+      expect(Math.min(box.width, box.height), k).toBeGreaterThanOrEqual(44);
+    }
+    await expect(page.getByTestId("selection-handle-end")).toHaveAttribute("aria-label", msg("de", "write.touch.handleEnd"));
+    expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    expect(await areaOverflow(page)).toBeLessThanOrEqual(0);
+    await page.screenshot({ path: `${SHOTS}/P10-M4-selection-de.png` });
+    errors.expectNone();
+    await ctx.close();
+  });
+});
+
+const selectedText = (page: Page) => page.evaluate(() => window.getSelection()?.toString() ?? "");
+const BAR_KEYS = ["fmt.bold", "fmt.italic", "fmt.underline", "write.highlight", "write.link.insertDots", "cmd.copy", "cmd.cut", "cmd.paste", "write.comments.new", "write.touch.more"];
+const BAR_BUTTONS = BAR_KEYS.map((k) => msg("en", k));
+
+/** Items 2 (and 5 on the tablet): long press, the bar, Bold, the end handle, "⋯". */
+async function selectionFlow(page: Page, project: string) {
+  const errors = trackErrors(page);
+  await openFixture(page, "provisional-41-long-document.docx");
+  const w = await textBox(page, "Reference", 0);
+  await longPress(page, w.x + w.width / 2, w.y + w.height / 2);
+  await expect.poll(() => selectedText(page)).toBe("Reference");
+  const bar = page.getByTestId("selection-bar");
+  await expect(bar).toBeVisible();
+  for (const name of BAR_BUTTONS) {
+    const b = bar.getByRole("button", { name, exact: true });
+    await expect(b).toBeVisible();
+    const box = (await b.boundingBox())!;
+    expect(box.height, name).toBeGreaterThanOrEqual(44);
+    expect(box.width, name).toBeGreaterThanOrEqual(44);
+  }
+  // The bar sits above the word, inside the viewport.
+  const bb = (await bar.boundingBox())!;
+  expect(bb.y + bb.height).toBeLessThanOrEqual(w.y + 1);
+  expect(bb.x).toBeGreaterThanOrEqual(0);
+  expect(bb.x + bb.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  // Two handles, 44 px to hit.
+  for (const which of ["start", "end"]) {
+    const h = (await page.getByTestId(`selection-handle-${which}`).boundingBox())!;
+    expect(h.width).toBeGreaterThanOrEqual(44);
+    expect(h.height).toBeGreaterThanOrEqual(44);
+  }
+  // Bold toggles bold on the word.
+  const bold = bar.getByRole("button", { name: "Bold", exact: true });
+  await expect(bold).toHaveAttribute("aria-pressed", "false");
+  await bold.tap();
+  await expect(bold).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".ProseMirror strong").first()).toHaveText("Reference");
+  await page.screenshot({ path: `${SHOTS}/P10-M4-selection-${project}.png` });
+
+  // Drag the end handle two words further ("documents should").
+  const end = (await page.getByTestId("selection-handle-end").boundingBox())!;
+  const target = await textBox(page, "should", 0);
+  const sx = end.x + end.width / 2;
+  const sy = end.y + end.height / 2;
+  const tx = target.x + target.width - 1;
+  const steps: { x: number; y: number }[][] = [];
+  for (let i = 0; i <= 6; i++) steps.push([{ x: sx + ((tx - sx) * i) / 6, y: sy + ((target.y + target.height / 2 - (w.y + w.height / 2)) * i) / 6 }]);
+  steps.push([]);
+  await touch(page, steps);
+  await expect.poll(() => selectedText(page)).toBe("Reference documents should");
+  await expect(bar).toBeVisible();
+
+  // "⋯": the editor's context menu (a sheet on the phone) with the desktop's items.
+  await bar.getByRole("button", { name: "More", exact: true }).tap();
+  const menu = project === "mobile" ? page.getByTestId("context-sheet") : page.getByRole("menu", { name: "Editor" });
+  await expect(menu).toBeVisible();
+  const items = (await menu.getByRole("menuitem").allInnerTexts()).map((s) => s.replace(/\s+/g, " ").trim());
+  for (const want of ["Cut", "Copy", "Paste", "New Comment", "Paragraph…"]) expect(items.some((i) => i.startsWith(want)), want).toBe(true);
+  await expect(page.getByTestId("selection-bar")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  errors.expectNone();
+}
 

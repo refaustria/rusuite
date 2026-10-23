@@ -328,3 +328,6 @@ body,
    phones get 8 px around the fit-width page. */
 .write-scroll { touch-action: pan-x pan-y; }
 html[data-compact] .write-scroll { padding: 8px; }
+/* Selection handles: a 24 px round knob below each end of the selection, 44 px to hit (screen px, outside the zoom). */
+.write-sel-handle { position: fixed; z-index: 20; display: flex; justify-content: center; align-items: flex-start; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.write-sel-handle > span { display: block; margin-top: 6px; border-radius: 50%; background: #2b579a; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
