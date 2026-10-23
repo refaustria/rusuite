@@ -515,6 +515,18 @@ export class CalcStore {
   private toastSeq = 0;
   /** Moves the keyboard focus back to the grid (set by the grid component). */
   focusGrid: () => void = () => {};
+
+  /**
+   * Ref mode of the touch formula keys (P10-M3): taps and drags on cells insert or replace the reference at the caret,
+   * the selection handles extend it. Off again when the edit ends.
+   */
+  touchRef = false;
+
+  setTouchRef(on: boolean): void {
+    if (this.touchRef === on || (on && !this.state.edit)) return;
+    this.touchRef = on;
+    this.notify();
+  }
   /** Internal clipboard (TSV of the last copy), used when the system clipboard is unavailable. */
   clipboard = "";
   /** The last copied/cut block (inputs, style ids, source range). */
@@ -622,6 +634,8 @@ export class CalcStore {
   };
 
   private set(partial: Partial<CalcState>): void {
+    // Ref mode of the touch key row ends with the edit (P10-M3).
+    if (partial.edit === null) this.touchRef = false;
     this.state = { ...this.state, ...partial };
     for (const fn of this.listeners) fn();
   }
@@ -2242,6 +2256,33 @@ export class CalcStore {
     if (this.refuseMergeSplit({ r0: Math.min(src.r0, dst.r0), c0: Math.min(src.c0, dst.c0), r1: dst.r1, c1: dst.c1 })) return Promise.resolve();
     if (this.refuseArrayChange(dst)) return Promise.resolve();
     return this.apply({ type: "fillRange", sheet, src, dst, mode: "copy" });
+  }
+
+  /**
+   * The touch Fill sheet's Fill series / Copy cells (P10-M3): a taller-than-one-row selection is filled down from its
+   * first row, a single row right from its first cell; a single cell fills the next cell below, as a one-cell drag of
+   * the fill handle would.
+   */
+  fillWithin(mode: "series" | "copy"): Promise<void> {
+    const sheet = this.state.activeSheet;
+    const r = clipRange(normalize(this.state.selection), this.cache(sheet));
+    let src: Rect;
+    let dst: Rect;
+    if (r.r1 > r.r0) {
+      src = { ...r, r1: r.r0 };
+      dst = { ...r, r0: r.r0 + 1 };
+    } else if (r.c1 > r.c0) {
+      src = { ...r, c1: r.c0 };
+      dst = { ...r, c0: r.c0 + 1 };
+    } else {
+      if (r.r1 >= LAST_ROW) return Promise.resolve();
+      src = r;
+      dst = { ...r, r0: r.r1 + 1, r1: r.r1 + 1 };
+    }
+    const all = { r0: src.r0, c0: src.c0, r1: dst.r1, c1: dst.c1 };
+    if (this.refuseMergeSplit(all) || this.refuseArrayChange(dst)) return Promise.resolve();
+    this.select(normalizeAround(this.state.selection.anchor, all));
+    return this.apply({ type: "fillRange", sheet, src, dst, mode });
   }
 
   /** Double-click on the fill handle: fills down to the end of the neighbouring column's data. */
