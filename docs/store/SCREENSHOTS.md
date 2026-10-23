@@ -61,6 +61,6 @@ Calc has no selection handles yet (a selected range is shown instead).
 
 | File | Size | Use |
 |---|---|---|
-| `icon-512.png` | 512 × 512, no alpha | Play icon: `src-tauri/icons/icon.png` flattened onto the app colour (full-bleed square, Play rounds it) |
+| `icon-512.png` | 512 × 512, no alpha | Play icon: `src-tauri/icons/icon-fullbleed.png` (the logo tile without rounded corners, RGB) scaled down; Google masks it |
 | `feature-1024x500.png` | 1024 × 500, no alpha | Play feature graphic (English text, app colour gradient, icon) |
-| `appstore-1024.png` | 1024 × 1024, no alpha, square | App Store icon: `icons/ios/AppIcon-512@2x.png` with its baked-in rounded white corners filled with the app colour (Apple applies its own mask) |
+| `appstore-1024.png` | 1024 × 1024, no alpha, square | App Store icon: `src-tauri/icons/icon-fullbleed.png` as is (full-bleed square without baked-in corners; Apple applies its own mask) |

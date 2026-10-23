@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { toOpaquePng, pngInfo, decodePng, encodeRgb } from "./png.mjs";
+import { toOpaquePng, pngInfo } from "./png.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const { chromium } = createRequire(path.join(root, "packages/e2e/"))("@playwright/test");
@@ -232,18 +232,14 @@ async function graphics(opts) {
       const bg = hexRgb(COLORS[app]);
       const ctx = await browser.newContext({ deviceScaleFactor: 1 });
       const page = await ctx.newPage();
-      // Play icon: the 512 px icon (rounded, transparent corners) flattened onto the app colour = full-bleed square.
+      // Play icon and App Store icon: the full-bleed square source (icons/icon-fullbleed.png, 1024², RGB, no baked-in
+      // corners – Apple and Google apply their own masks), scaled for the 512 px Play icon.
+      const full = fs.readFileSync(path.join(iconDir, "icon-fullbleed.png"));
       await page.setViewportSize({ width: 512, height: 512 });
-      await page.setContent(`<body style="margin:0;background:transparent"><img style="display:block;width:512px;height:512px" src="data:image/png;base64,${iconB64}">`);
+      await page.setContent(`<body style="margin:0;background:transparent"><img style="display:block;width:512px;height:512px" src="data:image/png;base64,${full.toString("base64")}">`);
       await page.waitForFunction(() => document.images[0].complete);
       fs.writeFileSync(path.join(dir, "icon-512.png"), toOpaquePng(await page.screenshot({ omitBackground: true }), bg));
-      // App Store icon: the 1024 px iOS icon with its baked-in rounded corners filled with the app colour (Apple masks it).
-      const ios = decodePng(toOpaquePng(fs.readFileSync(path.join(iconDir, "ios", "AppIcon-512@2x.png")), bg));
-      const corner = 240;
-      for (let y = 0; y < ios.height; y++)
-        for (let x = 0; x < ios.width; x++)
-          if ((x < corner || x >= ios.width - corner) && (y < corner || y >= ios.height - corner)) ios.data.set(bg, (y * ios.width + x) * 3);
-      fs.writeFileSync(path.join(dir, "appstore-1024.png"), encodeRgb(ios.width, ios.height, ios.data));
+      fs.writeFileSync(path.join(dir, "appstore-1024.png"), toOpaquePng(full, bg));
       // Feature graphic.
       const c = COLORS[app];
       await page.setViewportSize({ width: 1024, height: 500 });
