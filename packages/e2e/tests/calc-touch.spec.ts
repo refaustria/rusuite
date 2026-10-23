@@ -407,3 +407,52 @@ test.describe("calc touch @mobile", () => {
     });
   }
 });
+
+test.describe("calc touch tablet @tablet", () => {
+  test("with the ribbon: handles after the first touch, long press menu, pinch, the fill menu; no formula keys", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openCalc(page);
+    const grid = new Grid(page);
+    await expect(page.getByTestId("ribbon")).toBeVisible();
+    // A mouse (no touch seen yet): no handles.
+    await grid.click(0, 0);
+    await expect(page.getByTestId("selection-handle-end")).toBeHidden();
+    const b2 = await grid.pos(1, 1);
+    await page.touchscreen.tap(b2.x, b2.y);
+    await expect(page.getByTestId("selection-handle-end")).toBeVisible();
+    await drag(page, await handleOn(page, "selection-handle-end", await grid.pos(1, 1, 32, 10)), await grid.pos(3, 2, 32, 10));
+    await expect(address(page)).toHaveValue("B2:C4");
+    await page.screenshot({ path: `${SHOTS}/P10-M3-tablet.png` });
+    // Long press: the desktop context menu (a menu, the ribbon stays).
+    const c3 = await grid.pos(2, 2);
+    await longPress(page, c3.x, c3.y);
+    await expect(page.getByRole("menu")).toBeVisible();
+    await expect(page.getByTestId("context-sheet")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(address(page)).toHaveValue("B2:C4");
+    // The fill handle's tap: the four fill commands as a menu.
+    const f = await centre(page, "fill-handle-touch");
+    await ptr(page, "pointerdown", f.x, f.y);
+    await ptr(page, "pointerup", f.x, f.y);
+    await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText(["Fill down", "Fill right", "Fill series", "Copy cells"]);
+    await page.keyboard.press("Escape");
+    // Pinch.
+    const c = await grid.pos(10, 4);
+    await ptr(page, "pointerdown", c.x - 40, c.y, 1);
+    await ptr(page, "pointerdown", c.x + 40, c.y, 2);
+    for (let i = 1; i <= 4; i++) {
+      await ptr(page, "pointermove", c.x - 40 - 10 * i, c.y, 1);
+      await ptr(page, "pointermove", c.x + 40 + 10 * i, c.y, 2);
+    }
+    await ptr(page, "pointerup", c.x + 80, c.y, 2);
+    await ptr(page, "pointerup", c.x - 80, c.y, 1);
+    await expect(page.getByTestId("grid-root")).toHaveAttribute("data-zoom", "200");
+    // Editing on the tablet: no formula keys (the ribbon stays).
+    await grid.click(0, 0);
+    await page.keyboard.type("=1");
+    await expect(page.getByTestId("cell-editor")).toBeVisible();
+    await expect(page.getByTestId("formula-keys")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    errors.expectNone();
+  });
+});
