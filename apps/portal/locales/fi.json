@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – pieni toimisto-ohjelmisto Rust-ytimellä: Calc, Write ja Show selaimessa ja työpöydällä.",
   "portal.downloads": "Työpöytälataukset",
   "portal.dl.title": "Lataukset – Rusuite",
-  "portal.dl.heading": "Työpöytälataukset",
+  "portal.dl.heading": "Lataukset",
   "portal.dl.nav": "Lataukset",
   "portal.dl.lead": "Rusuite {tag} Windowsille, macOS:lle ja Linuxille",
   "portal.dl.none": "Työpöytäversiota ei ole vielä julkaistu. Koontiversiot ilmestyvät <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a> -sivulle.",

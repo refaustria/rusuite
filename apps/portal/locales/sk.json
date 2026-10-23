@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – malý kancelársky balík s jadrom v Ruste: Calc, Write a Show vo webovom prehliadači aj na počítači.",
   "portal.downloads": "Stiahnutia pre počítač",
   "portal.dl.title": "Stiahnutia – Rusuite",
-  "portal.dl.heading": "Stiahnutia pre počítač",
+  "portal.dl.heading": "Stiahnutia",
   "portal.dl.nav": "Stiahnutia",
   "portal.dl.lead": "Rusuite {tag} pre Windows, macOS a Linux",
   "portal.dl.none": "Zatiaľ nebolo zverejnené žiadne desktopové vydanie. Zostavenia sa zobrazia na <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

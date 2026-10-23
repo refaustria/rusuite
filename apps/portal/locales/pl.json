@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – mały pakiet biurowy z jądrem w Ruście: Calc, Write i Show, w przeglądarce i na komputerze.",
   "portal.downloads": "Pobieranie na komputer",
   "portal.dl.title": "Pobieranie – Rusuite",
-  "portal.dl.heading": "Pobieranie na komputer",
+  "portal.dl.heading": "Pobieranie",
   "portal.dl.nav": "Pobieranie",
   "portal.dl.lead": "Rusuite {tag} dla systemów Windows, macOS i Linux",
   "portal.dl.none": "Nie opublikowano jeszcze żadnego wydania na komputery. Wersje pojawią się w <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

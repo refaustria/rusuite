@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – sraith oifige bheag le croílár Rust: Calc, Write agus Show, i do bhrabhsálaí agus ar an deasc.",
   "portal.downloads": "Íoslódálacha deisce",
   "portal.dl.title": "Íoslódálacha – Rusuite",
-  "portal.dl.heading": "Íoslódálacha deisce",
+  "portal.dl.heading": "Íoslódálacha",
   "portal.dl.nav": "Íoslódálacha",
   "portal.dl.lead": "Rusuite {tag} do Windows, macOS agus Linux",
   "portal.dl.none": "Níor foilsíodh aon eisiúint deisce go fóill. Tagann tógálacha chun solais ar <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

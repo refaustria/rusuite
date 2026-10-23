@@ -144,7 +144,7 @@ test.describe("Downloads page", () => {
     await page.goto("./");
     await page.getByRole("navigation").getByRole("link", { name: "Downloads" }).click();
     await expect(page).toHaveURL(/\/downloads\.html$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Desktop downloads" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Downloads" })).toBeVisible();
     // Two states: the committed fallback (no release) and the page generated at deploy time from a release.
     const release = (await page.getByTestId("downloads").getAttribute("data-release")) ?? "none";
     if (release === "none") {
@@ -161,7 +161,7 @@ test.describe("Downloads page", () => {
       await expect(page.locator('[data-steps="macos15"]')).toContainText("Open Anyway");
     }
     await page.getByTestId("portal-language").selectOption("de");
-    await expect(page.getByRole("heading", { level: 1, name: "Desktop-Downloads" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Downloads" })).toBeVisible();
     await page.getByTestId("portal-language").selectOption("en");
     errors.expectNone();
   });

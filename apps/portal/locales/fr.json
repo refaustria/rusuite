@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – une petite suite bureautique avec un cœur en Rust : Calc, Write et Show, dans ton navigateur et sur ton ordinateur.",
   "portal.downloads": "Téléchargements pour ordinateur",
   "portal.dl.title": "Téléchargements – Rusuite",
-  "portal.dl.heading": "Téléchargements pour ordinateur",
+  "portal.dl.heading": "Téléchargements",
   "portal.dl.nav": "Téléchargements",
   "portal.dl.lead": "Rusuite {tag} pour Windows, macOS et Linux",
   "portal.dl.none": "Aucune version pour ordinateur n’a encore été publiée. Les versions apparaissent sur <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

@@ -10,7 +10,7 @@
   "portal.description": "Rusuite – o suită office compactă cu nucleu Rust: Calc, Write și Show, în browser și pe desktop.",
   "portal.downloads": "Descărcări pentru desktop",
   "portal.dl.title": "Descărcări – Rusuite",
-  "portal.dl.heading": "Descărcări pentru desktop",
+  "portal.dl.heading": "Descărcări",
   "portal.dl.nav": "Descărcări",
   "portal.dl.lead": "Rusuite {tag} pentru Windows, macOS și Linux",
   "portal.dl.none": "Nu a fost publicată încă nicio versiune pentru desktop. Versiunile apar pe <a href=\"https://github.com/refaustria/rusuite/releases\">GitHub Releases</a>.",

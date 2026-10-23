@@ -2,4 +2,4 @@
 • Telefonra és táblagépre készült appok érintésre optimalizált elrendezéssel
 • Szerkesztés érintéssel: kijelölési fogantyúk, nagyítás két ujjal, gesztusok
 • Exportálás PDF-be
-• Aláírt asztali appok Windowsra, macOS-re és Linuxra
+• Aláírt asztali appok macOS-re (notarizált) és Linuxra (GPG)

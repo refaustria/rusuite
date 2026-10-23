@@ -2,4 +2,4 @@ Kas naujo versijoje 3.1415
 • Programėlės telefonui ir planšetei su prisilietimui pritaikytu išdėstymu
 • Redagavimas prisilietimu: pasirinkimo rankenėlės, mastelio keitimas dviem pirštais, gestai
 • Eksportavimas į PDF
-• Pasirašytos kompiuterio programos „Windows“, „macOS“ ir „Linux“
+• Pasirašytos kompiuterio programos „macOS“ (notarizuotos) ir „Linux“ (GPG)

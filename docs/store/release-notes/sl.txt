@@ -2,4 +2,4 @@ Novosti v različici 3.1415
 • Aplikacije za telefon in tablico z razporeditvijo za dotik
 • Urejanje z dotikom: ročice izbora, povečava z dvema prstoma, kretnje
 • Izvoz v PDF
-• Podpisane namizne aplikacije za Windows, macOS in Linux
+• Podpisane namizne aplikacije za macOS (notarizirane) in Linux (GPG)

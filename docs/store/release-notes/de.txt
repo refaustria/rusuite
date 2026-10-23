@@ -2,4 +2,4 @@ Neu in 3.1415
 • Apps für Smartphone und Tablet mit touchfreundlichem Layout
 • Bearbeiten per Touch: Auswahlgriffe, Zoomen mit zwei Fingern, Gesten
 • Export als PDF
-• Signierte Desktop-Apps für Windows, macOS und Linux
+• Signierte Desktop-Apps für macOS (notarisiert) und Linux (GPG)
