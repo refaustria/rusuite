@@ -1,0 +1,5 @@
+Uutta versiossa 3.1415
+• Puhelin- ja tablet-sovellukset kosketukselle sopivalla asettelulla
+• Muokkaus kosketuksella: valintakahvat, zoomaus kahdella sormella, eleet
+• Vienti PDF-muotoon
+• Allekirjoitetut työpöytäsovellukset Windowsille, macOS:lle ja Linuxille

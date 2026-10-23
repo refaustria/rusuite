@@ -1,0 +1,5 @@
+Nouveautés de la version 3.1415
+• Applications pour smartphone et tablette avec une mise en page tactile
+• Édition tactile : poignées de sélection, zoom à deux doigts, gestes
+• Exportation au format PDF
+• Applications de bureau signées pour Windows, macOS et Linux

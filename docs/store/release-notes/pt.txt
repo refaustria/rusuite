@@ -1,0 +1,5 @@
+Novidades da versão 3.1415
+• Aplicações para telemóvel e tablet com um esquema pensado para toque
+• Edição por toque: pegas de seleção, zoom com dois dedos, gestos
+• Exportação para PDF
+• Aplicações de computador assinadas para Windows, macOS e Linux
