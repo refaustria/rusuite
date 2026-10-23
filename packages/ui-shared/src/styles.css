@@ -126,13 +126,14 @@ html[data-compact] .rs-touch label:has(> input:is([type="checkbox"], [type="radi
   min-width: 44px;
 }
 
-/* Colour grids (ColorPicker) in sheets (P10-M3): cells a finger can hit – 40 px tall, the ten columns share the
-   sheet's width (≈ 37 px each on a 412 px phone). */
+/* Colour grids (ColorPicker) in sheets (P10-M3, P10-X1): cells a finger can hit – each row of ten wraps into two rows
+   of five, so a cell is 40 px tall and well over 40 px wide even on a 360 px phone. */
 html[data-compact] [data-bottom-sheet] .w-60:has(button[data-cell]) {
   width: auto;
 }
 html[data-compact] [data-bottom-sheet] .grid:has(> button[data-cell]) {
   gap: 3px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 html[data-compact] [data-bottom-sheet] button[data-cell] {
   width: 100%;
