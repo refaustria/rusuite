@@ -14,6 +14,7 @@ import { useT } from "./i18n";
 import { NameBox } from "./names/NameBox";
 import { formulaHidden } from "./protection/protection";
 import { applySeriesFormula, seriesFormula } from "./charts/extras";
+import { useCompact } from "@rusuite/ui-shared";
 
 /** While a chart series is selected the bar shows its `=SERIES(…)` formula (Excel); Enter applies an edit. */
 function SeriesFormulaField({ store, series }: { store: CalcStore; series: number }) {
@@ -69,6 +70,10 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   const sheets = useCalc(store, (s) => s.info?.sheets);
   const activeSheet = useCalc(store, (s) => s.activeSheet);
   const [scrollX, setScrollX] = useState(0);
+  // Compact layout (P10-M3): one line, the name box as a chip, an expand button for long formulas.
+  const compact = useCompact();
+  const [expandedState, setExpanded] = useState(false);
+  const expanded = compact && expandedState;
   useEditorBinding(store, "bar", input);
 
   const origin = edit?.origin;
@@ -95,7 +100,8 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   const anchor = store.activeAnchor();
   const value = edit ? edit.text : hidden ? "" : store.calcTools.displayInput(ghost?.input ?? store.activeCell()?.input ?? "", anchor.row, anchor.col);
   const refs = edit && isFormula(edit.text) ? store.editRefs() : [];
-  const colored = refs.length > 0;
+  // The coloured overlay follows one scrolled line; the expanded (wrapping) field is plain.
+  const colored = refs.length > 0 && !expanded;
   // The in-cell editor is hidden while pointing on another sheet: the bar then shows the popups.
   const popups = !!edit && (origin === "bar" || edit.sheet !== activeSheet);
 
@@ -116,9 +122,13 @@ export function FormulaBar({ store }: { store: CalcStore }) {
   const seriesSel = chartEl && (chartEl.type === "series" || chartEl.type === "dataLabels" || chartEl.type === "trendline" || chartEl.type === "errorBars") ? chartEl.series : null;
 
   return (
-    <div className="flex items-center gap-2 border-b border-ui-border bg-ui-bg px-2 py-1 text-sm text-ui-fg">
-      <NameBox store={store} address={address} />
-      <button
+    <div
+      className={`flex gap-2 border-b border-ui-border bg-ui-bg px-2 py-1 text-sm text-ui-fg ${compact ? "rs-touch items-start" : "items-center"}`}
+      data-testid="formula-bar"
+      data-expanded={expanded ? "" : undefined}
+    >
+      <NameBox store={store} address={address} compact={compact} />
+      {!compact && <button
         type="button"
         aria-label={t("calc.insertFunction")}
         title={t("calc.insertFunction")}
@@ -130,25 +140,27 @@ export function FormulaBar({ store }: { store: CalcStore }) {
         }}
       >
         fx
-      </button>
+      </button>}
       <div className="relative min-w-0 flex-1">
         {seriesSel !== null && <SeriesFormulaField store={store} series={seriesSel} />}
         <div className={seriesSel !== null ? "hidden" : "contents"}>
         {colored && (
-          <div className="pointer-events-none absolute inset-0 overflow-hidden rounded border border-transparent px-2 py-0.5 font-mono">
+          <div className={`pointer-events-none absolute inset-0 overflow-hidden rounded border border-transparent px-2 py-0.5 font-mono ${compact ? "leading-[40px]" : ""}`}>
             <FormulaOverlay text={value} refs={refs} className="whitespace-pre" style={{ transform: `translateX(${-scrollX}px)` }} />
           </div>
         )}
         {/* A one-line textarea (not an <input>, which drops line breaks): Alt+Enter line breaks survive editing here. */}
         <textarea
           ref={input}
-          rows={1}
-          wrap="off"
+          rows={expanded ? 4 : 1}
+          wrap={expanded ? "soft" : "off"}
           {...{ [FORMULA_BAR_ATTR]: "" }}
           aria-label={t("calc.formulaBar")}
           spellCheck={false}
           autoComplete="off"
-          className={`relative block h-[26px] w-full resize-none overflow-hidden whitespace-pre rounded border border-ui-border px-2 py-0.5 font-mono leading-5 outline-none focus:border-ui-focus ${
+          className={`relative block w-full resize-none rounded border ${
+            expanded ? "h-[104px] overflow-auto whitespace-pre-wrap break-all" : compact ? "h-11 overflow-hidden whitespace-pre leading-[40px]" : "h-[26px] overflow-hidden whitespace-pre"
+          } border-ui-border px-2 py-0.5 font-mono ${compact ? "" : "leading-5"} outline-none focus:border-ui-focus ${
             colored ? "bg-transparent text-transparent" : ghost ? "bg-ui-bg text-ui-muted" : "bg-ui-bg"
           }`}
           readOnly={!!ghost || hidden}
@@ -177,6 +189,19 @@ export function FormulaBar({ store }: { store: CalcStore }) {
         {popups && <EditPopups store={store} />}
         </div>
       </div>
+      {compact && (
+        <button
+          type="button"
+          data-testid="formula-bar-expand"
+          aria-label={expanded ? t("calc.formulaBar.collapse") : t("calc.formulaBar.expand")}
+          aria-expanded={expanded}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-ui-muted hover:bg-ui-hover"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setExpanded((x) => !x)}
+        >
+          <span aria-hidden="true" className={`inline-block transition-transform ${expanded ? "rotate-180" : ""}`}>⌄</span>
+        </button>
+      )}
     </div>
   );
 }

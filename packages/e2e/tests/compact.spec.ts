@@ -368,8 +368,11 @@ test.describe("compact layout @mobile", () => {
         window.dispatchEvent(new Event("rusuite:visualviewport"));
       }, visible);
       await expect(page.locator("html")).toHaveAttribute("data-keyboard", "");
-      await expect.poll(async () => Math.round(((await bar(page).boundingBox())!.y + (await bar(page).boundingBox())!.height))).toBe(visible);
-      const barTop = (await bar(page).boundingBox())!.y;
+      // Calc edits in the formula bar: the formula keys take the command bar's place above the keyboard (P10-M3).
+      const pinned = app === "calc" ? page.getByTestId("formula-keys") : bar(page);
+      if (app === "calc") await expect(bar(page)).toBeHidden();
+      await expect.poll(async () => Math.round(((await pinned.boundingBox())!.y + (await pinned.boundingBox())!.height))).toBe(visible);
+      const barTop = (await pinned.boundingBox())!.y;
       const doc = (await focusTarget.boundingBox())!;
       expect(doc.y).toBeGreaterThanOrEqual(0);
       // The formula bar entirely, the editor and the slide at least partly, above the command bar.
@@ -380,6 +383,11 @@ test.describe("compact layout @mobile", () => {
         window.dispatchEvent(new Event("rusuite:visualviewport"));
       });
       await expect.poll(async () => Math.round(((await bar(page).boundingBox())!.y + (await bar(page).boundingBox())!.height))).toBe(915);
+      if (app === "calc") {
+        // Without the keyboard the keys sit right above the command bar.
+        const k = (await page.getByTestId("formula-keys").boundingBox())!;
+        expect(Math.round(k.y + k.height)).toBe(Math.round((await bar(page).boundingBox())!.y));
+      }
       errors.expectNone();
     });
   }

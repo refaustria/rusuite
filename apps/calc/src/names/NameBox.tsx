@@ -7,7 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { useCalc, type CalcStore } from "../state/store";
 
-export function NameBox({ store, address }: { store: CalcStore; address: string }) {
+/** `compact` (P10-M3): a 44 px chip; a tap edits it (the keyboard opens), the ▾ list stays next to it. */
+export function NameBox({ store, address, compact = false }: { store: CalcStore; address: string; compact?: boolean }) {
   const t = useT();
   useCalc(store, (s) => s.info?.names);
   useCalc(store, (s) => s.selection);
@@ -34,7 +35,7 @@ export function NameBox({ store, address }: { store: CalcStore; address: string 
   };
 
   return (
-    <div className="relative flex w-36 shrink-0" data-testid="name-box">
+    <div className={`relative flex shrink-0 ${compact ? "w-[124px]" : "w-36"}`} data-testid="name-box" data-chip={compact ? "" : undefined}>
       <input
         ref={input}
         role="combobox"
@@ -45,7 +46,9 @@ export function NameBox({ store, address }: { store: CalcStore; address: string 
         data-testid="cell-address"
         spellCheck={false}
         autoComplete="off"
-        className="h-6 min-w-0 flex-1 rounded-l border border-ui-border bg-ui-bg px-2 font-mono text-sm text-ui-fg outline-none focus:border-ui-focus"
+        className={`min-w-0 flex-1 border border-ui-border font-mono text-ui-fg outline-none focus:border-ui-focus ${
+          compact ? "h-11 !min-w-0 rounded-l-full bg-ui-panel pl-3 pr-1 text-center text-sm focus:bg-ui-bg" : "h-6 rounded-l bg-ui-bg px-2 text-sm"
+        }`}
         value={text ?? shown}
         onFocus={(e) => e.target.select()}
         onBlur={() => {
@@ -75,7 +78,7 @@ export function NameBox({ store, address }: { store: CalcStore; address: string 
         type="button"
         aria-label={t("calc.nameBoxList")}
         title={t("calc.nameBoxList")}
-        className="h-6 rounded-r border border-l-0 border-ui-border bg-ui-bg px-1 text-xs text-ui-muted hover:bg-ui-hover"
+        className={`border border-l-0 border-ui-border text-xs text-ui-muted hover:bg-ui-hover ${compact ? "h-11 rounded-r-full bg-ui-panel pr-1" : "h-6 rounded-r bg-ui-bg px-1"}`}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
           setOpen((o) => !o);
