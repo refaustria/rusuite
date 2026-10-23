@@ -18,8 +18,11 @@ release whose public name has one more digit than the previous one:
 - **Build only at the end of a cycle:** no version bump, tag or installer build until every block of the cycle is
   merged and verified (owner rule). CI keeps running on every merge; the web at rusuit.es is deployed from `main` after
   each verified merge as before (each merged task is complete on its own).
-- **Known constraint for the release after 3.141:** the MSI (WiX) version limits MINOR to 255, so `3.1415.0` cannot be
-  used verbatim as `bundle.windows.wix.version`. The release task of that cycle maps it (for example `3.1.4159.0`:
-  MAJOR.MINOR.BUILD with BUILD ≤ 65535 – `3.141592` then needs a different mapping). `scripts/versions-lib.sh
-  wix_version` is the single place to change.
+- **MSI (WiX) mapping:** WiX limits MINOR to 255, so `3.1415.0` cannot be used verbatim as `bundle.windows.wix.version`.
+  `scripts/versions-lib.sh wix_version` maps MINOR > 255 to `MAJOR.<first two digits>.<remaining digits>.PATCH`:
+  `3.1415.0` → `3.14.15.0`, `3.14159.0` → `3.14.159.0`, `3.141592.0` → `3.14.1592.0`; `3.141.0` stays. Windows Installer
+  compares MAJOR.MINOR.BUILD, so the MSI of 3.1415 (MINOR 14) is **not** an upgrade of the MSI of 3.141 (MINOR 141):
+  accepted once (PM decision); the NSIS `.exe` installer upgrades fine, MSI users uninstall 3.141 first.
+- Android `versionCode` and the iOS build number use `major·10⁶ + minor·10³ + patch` (3.141.0 → 3141000, 3.1415.0 →
+  4415000) and stay monotonic; `scripts/check-versions.sh` asserts it against the earlier releases' notes.
 - `scripts/set-version.sh 3.141.0` sets every version string; `scripts/check-versions.sh` (CI) verifies them.

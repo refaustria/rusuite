@@ -36,9 +36,18 @@ Office check pack in `/home/bojan/rusuite-office-check/rusuite-office-check-3.14
    MSI (WiX) accepts only numeric versions, so a pre-release `X.Y.Z-pre.N` gets `bundle.windows.wix.version` =
    `X.Y.Z.N` (`0.1.0-rc.1` → `0.1.0.1`); a release gets `X.Y.Z`. Windows Installer compares only the first three
    fields, so an rc and its final release upgrade each other.
-   **π versions (docs/versioning.md):** `3.141.0` is a valid MSI version as is (MINOR 141 ≤ 255). The next cycle's
-   `3.1415.0` is not – WiX limits MINOR to 255 – so that release task changes `wix_version` in
-   `scripts/versions-lib.sh` (the single place; e.g. `3.1.4159.0`, BUILD ≤ 65535) before running `set-version.sh`.
+   **π versions (docs/versioning.md):** `3.141.0` is a valid MSI version as is (MINOR 141 ≤ 255). WiX limits MINOR to
+   255, so `wix_version` in `scripts/versions-lib.sh` maps larger minors: the first two digits after "3." stay MINOR,
+   the rest becomes BUILD, PATCH becomes REV – `3.1415.0` → `3.14.15.0`, `3.14159.0` → `3.14.159.0`,
+   `3.141592.0` → `3.14.1592.0` (test: `scripts/versions-lib.test.sh`).
+   **MSI upgrade 3.141 → 3.1415 (decision 2026-10-23, PM):** Windows Installer compares MAJOR.MINOR.BUILD; `3.141.0`
+   (old scheme, MINOR 141) is greater than `3.14.15.0` (MINOR 14), so the MSI of 3.1415 is **not** recognised as an
+   upgrade. Accepted once, because the MSI is the secondary Windows installer: the NSIS `.exe` upgrades fine; MSI users
+   uninstall 3.141 first (the release notes say so). From 3.1415 on the mapping is monotonic (14.15 < 14.159 < 14.1592
+   as BUILD grows).
+   `check-versions.sh` also asserts that the Android `versionCode` / iOS build number (major·10⁶ + minor·10³ + patch,
+   `scripts/mobile/version-code.sh`; 3.1415.0 → 4415000) is greater than that of every release with a
+   `docs/release-notes/` file (3.141 → 3141000).
 3. Regenerate `NOTICE`: `scripts/gen-notice.sh` (needs `cargo-license`, docs/setup.md); it also writes the "Data
    sources" paragraph (docs/legal-notes.md).
 4. Build the Office check pack for the owner: `scripts/office-check-pack.sh /home/bojan/rusuite-office-check` (release

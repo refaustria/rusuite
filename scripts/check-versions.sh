@@ -40,5 +40,19 @@ for pkg in "${pkgs[@]}"; do
   [ "$v" = "$expected" ] || mismatch "$pkg version" "$v" "$expected"
 done
 
+# Android versionCode / iOS build number must stay monotonic (P10-R1): greater than the code of every earlier release,
+# read from the docs/release-notes/<public-name>.md files (the notes of the version being checked are skipped).
+if ! [[ "$expected" == *-* ]]; then
+  code=$(version_code "$expected")
+  for notes in docs/release-notes/*.md; do
+    prev=$(basename "$notes" .md)
+    [ "$prev" = "$(public_version "$expected")" ] && continue
+    [[ "$prev" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || continue
+    [[ "$prev" =~ ^[0-9]+\.[0-9]+$ ]] && prev="$prev.0"
+    prev_code=$(version_code "$prev")
+    [ "$code" -gt "$prev_code" ] || mismatch "mobile version code of $expected" "$code" "> $prev_code (release $prev)"
+  done
+fi
+
 if [ "$fail" = 0 ]; then echo "check-versions: $expected everywhere ($count crates, ${#confs[@]} tauri.conf.json, ${#pkgs[@]} package.json)"; fi
 exit "$fail"
