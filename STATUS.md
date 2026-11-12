@@ -2,7 +2,13 @@
 
 _Maintained by the PM agent. Read at the start of every session; update after every task._
 
-## Current cycle: 3.1415 (owner direction 2026-10-22)
+## Current cycle: 3.14159 – Rusuite Notes (owner direction 2026-11-12)
+
+**Owner direction 2026-11-12:** build a OneNote-like app ("Rusuite Notes") in the suite, same look & feel, web first then desktop (mobile later); shared notebooks instant, visible editors, never conflicts. Design approved: `docs/superpowers/specs/2026-11-12-notes-design.md`; plan `docs/plan-3.14159.md`. Owner: "setze jetzt alles um … Entscheidungen eigenständig, essenzielle parken". Decisions: E2E-encrypted relay on rusuit.es, Loro CRDT, flowing pages + canvas, per-device keys + owner role, OneNote import (owner tests with real notebooks at the end). 3.1415 release still gated on owner inputs (below).
+
+Running: P11-N0 (Loro spike, throwaway), P11-O1 (fmt-onenote). Parked for the owner: none.
+
+## Previous cycle (release pending): 3.1415 (owner direction 2026-10-22)
 
 **Owner direction 2026-10-22:** "Finish what we started. Sign the apps, create mobile apps and upload those into playstore and apple connect … Register the apps and fill out all that is necessary for submit" + "Also sign macOS, windows and Linux apps". Plan: `docs/plan-3.1415.md` (Block S signing, Block M mobile, Block R release 3.1415). Credentials found: Apple team `PM7LTV7M72`, iOS distribution certificate + profile (`~/ios-signing`, gitref), Android upload keystore (`~/android-signing`), Play service accounts (`~/gitref-play-service-account.json`, `~/gitref-mobile-claude-service-account.json`). **Missing (owner):** the App Store Connect API key `.p8` (exists only as a GitHub secret of gitref-v2), a Windows code-signing certificate (none), a connected Chrome for the store consoles (P10-M9). PM decisions pending owner veto: both platforms at once, tablets ≥ 900 px keep the ribbon, free apps / no data collection / rating Everyone.
 

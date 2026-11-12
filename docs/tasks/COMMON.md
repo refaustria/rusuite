@@ -34,3 +34,10 @@ Claude-Session: https://claude.ai/code/session_01YGiiEDN1zSPaDE4h1jA1hU
 - Secrets: never commit, print or log a key, password, keystore, certificate or token. Signing material lives in `~/rusuite-signing/` (PM only) and in GitHub repository secrets; scripts and workflows read them from the environment and must work (unsigned) when they are absent.
 - Mobile CI: iOS cannot be built on this server. A task whose brief says so may push its own branch to `origin` (only its branch, `git push -u origin <branch>`) to run `.github/workflows/mobile.yml`; never push `main` or tags. Watch runs with `gh run list --branch <branch>` / `gh run view <id> --log-failed`.
 - Android builds locally: SDK `/home/bojan/android-sdk` (platforms 34–36, build-tools 36, NDK 28.2.13676358, no emulator – no `/dev/kvm`), Java 21 at `/usr/bin/java`. Export `ANDROID_HOME=/home/bojan/android-sdk NDK_HOME=/home/bojan/android-sdk/ndk/28.2.13676358 JAVA_HOME=$(dirname $(dirname $(readlink -f /usr/bin/java)))` and add the Rust targets you need with `rustup target add`.
+
+## Cycle 3.14159 – Rusuite Notes (added 2026-11-12)
+- Task ids `P11-N<n>` (Notes), `P11-O<n>` (OneNote import), `P11-L<n>`, `P11-X<n>`, `P11-R<n>`. e2e ports: Notes 511n, relay/sharing 512n, import/export 513n, languages/polish 514n. Plan: `docs/plan-3.14159.md`; spec: `docs/superpowers/specs/2026-11-12-notes-design.md` (read it first).
+- Commit trailer for this cycle (replaces the one above):
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019QH3dMDpgbh6DfgJE9ox7s
+- Disk is tight (~25 GB free): when done, delete your worktree's `target/` except what the PM needs to verify is reproducible (`cargo clean` in the worktree after your final test run is fine).
