@@ -339,9 +339,13 @@ pub struct BlockTag {
     pub checked: Option<bool>,
     pub text: String,
     pub block: u32,
+    /// Child indices from the `doc` node down to the tagged node (`path[0] == block`); the same indices in the
+    /// ProseMirror document and in the Loro `children` lists (block containers hold only node maps).
+    pub path: Vec<u32>,
 }
 
-/// A to-do: a `taskItem` (check list; `tags` empty) or a block tagged with a to-do kind tag.
+/// A to-do: a `taskItem` (check list; `tags`: tags on the item or its text blocks) or a block tagged with a
+/// to-do kind tag. A tagged block inside a `taskItem` is that task item (listed once).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "ts",
@@ -354,6 +358,8 @@ pub struct TaskItem {
     pub checked: bool,
     pub block: u32,
     pub tags: Vec<String>,
+    /// Child indices from `doc` to the node holding `checked` (see [`BlockTag::path`]).
+    pub path: Vec<u32>,
 }
 
 /// Everything the core's index needs from one page, read in one pass.
@@ -373,18 +379,33 @@ impl PageIndexData {
     #[must_use]
     pub fn tasks(&self, todo_tags: &[String]) -> Vec<TaskItem> {
         let mut out: Vec<TaskItem> = self.task_items.clone();
-        out.extend(
-            self.block_tags
-                .iter()
-                .filter(|b| b.tags.iter().any(|t| todo_tags.contains(t)))
-                .map(|b| TaskItem {
+        let items = out.len();
+        for b in &self.block_tags {
+            // A tagged node inside (or on) a task item is that item: its tags join the item's, no second entry
+            // (the innermost item when task lists nest).
+            if let Some(item) = out[..items]
+                .iter_mut()
+                .filter(|t| b.path.starts_with(&t.path))
+                .max_by_key(|t| t.path.len())
+            {
+                for tag in &b.tags {
+                    if !item.tags.contains(tag) {
+                        item.tags.push(tag.clone());
+                    }
+                }
+                continue;
+            }
+            if b.tags.iter().any(|t| todo_tags.contains(t)) {
+                out.push(TaskItem {
                     text: b.text.clone(),
                     checked: b.checked.unwrap_or(false),
                     block: b.block,
                     tags: b.tags.clone(),
-                }),
-        );
-        out.sort_by_key(|t| t.block);
+                    path: b.path.clone(),
+                });
+            }
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
         out
     }
 }
@@ -396,9 +417,12 @@ pub(crate) fn index(doc: &PmNode) -> PageIndexData {
     };
     let mut links = Vec::new();
     let mut blobs = BTreeSet::new();
+    let mut path = Vec::new();
     for (i, block) in doc.children().iter().enumerate() {
         let block_ix = u32::try_from(i).unwrap_or(u32::MAX);
-        visit(block, block_ix, &mut d, &mut links, &mut blobs);
+        path.push(block_ix);
+        visit(block, block_ix, &mut path, &mut d, &mut links, &mut blobs);
+        path.pop();
     }
     let mut seen = BTreeSet::new();
     d.links = links
@@ -412,6 +436,7 @@ pub(crate) fn index(doc: &PmNode) -> PageIndexData {
 fn visit(
     n: &PmNode,
     block: u32,
+    path: &mut Vec<u32>,
     d: &mut PageIndexData,
     links: &mut Vec<String>,
     blobs: &mut BTreeSet<String>,
@@ -460,6 +485,7 @@ fn visit(
                         .unwrap_or(false),
                     block,
                     tags: Vec::new(),
+                    path: path.clone(),
                 });
             }
             if let Some(Value::Array(tags)) = attrs.get("tags") {
@@ -473,11 +499,14 @@ fn visit(
                         checked: attrs.get("checked").and_then(Value::as_bool),
                         text: n.text(),
                         block,
+                        path: path.clone(),
                     });
                 }
             }
-            for c in children {
-                visit(c, block, d, links, blobs);
+            for (i, c) in children.iter().enumerate() {
+                path.push(u32::try_from(i).unwrap_or(u32::MAX));
+                visit(c, block, path, d, links, blobs);
+                path.pop();
             }
         }
     }

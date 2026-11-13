@@ -3,7 +3,7 @@
 // timestamps on and the 10 s change merge interval. Its local updates go to the core (`import_updates`); changes the
 // core makes to the page (rename, later relay updates) come back with `pull` – through the IME guard.
 
-import { LoroDoc, LoroList, LoroMap, LoroText, UndoManager, type VersionVector } from "loro-crdt";
+import { isContainer, LoroDoc, LoroList, LoroMap, LoroText, UndoManager, type LoroEventBatch, type VersionVector } from "loro-crdt";
 import type { OpenedPage } from "../generated/OpenedPage";
 import { ImeGuard } from "./ime";
 
@@ -33,6 +33,49 @@ export function genesisTextId(doc: LoroDoc): string | null {
   return text instanceof LoroText ? text.id : null;
 }
 
+/** Nodes with inline content: they get their (empty) `LoroText` when they are created. */
+export const TEXTBLOCKS = new Set(["paragraph", "heading", "codeBlock"]);
+
+/** The commit origin of the text containers `PageMirror` adds to new empty blocks. */
+export const TEXT_ORIGIN = "notes:text";
+
+/**
+ * Gives every empty text block under `map` (itself included) an empty `LoroText` – so a block's first keystroke
+ * only inserts characters, and undoing it can never delete the container a peer typed into meanwhile (spike Q5).
+ * Returns whether it added any.
+ */
+export function addTextContainers(map: LoroMap): boolean {
+  let added = false;
+  const children = map.get("children");
+  if (!(children instanceof LoroList)) return false;
+  const name = map.get("nodeName");
+  if (typeof name === "string" && TEXTBLOCKS.has(name)) {
+    if (children.length === 0) {
+      children.insertContainer(0, new LoroText());
+      added = true;
+    }
+    return added;
+  }
+  for (let i = 0; i < children.length; i++) {
+    const c = children.get(i);
+    if (c instanceof LoroMap && addTextContainers(c)) added = true;
+  }
+  return added;
+}
+
+/** The node maps a local commit inserted into `children` lists (from the event batch's list diffs). */
+function insertedMaps(batch: LoroEventBatch): LoroMap[] {
+  const out: LoroMap[] = [];
+  for (const e of batch.events) {
+    if (e.diff.type !== "list") continue;
+    for (const d of e.diff.diff) {
+      if (!d.insert) continue;
+      for (const v of d.insert) if (isContainer(v) && v instanceof LoroMap) out.push(v);
+    }
+  }
+  return out;
+}
+
 let genesisIdCache: { bytes: Uint8Array; id: string | null } | null = null;
 
 /** The text container id the genesis bytes create (peer 0, deterministic). */
@@ -57,6 +100,7 @@ export class PageMirror {
   private shipped: VersionVector;
   private shipping: Promise<void> = Promise.resolve();
   private readonly unsubscribe: () => void;
+  private readonly unsubscribeEvents: () => void;
   private disposed = false;
 
   private constructor(
@@ -79,6 +123,19 @@ export class PageMirror {
     this.unsubscribe = doc.subscribeLocalUpdates((bytes) => {
       this.ship(bytes);
       this.onLocalUpdate?.();
+    });
+    // Blocks the editor creates get their text container in the same undo step (a commit of their own right
+    // after the binding's, merged by the UndoManager's interval).
+    this.unsubscribeEvents = doc.subscribe((batch) => {
+      if (batch.by !== "local" || batch.origin === TEXT_ORIGIN) return;
+      const maps = insertedMaps(batch);
+      if (maps.length === 0) return;
+      queueMicrotask(() => {
+        if (this.disposed) return;
+        let added = false;
+        for (const m of maps) if (m.isAttached() && !m.isDeleted() && addTextContainers(m)) added = true;
+        if (added) doc.commit({ origin: TEXT_ORIGIN });
+      });
     });
     this.undo = new UndoManager(doc, { mergeInterval: UNDO_MERGE_MS, maxUndoSteps: 500 });
     this.shipped = doc.oplogVersion();
@@ -143,6 +200,7 @@ export class PageMirror {
     this.drain();
     this.disposed = true;
     this.unsubscribe();
+    this.unsubscribeEvents();
     // The UndoManager stays alive until the editor using it is gone (its plugin still reads it while unmounting).
   }
 }

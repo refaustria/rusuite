@@ -20,6 +20,7 @@ pub enum App {
     Calc,
     Write,
     Show,
+    Notes,
 }
 
 impl App {
@@ -28,6 +29,7 @@ impl App {
             App::Calc => "calc",
             App::Write => "write",
             App::Show => "show",
+            App::Notes => "notes",
         }
     }
     pub fn display(self) -> &'static str {
@@ -35,6 +37,7 @@ impl App {
             App::Calc => "Rusuite Calc",
             App::Write => "Rusuite Write",
             App::Show => "Rusuite Show",
+            App::Notes => "Rusuite Notes",
         }
     }
 }
@@ -328,6 +331,17 @@ pub(crate) mod tests {
 
     fn b64(bytes: &[u8]) -> String {
         base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    #[test]
+    fn accepts_notes_reports() {
+        let mut v = sample();
+        v["app"] = json!("notes");
+        let (r, _) = parse(&v).unwrap();
+        assert_eq!(
+            (r.app, r.app.as_str(), r.app.display()),
+            (App::Notes, "notes", "Rusuite Notes")
+        );
     }
 
     #[test]

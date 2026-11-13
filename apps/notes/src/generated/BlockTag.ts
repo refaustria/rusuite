@@ -3,4 +3,9 @@
 /**
  * A block carrying tags (attribute `tags: [tagId]`; to-do kinds also `checked: bool`).
  */
-export type BlockTag = { tags: Array<string>, checked: boolean | null, text: string, block: number, };
+export type BlockTag = { tags: Array<string>, checked: boolean | null, text: string, block: number, 
+/**
+ * Child indices from the `doc` node down to the tagged node (`path[0] == block`); the same indices in the
+ * ProseMirror document and in the Loro `children` lists (block containers hold only node maps).
+ */
+path: Array<number>, };

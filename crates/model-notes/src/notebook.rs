@@ -555,6 +555,24 @@ impl NotebookDoc {
         Ok(docs)
     }
 
+    /// Permanently removes one recycle-bin entry (a node with its own deletion mark) and its subtree, whatever its
+    /// age. Returns the page document ids of every removed page.
+    pub fn purge_node(&self, id: &str, now: i64) -> Result<Vec<String>, NotesError> {
+        let node = self.parse_id(id)?;
+        if self.own_deleted(node).is_none() {
+            return Err(NotesError::NotDeleted(id.to_string()));
+        }
+        let mut docs = Vec::new();
+        self.walk(Some(node), &mut |c| {
+            docs.extend(self.page_doc_of(c));
+            true
+        });
+        docs.extend(self.page_doc_of(node));
+        self.tree_c().delete(node)?;
+        commit_at(&self.doc, now);
+        Ok(docs)
+    }
+
     fn page_doc_of(&self, id: TreeID) -> Option<String> {
         self.meta(id).ok().and_then(|m| get_str(&m, "pageDoc"))
     }
@@ -730,6 +748,34 @@ impl NotebookDoc {
         }
         self.doc.commit();
         Ok(id)
+    }
+
+    /// Changes a tag definition (`None` keeps a field, `Some("")` clears icon/colour). Built-in tags keep their
+    /// empty label unless given one. Errors with `UnknownTag` for an id not in the list.
+    pub fn update_tag(
+        &self,
+        id: &str,
+        label: Option<&str>,
+        icon: Option<&str>,
+        color: Option<&str>,
+    ) -> Result<(), NotesError> {
+        let list = self.doc.get_list(TAGS);
+        let m = (0..list.len())
+            .filter_map(|i| as_map(list.get(i)))
+            .find(|m| get_str(m, "id").as_deref() == Some(id))
+            .ok_or_else(|| NotesError::UnknownTag(id.to_string()))?;
+        if let Some(l) = label {
+            m.insert("label", l)?;
+        }
+        for (key, v) in [("icon", icon), ("color", color)] {
+            match v {
+                Some("") => m.delete(key)?,
+                Some(v) => m.insert(key, v)?,
+                None => {}
+            }
+        }
+        self.doc.commit();
+        Ok(())
     }
 
     // ---- peers --------------------------------------------------------------------------------------------

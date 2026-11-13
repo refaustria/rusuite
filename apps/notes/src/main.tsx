@@ -6,6 +6,7 @@ import { WebNotesBackend, type NotesWasmModule } from "./backend";
 import { NotesController } from "./controller";
 import { initLoro } from "./loro";
 import { IdbNotesStore, MemoryNotesStore } from "./store";
+import { TabLock } from "./tablock";
 import "./i18n";
 import "./styles.css";
 
@@ -24,14 +25,17 @@ async function boot() {
   const ctl = new NotesController(backend, store);
   ctl.persister.installPageHooks();
   (window as unknown as { __rusuiteNotes?: NotesController }).__rusuiteNotes = ctl; // e2e and diagnostics
+  const lock = TabLock.browser();
+  lock.onLost = () => ctl.goReadOnly();
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <I18nProvider>
-        <App ctl={ctl} />
+        <App ctl={ctl} lock={lock} />
       </I18nProvider>
     </React.StrictMode>,
   );
-  void ctl.start();
+  // Only one tab writes the notebooks of this browser (src/tablock.ts).
+  if (await lock.acquire()) void ctl.start();
 }
 
 void boot();

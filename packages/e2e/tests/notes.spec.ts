@@ -61,7 +61,7 @@ async function dragTo(page: Page, from: Locator, to: Locator, position?: { x: nu
 }
 
 test.describe("Notes (P11-N2)", () => {
-  test("first start: My notebook › Quick notes › the welcome page; no search box yet; no console errors", async ({ page }) => {
+  test("first start: My notebook › Quick notes › the welcome page; the search box; no console errors", async ({ page }) => {
     const errors = trackErrors(page);
     await openNotes(page);
     await expect(page.getByTestId("notebook-name")).toHaveText("My notebook");
@@ -72,9 +72,8 @@ test.describe("Notes (P11-N2)", () => {
     await expect(editor(page).locator('ul[data-type="taskList"] > li')).toHaveCount(4);
     await expect(page.getByTestId("page-created")).not.toBeEmpty();
     await expect(page.getByTestId("words")).toContainText("words");
-    // Search arrives with P11-N3.
-    await expect(page.getByRole("searchbox")).toHaveCount(0);
-    await expect(page.getByPlaceholder(/search/i)).toHaveCount(0);
+    // The search box at the top of the navigation pane (P11-N3).
+    await expect(page.getByRole("searchbox", { name: "Search notes" })).toBeVisible();
     // The genesis text container is reused by the editor (spike rule b, notes-format §4.3).
     expect(await page.evaluate(() => (window as unknown as { __rusuiteNotes: { getState(): { mirror: { hasGenesis(): boolean } } } }).__rusuiteNotes.getState().mirror.hasGenesis())).toBe(true);
     if (shots) await page.screenshot({ path: path.join(shots, "P11-N2-navigation-page.png") });

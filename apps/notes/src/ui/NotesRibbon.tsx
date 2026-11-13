@@ -1,17 +1,23 @@
-// The ribbon of Notes: File (backstage) · Home · Insert · View. Draw and Share come later (P11-N4, P11-N5).
+// The ribbon of Notes: File (backstage, with Print / Export PDF) · Home · Insert · View, and the contextual Table
+// and Picture tabs. Draw and Share come with P11-N4 / P11-N5.
 
 import type { ReactNode } from "react";
 import type { Editor } from "@tiptap/core";
 import {
-  ColorPicker, cssColor, OFFICE_THEME, ParagraphStyleSelect, Ribbon, RibbonButton, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack,
-  type Color, type RibbonMenuItem, type RibbonTab,
+  ColorPicker, CONTEXT_COLORS, cssColor, OFFICE_THEME, ParagraphStyleSelect, Ribbon, RibbonButton, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack,
+  RibbonTableSizePicker, type Color, type RibbonMenuItem, type RibbonTab,
 } from "@rusuite/ui-shared";
 import { Icon } from "@rusuite/ui-shared";
 import type { NotesController } from "../controller";
 import type { TreeNode } from "../generated/TreeNode";
 import { findNode } from "../tree";
-import { blockTags, clearFormatting, clearTags, currentStyle, insertDateTime, PARAGRAPH_STYLES, setStyle, toggleTag, type ParagraphStyle } from "../editor/commands";
-import { BUILTIN_TAGS } from "../tags";
+import { blockTags, clearFormatting, clearTags, currentStyle, insertDateTime, PARAGRAPH_STYLES, selectedImage, setImageAttrs, setStyle, toggleTag, type ParagraphStyle } from "../editor/commands";
+import { inTable, insertTable, tableCommand, type TableCommand } from "../editor/tables";
+import { insertFiles, pickFiles } from "../insert";
+import { NotesPrintPage, exportNotesPdf } from "../print/NotesPrintPage";
+import { BUILTIN_TAGS, isToDoKind, tagIconSvg, tagLook } from "../tags";
+import { tagLabel } from "./editorEnv";
+import { altTextDialog, resetImageSize } from "./PageView";
 import { useT } from "../i18n";
 import { BackstageHome } from "./BackstageHome";
 import { useDialog } from "./dialogs";
@@ -47,15 +53,28 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
   const chain = () => e.chain().focus();
 
   const tags = off ? [] : blockTags(e);
+  const defs = useNotes(ctl, (s) => (s.notebook ? s.tags[s.notebook] : undefined)) ?? [];
+  const view_ = useNotes(ctl, (s) => s.view);
+  const panel = useNotes(ctl, (s) => s.panel);
+  const opened = useNotes(ctl, (s) => s.opened);
+  const tagIcon = (id: string) => {
+    const look = tagLook(defs.find((d) => d.id === id));
+    return <span className="inline-flex" aria-hidden="true" dangerouslySetInnerHTML={{ __html: tagIconSvg(look.icon, look.color, false, 14) }} />;
+  };
+  const custom = defs.filter((d) => d.kind === "custom" || d.kind === "customToDo");
   const tagMenu: RibbonMenuItem[] = [
     ...BUILTIN_TAGS.map((tag) => ({
       id: tag.id,
-      label: t(`notes.tag.${tag.id}`),
+      label: tagLabel(ctl, tag.id),
+      icon: tagIcon(tag.id),
       shortcut: tag.shortcut,
       checked: tags.includes(tag.id),
       onSelect: run((ed) => toggleTag(ed, tag.id, tag.kind === "toDo")),
     })),
+    ...(custom.length ? [{ separator: true as const }] : []),
+    ...custom.map((d) => ({ id: d.id, label: d.label, icon: tagIcon(d.id), checked: tags.includes(d.id), onSelect: run((ed) => toggleTag(ed, d.id, isToDoKind(d.kind))) })),
     { separator: true as const },
+    { id: "customize", label: t("notes.tags.customizeDots"), onSelect: () => open({ kind: "customizeTags" }) },
     { id: "remove", label: t("notes.tag.remove"), onSelect: run((ed) => clearTags(ed)) },
   ];
 
@@ -159,10 +178,38 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
     ],
   };
 
-  const insert: RibbonTab = {
+  const insertTab: RibbonTab = {
     id: "insert",
     label: t("tab.insert"),
     groups: [
+      {
+        label: t("notes.tables"),
+        items: (
+          <RibbonMenuButton
+            label={t("notes.table")}
+            icon="table"
+            size="large"
+            disabled={off}
+            menu={(close) => (
+              <RibbonTableSizePicker
+                onPick={(r, c) => {
+                  close();
+                  if (!off) insertTable(e, r, c);
+                }}
+              />
+            )}
+          />
+        ),
+      },
+      {
+        label: t("notes.media"),
+        items: (
+          <>
+            <RibbonButton size="large" label={t("notes.picture")} icon="image" tooltip={t("notes.picture.tip")} disabled={off} onClick={() => !off && void pickFiles("image/*").then((f) => (f.length ? insertFiles(ctl, e, f) : undefined))} />
+            <RibbonButton size="large" label={t("notes.fileAttachment")} icon="file" tooltip={t("notes.fileAttachment.tip")} disabled={off} onClick={() => !off && void pickFiles("*/*").then((f) => (f.length ? insertFiles(ctl, e, f, { asFile: true }) : undefined))} />
+          </>
+        ),
+      },
       {
         label: t("notes.links"),
         items: (
@@ -201,7 +248,21 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
     groups: [
       {
         label: t("group.show"),
-        items: <RibbonButton size="large" label={t("notes.view.nav")} icon={<NotesIcon name="nav" size={22} />} pressed={settings.navOpen} onClick={() => ctl.updateSettings({ navOpen: !settings.navOpen })} />,
+        items: (
+          <>
+            <RibbonButton size="large" label={t("notes.view.nav")} icon={<NotesIcon name="nav" size={22} />} pressed={settings.navOpen} onClick={() => ctl.updateSettings({ navOpen: !settings.navOpen })} />
+            <RibbonButton size="large" label={t("notes.tasks.title")} icon={<NotesIcon name="checklist" size={22} />} pressed={view_ === "tasks"} disabled={!notebook} onClick={() => void ctl.showTasks(view_ !== "tasks")} />
+          </>
+        ),
+      },
+      {
+        label: t("notes.page"),
+        items: (
+          <>
+            <RibbonButton size="large" label={t("notes.history.title")} icon={<NotesIcon name="history" size={22} />} pressed={panel === "history"} disabled={!opened} onClick={() => ctl.showPanel("history")} />
+            <RibbonButton size="large" label={t("notes.find.label")} icon="find" shortcut="Mod+F" disabled={!opened} onClick={() => ctl.requestFind()} />
+          </>
+        ),
       },
       {
         label: t("notes.view.pageWidth"),
@@ -241,12 +302,95 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
     ],
   };
 
+  const tcmd = (cmd: TableCommand, icon?: string) => (
+    <RibbonButton label={t(`notes.table.${cmd}`)} icon={icon} showLabel={!icon} disabled={off || !tableCommand(e, cmd, true)} onClick={() => !off && void tableCommand(e, cmd)} />
+  );
+  const tableTab: RibbonTab | null = inTable(editor)
+    ? {
+        id: "table",
+        label: t("notes.table.tab"),
+        contextual: { group: t("notes.table.tools"), color: CONTEXT_COLORS.table },
+        groups: [
+          {
+            label: t("notes.table.rowsCols"),
+            items: (
+              <RibbonStack>
+                <RibbonRow>
+                  {tcmd("rowBefore", "insertRows")}
+                  {tcmd("rowAfter")}
+                </RibbonRow>
+                <RibbonRow>
+                  {tcmd("colBefore", "insertCols")}
+                  {tcmd("colAfter")}
+                </RibbonRow>
+              </RibbonStack>
+            ),
+          },
+          {
+            label: t("notes.table.delete"),
+            items: (
+              <RibbonStack>
+                {tcmd("deleteRow", "deleteRows")}
+                {tcmd("deleteCol", "deleteCols")}
+                {tcmd("deleteTable", "trash")}
+              </RibbonStack>
+            ),
+          },
+          {
+            label: t("notes.table.merge"),
+            items: (
+              <RibbonStack>
+                {tcmd("merge")}
+                {tcmd("split")}
+              </RibbonStack>
+            ),
+          },
+          {
+            label: t("notes.table.headers"),
+            items: (
+              <RibbonStack>
+                {tcmd("headerRow")}
+                {tcmd("headerCol")}
+              </RibbonStack>
+            ),
+          },
+        ],
+      }
+    : null;
+  const img = selectedImage(editor);
+  const pictureTab: RibbonTab | null = img
+    ? {
+        id: "picture",
+        label: t("notes.image.tab"),
+        contextual: { group: t("notes.image.tools"), color: CONTEXT_COLORS.picture },
+        groups: [
+          {
+            label: t("notes.image.accessibility"),
+            items: <RibbonButton size="large" label={t("notes.image.altDots")} icon="image" onClick={() => !off && open(altTextDialog(e, t))} />,
+          },
+          {
+            label: t("notes.image.arrange"),
+            items: (
+              <RibbonStack>
+                <RibbonButton label={t("notes.image.alignLeft")} showLabel pressed={img.attrs.align !== "center"} onClick={() => !off && setImageAttrs(e, { align: null })} />
+                <RibbonButton label={t("notes.image.alignCenter")} showLabel pressed={img.attrs.align === "center"} onClick={() => !off && setImageAttrs(e, { align: "center" })} />
+              </RibbonStack>
+            ),
+          },
+          {
+            label: t("notes.image.size"),
+            items: <RibbonButton size="large" label={t("notes.image.resetSize")} icon="pageSize" onClick={() => !off && resetImageSize(e)} />,
+          },
+        ],
+      }
+    : null;
+
   const newNotebook = () =>
     open({ kind: "prompt", title: t("notes.notebook.new"), label: t("notes.notebook.name"), initial: t("notes.notebook.defaultName"), confirm: t("notes.create"), onSubmit: (v) => void ctl.createNotebook(v) });
 
   return (
     <Ribbon
-      tabs={[home, insert, view]}
+      tabs={[home, insertTab, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
       appName="Notes"
       documentTitle={pageTitle ?? title ?? undefined}
       accent={NOTES_ACCENT}
@@ -256,6 +400,9 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
         onNew: newNotebook,
         onCloseDocument: notebook ? () => void ctl.closeNotebook(notebook) : undefined,
         onOptions: () => open({ kind: "options" }),
+        print: <NotesPrintPage ctl={ctl} />,
+        onExportPdf: () => void exportNotesPdf(ctl),
+        exportDisabled: !opened,
         reportHost: ctl.backend,
         commands: [
           { id: "downloadBackup", label: t("notes.backup.download"), icon: "save", disabled: !notebook, onSelect: () => void ctl.downloadBackup() },

@@ -97,3 +97,25 @@ export function applyLink(editor: Editor, href: string, text?: string): boolean 
   }
   return c.extendMarkRange("link").setLink({ href: url }).run();
 }
+
+/** The selected picture (node selection), with its position. */
+export function selectedImage(editor: Editor | null): { pos: number; attrs: Record<string, unknown> } | null {
+  if (!editor || editor.isDestroyed) return null;
+  const sel = editor.state.selection as { node?: { type: { name: string }; attrs: Record<string, unknown> }; from: number };
+  return sel.node?.type.name === "image" ? { pos: sel.from, attrs: sel.node.attrs } : null;
+}
+
+/** Changes attributes of the selected picture (alt text, alignment, size). */
+export function setImageAttrs(editor: Editor, patch: Record<string, unknown>): boolean {
+  const img = selectedImage(editor);
+  if (!img) return false;
+  return editor.chain().focus().updateAttributes("image", patch).setNodeSelection(img.pos).run();
+}
+
+/** The to-do at `path` ticked / unticked (tasks view on the open page). */
+export function setCheckedAt(editor: Editor, pos: number, checked: boolean): boolean {
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node || !("checked" in node.attrs)) return false;
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, checked }));
+  return true;
+}

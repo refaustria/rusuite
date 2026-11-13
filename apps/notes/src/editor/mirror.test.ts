@@ -1,5 +1,5 @@
 import { Editor } from "@tiptap/core";
-import { LoroDoc } from "loro-crdt";
+import { LoroDoc, LoroList, LoroMap, LoroText } from "loro-crdt";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { NotesWasmModule } from "../backend";
 import type { OpenedPage } from "../generated/OpenedPage";
@@ -156,6 +156,42 @@ describe.runIf(coreAvailable)("page mirror ↔ notes-core", () => {
     expect(marks).toEqual(expect.arrayContaining([{ type: "textStyle", attrs: { color: "#FF0000" } }, { type: "highlight", attrs: { color: "#00FF00" } }]));
     const cell = doc.content![5]!.content![0]!.content![0]!;
     expect(cell.attrs?.colspan).toBe(2);
+    editor.destroy();
+    mirror.dispose();
+  });
+
+  it("a new block gets its text container at creation: undoing its first keystroke keeps a peer's text (spike Q5)", async () => {
+    const id = call({ type: "createPage", notebook: "nb-mirror", parent: call({ type: "createSection", notebook: "nb-mirror", title: "Q5" }).id, title: "Q5" }).page.docId as string;
+    const { mirror, editor } = await openEditor(id);
+    mirror.undo.setMergeInterval(0);
+    editor.commands.insertContent("first");
+    await tick();
+    // Enter at the end: a new empty paragraph (the binding writes a map without text) …
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    editor.commands.splitBlock();
+    await tick();
+    await tick();
+    const para = (mirror.doc.getMap("doc").get("children") as LoroList).get(1) as LoroMap;
+    const kids = para.get("children") as LoroList;
+    expect(kids.length).toBe(1);
+    expect(kids.get(0)).toBeInstanceOf(LoroText);
+    // … the first keystroke only inserts characters.
+    editor.commands.insertContent("x");
+    await tick();
+    await mirror.settle();
+    // A second peer types into the same block meanwhile.
+    const ben = new LoroDoc();
+    ben.setPeerId(777n);
+    ben.import(mirror.doc.export({ mode: "update" }));
+    const benText = (((ben.getMap("doc").get("children") as LoroList).get(1) as LoroMap).get("children") as LoroList).get(0) as LoroText;
+    benText.insert(0, "BEN");
+    ben.commit();
+    mirror.doc.import(ben.export({ mode: "update", from: mirror.doc.oplogVersion() }));
+    await tick();
+    expect(editor.state.doc.child(1).textContent).toMatch(/BEN/);
+    expect(editorUndo(editor.state, editor.view.dispatch)).toBe(true);
+    await tick();
+    expect(editor.state.doc.child(1).textContent).toBe("BEN");
     editor.destroy();
     mirror.dispose();
   });

@@ -6,8 +6,13 @@ import { Extension, Mark, mergeAttributes, Node, type AnyExtension } from "@tipt
 import StarterKit from "@tiptap/starter-kit";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Link } from "@tiptap/extension-link";
-import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
+import { TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import { Plugin } from "@tiptap/pm/state";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { NotesDecorations } from "./decorations";
+import { LiveViews, NO_ENV, type EditorEnv } from "./env";
+import { Attachment, Image } from "./media";
+import { NotesTable } from "./tables";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -77,6 +82,9 @@ export const TextStyle = Mark.create({
 export interface PageLinkOptions {
   /** Click on a page link: open the page (its page doc id). */
   onOpen: (pageId: string) => void;
+  /** Live titles (`env.pageTitle`): renamed pages show their new title, deleted ones a broken link. */
+  env: EditorEnv;
+  live: LiveViews | null;
 }
 
 /** `pageLink`: an inline atom `[[title]]` pointing at a page doc id (`pageId`); a click opens the page. */
@@ -86,7 +94,39 @@ export const PageLink = Node.create<PageLinkOptions>({
   inline: true,
   atom: true,
   selectable: true,
-  addOptions: () => ({ onOpen: () => undefined }),
+  addOptions: () => ({ onOpen: () => undefined, env: NO_ENV, live: null }),
+  addNodeView() {
+    const options = this.options;
+    return ({ node: initial }) => {
+      let node: PMNode = initial;
+      const dom = document.createElement("a");
+      dom.className = "page-link";
+      dom.setAttribute("data-testid", "page-link");
+      const render = () => {
+        const id = String(node.attrs.pageId ?? "");
+        const live = id ? options.env.pageTitle(id) : null;
+        const broken = options.live !== null && live === null;
+        dom.setAttribute("data-page-id", id);
+        dom.href = `#page=${id}`;
+        dom.textContent = (live ?? node.attrs.title) || options.env.t("notes.untitled");
+        dom.classList.toggle("broken", broken);
+        dom.title = broken ? options.env.t("notes.pageLink.broken") : dom.textContent;
+      };
+      render();
+      const off = options.live?.add(render);
+      return {
+        dom,
+        update(n) {
+          if (n.type !== node.type) return false;
+          node = n;
+          render();
+          return true;
+        },
+        destroy: () => off?.(),
+        ignoreMutation: () => true,
+      };
+    };
+  },
   addAttributes() {
     return {
       pageId: { default: null, parseHTML: (el) => el.getAttribute("data-page-id") },
@@ -128,8 +168,8 @@ const BLOCKS = ["paragraph", "heading", "bulletList", "orderedList", "taskList",
 
 /**
  * Global block attributes (notes-format §4.4, §7.1) – declared so the binding keeps them: `tags: string[]` (tag
- * ids) and `checked` for to-do tags; `canvasItem` (the canvas text item a block belongs to, P11-N4). The display of
- * tags beyond a minimal marker and the tasks view come in P11-N3.
+ * ids) and `checked` for to-do tags; `canvasItem` (the canvas text item a block belongs to, P11-N4). Tag icons:
+ * `NotesDecorations`.
  */
 export const BlockTags = Extension.create({
   name: "blockTags",
@@ -145,6 +185,8 @@ export const BlockTags = Extension.create({
           },
           checked: {
             default: null,
+            // Enter after a to-do continues the tag (OneNote) – unticked.
+            keepOnSplit: false,
             parseHTML: (el) => (el.hasAttribute("data-checked") ? el.getAttribute("data-checked") === "true" : null),
             renderHTML: (a) => (typeof a.checked === "boolean" ? { "data-checked": String(a.checked) } : {}),
           },
@@ -163,33 +205,9 @@ export const BlockTags = Extension.create({
 export const Subscript = Mark.create({ name: "subscript", excludes: "superscript", parseHTML: () => [{ tag: "sub" }], renderHTML: () => ["sub", 0] });
 export const Superscript = Mark.create({ name: "superscript", excludes: "subscript", parseHTML: () => [{ tag: "sup" }], renderHTML: () => ["sup", 0] });
 
-/** `image` (notes-format §7.1): a block atom showing a blob; schema only until P11-N3 (shown as its alt text). */
-export const Image = Node.create({
-  name: "image",
-  group: "block",
-  atom: true,
-  draggable: true,
-  addAttributes: () => ({ blob: { default: null }, alt: { default: null }, width: { default: null }, height: { default: null } }),
-  parseHTML: () => [{ tag: "figure[data-blob]" }],
-  renderHTML: ({ node }) => ["figure", { "data-blob": node.attrs.blob, class: "notes-image" }, `🖼 ${node.attrs.alt ?? ""}`],
-});
-
-/** `attachment` (notes-format §7.1): a block atom for a file blob; schema only until P11-N3. */
-export const Attachment = Node.create({
-  name: "attachment",
-  group: "block",
-  atom: true,
-  draggable: true,
-  addAttributes: () => ({ blob: { default: null }, name: { default: "" }, size: { default: 0 } }),
-  parseHTML: () => [{ tag: "div[data-attachment]" }],
-  renderHTML: ({ node }) => ["div", { "data-attachment": node.attrs.blob, class: "notes-attachment" }, `📎 ${node.attrs.name}`],
-});
-
-/** Tables (Tiptap's schema with colspan/rowspan); no table editing plugins (they edit the doc in appendTransaction) – UI: P11-N3. */
-const SchemaOnlyTable = Table.extend({ addProseMirrorPlugins: () => [] });
-
 /** The schema extensions (without the Loro binding and the app's keymap). */
-export function notesSchemaExtensions(options: { onOpenPage?: (pageId: string) => void; taskLabel?: (text: string) => string } = {}): AnyExtension[] {
+export function notesSchemaExtensions(options: { onOpenPage?: (pageId: string) => void; taskLabel?: (text: string) => string; env?: EditorEnv; live?: LiveViews } = {}): AnyExtension[] {
+  const env = options.env ?? NO_ENV;
   return [
     StarterKit.configure({
       undoRedo: false,
@@ -203,15 +221,16 @@ export function notesSchemaExtensions(options: { onOpenPage?: (pageId: string) =
     TaskItem.configure({ nested: true, ...(options.taskLabel ? { a11y: { checkboxLabel: (node) => options.taskLabel!(node.textContent) } } : {}) }),
     Highlight,
     TextStyle,
-    PageLink.configure({ onOpen: options.onOpenPage ?? (() => undefined) }),
+    PageLink.configure({ onOpen: options.onOpenPage ?? (() => undefined), env, live: options.live ?? null }),
     Subscript,
     Superscript,
-    Image,
-    Attachment,
-    SchemaOnlyTable.configure({ resizable: false }),
+    Image.configure({ env }),
+    Attachment.configure({ env }),
+    NotesTable.configure({ resizable: true, cellMinWidth: 40 }),
     TableRow,
     TableHeader,
     TableCell,
     BlockTags,
+    NotesDecorations.configure({ env }),
   ];
 }

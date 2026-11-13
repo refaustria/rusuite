@@ -2131,3 +2131,46 @@ wasm, Tauri later).
 - Tests: `apps/notes/src/*.test.ts` (effects framing, store on fake-indexeddb, persister, tree moves, IME queue; with
   `src-wasm/pkg` built also the mirror ↔ core binding and the controller with the real core), e2e
   `packages/e2e/tests/notes.spec.ts`, `notes-compact.spec.ts` (`mobile`), the Notes case of `privacy.spec.ts`.
+
+### Notes rich content (P11-N3)
+
+- **Tables** (Insert › Table: the shared grid picker; header row on): Tab / Shift+Tab between cells (Tab in the last
+  cell adds a row), cell selection by Shift+click or dragging, column resize at a cell's right edge (`colwidth`),
+  right-click menu and the contextual **Layout** tab (Table Tools): insert above/below/left/right, delete row /
+  column / table, merge / split cells, header row / column. prosemirror-tables' `fixTables` normalisation is off
+  (it would edit the document on every peer at once, spike rule a): a table malformed by concurrent edits stays as
+  it is.
+- **Pictures** (Insert › Picture, paste, drop): stored as blobs (SHA-256 via `blob_id`, the core's Blob effect,
+  binary `put_blob`) and shown from IndexedDB as object URLs; larger than 4096 px → stored downscaled (a toast says
+  so; the original is not kept). Selected: four corner handles (aspect kept, size in points), the contextual
+  **Picture** tab and the right-click menu: Alt text…, Left / Centre (`align`), Reset size, Delete.
+- **Attachments** (Insert › File, pasted / dropped non-pictures): a card with type, name, size, **Open** (new tab) and
+  **Download**; files over 25 MB (the relay's blob limit) are refused with a message.
+- **Tags**: icons before the tagged paragraph (built-ins with OneNote's icons, custom tags with their icon and
+  colour); the to-do icon is a check box (a ticked paragraph is struck through). Enter continues the tag (unticked).
+  Home › Tags ▾ lists built-in and custom tags, **Customize tags…** creates (plain or with a check box), renames,
+  recolours and re-icons custom tags (notebook doc, `addTag` / `updateTag`).
+- **Tasks** (navigation pane › Tasks, View › Tasks): every to-do of the open notebooks (check-list items and to-do
+  tags, a tagged check-list item once) grouped by notebook › section › page; Open / Done / All and a tag filter; the
+  check box ticks it on its page (the open editor, else through a mirror of that page); a click opens the page,
+  scrolls to the block and highlights it.
+- **Search**: box at the top of the navigation pane (Ctrl+E), results 120 ms after the last key with title, path and
+  snippet (matches highlighted), scope All notebooks / This notebook; Enter or a click opens the page with the
+  matches highlighted in the find bar. **Find on page** (Ctrl+F, View › Find on page): all matches, n of m,
+  next / previous.
+- **Page links**: titles are read live (renames show at once); a link to a deleted page is struck through. Under
+  the page, **Linked from** lists the pages linking here.
+- **Page history** (View › Page history): versions newest first (time, a colour and the device id until member
+  names exist, P11-N5b); a version shows read-only with the paragraphs that differ from the current page
+  highlighted; **Restore** brings it back with new operations (history only grows). ↑/↓, Enter, Esc.
+- **Print / PDF** (File › Print, File › Export PDF): this page or the whole section (each page on new sheets), paper,
+  orientation, margins, page range, preview; blocks are measured and packed on sheets (a block taller than a sheet
+  is cut).
+- **Recycle bin**: Delete permanently per entry (core `purgeNode`).
+- **One tab at a time**: a second tab shows "Notes is open in another tab" › **Use here**; the first one writes what
+  is pending and becomes read-only (`src/tablock.ts`, BroadcastChannel).
+- Blocks the editor creates get their (empty) text container in the same undo step (spike Q5): undoing a block's
+  first keystroke never deletes a peer's text typed into it.
+- Tests: `apps/notes/src/*.test.ts` (blobs, render/diff, tab lock, print packing, controller: tasks, tags, purge,
+  blobs; mirror: Q5 with a second peer), e2e `notes-rich.spec.ts`, `notes-perf.spec.ts` (500 pages / 200 pictures
+  / 50 edits per page: open page and search times).

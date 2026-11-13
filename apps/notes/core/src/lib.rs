@@ -83,6 +83,7 @@ impl CoreError {
             CoreError::Model(N::ParentDeleted(_)) => "parent_deleted",
             CoreError::Model(N::NotDeleted(_)) => "not_deleted",
             CoreError::Model(N::UnknownItem(_)) => "unknown_item",
+            CoreError::Model(N::UnknownTag(_)) => "unknown_tag",
             CoreError::Model(N::Content(_)) => "invalid_content",
             CoreError::Model(N::Loro(_) | N::Encode(_))
             | CoreError::Loro(_)

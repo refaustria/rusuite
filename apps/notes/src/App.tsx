@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import { FOCUS_RING, RibbonIcon, useCompact } from "@rusuite/ui-shared";
 import type { NotesController } from "./controller";
+import type { TabLock } from "./tablock";
+import { TabLockOverlay } from "./ui/TabLockOverlay";
 import { NotesShortcuts } from "./ShortcutLayer";
 import { DialogHost } from "./ui/dialogs";
 import { useNotes } from "./ui/hooks";
@@ -36,7 +38,7 @@ function useHashLinks(ctl: NotesController) {
   }, [ctl, phase]);
 }
 
-export default function App({ ctl }: { ctl: NotesController }) {
+export default function App({ ctl, lock }: { ctl: NotesController; lock?: TabLock }) {
   const t = useT();
   const [editor, setEditor] = useState<Editor | null>(null);
   const onEditor = useCallback((e: Editor | null) => setEditor(e), []);
@@ -81,6 +83,7 @@ export default function App({ ctl }: { ctl: NotesController }) {
         <StatusBar ctl={ctl} editor={editor} />
         <Toast ctl={ctl} />
         <NotesShortcuts ctl={ctl} />
+        {lock && <TabLockOverlay ctl={ctl} lock={lock} />}
       </main>
     </DialogHost>
   );

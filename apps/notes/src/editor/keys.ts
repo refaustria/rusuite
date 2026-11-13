@@ -12,13 +12,15 @@ export interface NotesKeysOptions {
   onLink: () => void;
   /** `[[` typed: the page picker. */
   onPageLinkPicker: () => void;
+  /** Ctrl+F: find on page. */
+  onFind: () => void;
   /** Label of the drag handle (aria / tooltip). */
   dragLabel: string;
 }
 
 export const NotesKeys = Extension.create<NotesKeysOptions>({
   name: "notesKeys",
-  addOptions: () => ({ onLink: () => undefined, onPageLinkPicker: () => undefined, dragLabel: "" }),
+  addOptions: () => ({ onLink: () => undefined, onPageLinkPicker: () => undefined, onFind: () => undefined, dragLabel: "" }),
   addKeyboardShortcuts() {
     return {
       ...Object.fromEntries(
@@ -31,6 +33,10 @@ export const NotesKeys = Extension.create<NotesKeysOptions>({
       "Alt-Shift-f": () => insertDateTime(this.editor, "both"),
       "Mod-k": () => {
         this.options.onLink();
+        return true;
+      },
+      "Mod-f": () => {
+        this.options.onFind();
         return true;
       },
     };

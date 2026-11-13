@@ -106,6 +106,13 @@ pub fn export(request: &str, blobs: &[u8]) -> Result<Vec<u8>, String> {
     with(|h| binary::export(h, request, blobs))
 }
 
+/// Stores an image / attachment of `notebook` (queued as a Blob persist effect) → its id (SHA-256 hex). Throws the
+/// JSON error reply (unknown notebook).
+#[wasm_bindgen]
+pub fn put_blob(notebook: &str, bytes: &[u8]) -> Result<String, String> {
+    with(|h| binary::put_blob(h, notebook, bytes))
+}
+
 /// The id (SHA-256 hex) of a blob.
 #[wasm_bindgen]
 #[must_use]

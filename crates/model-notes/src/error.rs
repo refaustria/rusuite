@@ -26,6 +26,9 @@ pub enum NotesError {
     /// Malformed content (PM JSON or Loro structure).
     #[error("invalid content: {0}")]
     Content(String),
+    /// No tag definition with this id.
+    #[error("unknown tag {0}")]
+    UnknownTag(String),
     /// Unknown canvas item or ink stroke.
     #[error("unknown item {0}")]
     UnknownItem(String),
