@@ -169,7 +169,7 @@ describe("i18n-check", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
     const { findings, languages } = run(root);
     expect(findings).toEqual([]);
-    expect(languages.en).toBe(5);
-    expect(languages.de).toBe(5);
+    expect(languages.en).toBe(6);
+    expect(languages.de).toBe(6);
   });
 });

@@ -218,6 +218,85 @@ importers:
         specifier: 0.15.0
         version: 0.15.0
 
+  apps/notes:
+    dependencies:
+      '@rusuite/ui-shared':
+        specifier: workspace:*
+        version: link:../../packages/ui-shared
+      '@tiptap/core':
+        specifier: 3.31.3
+        version: 3.31.3(@tiptap/pm@3.31.3)
+      '@tiptap/extension-link':
+        specifier: 3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
+      '@tiptap/extension-list':
+        specifier: 3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
+      '@tiptap/extension-table':
+        specifier: 3.31.3
+        version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
+      '@tiptap/pm':
+        specifier: 3.31.3
+        version: 3.31.3
+      '@tiptap/react':
+        specifier: 3.31.3
+        version: 3.31.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@tiptap/starter-kit':
+        specifier: 3.31.3
+        version: 3.31.3
+      loro-crdt:
+        specifier: 1.17.1
+        version: 1.17.1
+      loro-prosemirror:
+        specifier: 0.4.4
+        version: 0.4.4(loro-crdt@1.17.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: 4.3.3
+        version: 4.3.3(vite@6.4.3(@types/node@22.10.2)(jiti@2.7.0)(lightningcss@1.32.0))
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.31
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.31)
+      '@vitejs/plugin-react':
+        specifier: 4.7.0
+        version: 4.7.0(vite@6.4.3(@types/node@22.10.2)(jiti@2.7.0)(lightningcss@1.32.0))
+      fake-indexeddb:
+        specifier: 6.2.5
+        version: 6.2.5
+      jsdom:
+        specifier: 30.1.2
+        version: 30.1.2
+      tailwindcss:
+        specifier: 4.3.3
+        version: 4.3.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: 6.4.3
+        version: 6.4.3(@types/node@22.10.2)(jiti@2.7.0)(lightningcss@1.32.0)
+      vite-plugin-wasm:
+        specifier: 3.5.0
+        version: 3.5.0(vite@6.4.3(@types/node@22.10.2)(jiti@2.7.0)(lightningcss@1.32.0))
+      vitest:
+        specifier: 3.2.7
+        version: 3.2.7(@types/node@22.10.2)(jiti@2.7.0)(jsdom@30.1.2)(lightningcss@1.32.0)
+      wasm-pack:
+        specifier: 0.15.0
+        version: 0.15.0
+
   apps/show:
     dependencies:
       '@rusuite/ui-shared':
@@ -1651,6 +1730,9 @@ packages:
   is-potential-custom-element-name@1.0.1:
     resolution: {integrity: sha512-bCYeRA2rVibKZd+s2625gGnGF/t7DSqDs4dP7CrLA1m7jKWz6pps0LpYLJN8Q64HtmPKJ1hrN3nzPNKFEKOUiQ==}
 
+  isomorphic.js@0.2.5:
+    resolution: {integrity: sha512-PIeMbHqMt4DnUP3MA/Flc0HElYjMXArsw1qwJZcm9sqR8mq3l8NYizFMty0pWwE/tzIGH3EKK5+jes5mAr85yw==}
+
   its-fine@1.2.5:
     resolution: {integrity: sha512-fXtDA0X0t0eBYAGLVM5YsgJGsJ5jEmqZEPrGbzdf5awjv0xE7nqv3TVnvtUF060Tkes15DbDAKW/I48vsb6SyA==}
     peerDependencies:
@@ -1695,6 +1777,11 @@ packages:
         optional: true
       skia-canvas:
         optional: true
+
+  lib0@0.2.120:
+    resolution: {integrity: sha512-/a2eRImR8sZbmMVKe2we1/KukDQkuPyPf8yol6epvCu2PH6hurjcRI3mdGFFAi0uGoRJGyns99JquZgxwW1tQg==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -1776,6 +1863,14 @@ packages:
   loose-envify@1.4.0:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
     hasBin: true
+
+  loro-crdt@1.17.1:
+    resolution: {integrity: sha512-83hWRYG6eMMpPezm+yXWlOqCuUsC0BYY1MVCPW9x2zlikgkHhL7GC7Q6JFH+Hjvauyn287Q1MiwTuRW0lUOUag==}
+
+  loro-prosemirror@0.4.4:
+    resolution: {integrity: sha512-9Ttd3yHcb6Y+qxsqiS+fNMy9c9bNeimlLd7FShbVwRUBer8iosI9txWZlegzKnNjUUqIRyV15ybM6w3c2zS+Jg==}
+    peerDependencies:
+      loro-crdt: ^1.10.2
 
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
@@ -2057,6 +2152,11 @@ packages:
     resolution: {integrity: sha512-EbKSKh+bh1E1IFxeO0pg1n4dvoOTt0UDiXMd/qn++r98+jPO1xtJilvXldeuQ8giIB5IkpjCgMleHMNEsGH6pg==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
     hasBin: true
+
+  vite-plugin-wasm@3.5.0:
+    resolution: {integrity: sha512-X5VWgCnqiQEGb+omhlBVsvTfxikKtoOgAzQ95+BZ8gQ+VfMHIjSHr0wyvXFQCa0eKQ0fKyaL0kWcEnYqBac4lQ==}
+    peerDependencies:
+      vite: ^2 || ^3 || ^4 || ^5 || ^6 || ^7
 
   vite@5.4.21:
     resolution: {integrity: sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw==}
@@ -3293,6 +3393,8 @@ snapshots:
 
   is-potential-custom-element-name@1.0.1: {}
 
+  isomorphic.js@0.2.5: {}
+
   its-fine@1.2.5(@types/react@18.3.31)(react@18.3.1):
     dependencies:
       '@types/react-reconciler': 0.28.9(@types/react@18.3.31)
@@ -3336,6 +3438,10 @@ snapshots:
   json5@2.2.3: {}
 
   konva@10.7.0: {}
+
+  lib0@0.2.120:
+    dependencies:
+      isomorphic.js: 0.2.5
 
   lightningcss-android-arm64@1.32.0:
     optional: true
@@ -3391,6 +3497,16 @@ snapshots:
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
+
+  loro-crdt@1.17.1: {}
+
+  loro-prosemirror@0.4.4(loro-crdt@1.17.1):
+    dependencies:
+      lib0: 0.2.120
+      loro-crdt: 1.17.1
+      prosemirror-model: 1.25.12
+      prosemirror-state: 1.4.4
+      prosemirror-view: 1.42.6
 
   loupe@3.2.1: {}
 
@@ -3721,6 +3837,10 @@ snapshots:
       - terser
       - tsx
       - yaml
+
+  vite-plugin-wasm@3.5.0(vite@6.4.3(@types/node@22.10.2)(jiti@2.7.0)(lightningcss@1.32.0)):
+    dependencies:
+      vite: 6.4.3(@types/node@22.10.2)(jiti@2.7.0)(lightningcss@1.32.0)
 
   vite@5.4.21(@types/node@22.10.2)(lightningcss@1.32.0):
     dependencies:

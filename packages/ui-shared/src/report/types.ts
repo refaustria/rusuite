@@ -1,7 +1,7 @@
 // "Report a problem" (P8-43, ADR 0009 amendment): the report the dialog sends to the site's relay
 // (`POST /api/report`), which posts it publicly as a GitHub issue. Exactly what the dialog shows – never the document.
 
-export type ReportApp = "calc" | "write" | "show";
+export type ReportApp = "calc" | "write" | "show" | "notes";
 export type ReportKind = "bug" | "feature" | "question";
 export type ReportPlatform = "web" | "desktop";
 

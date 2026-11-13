@@ -47,6 +47,7 @@ Calc's and Show's ribbon tabs are described under [Tabs per app](#tabs-per-app);
 - [Calc with touch (P10-M3)](#calc-with-touch-p10-m3)
 - [Write touch (P10-M4)](#write-touch-p10-m4)
 - [Show with touch (P10-M5)](#show-with-touch-p10-m5)
+- [Notes (P11-N2)](#notes-p11-n2)
 
 ## Write
 
@@ -2083,3 +2084,50 @@ changes; at 900 px and wider without touch the desktop is as before.
   fallback (the slide with the speaker notes toggle); nothing calls `window.open`.
 - **Tablets** (≥ 900 px, touch): the ribbon stays; transforms, the 44 px handles, long press and the show gestures work
   the same. Tests: `packages/e2e/tests/show-touch.spec.ts` (projects `mobile` and `tablet`).
+
+## Notes (P11-N2)
+
+`apps/notes` (route `/notes/`, deployed but not linked from the portal until the 3.14159 release): the same React/Vite/
+ui-shared stack as Write. notes-core (WASM) is the document of record; the page editor (Tiptap 3.31.3) is bound with
+`loro-prosemirror` 0.4.4 to a **mirror** `LoroDoc` (`src/editor/mirror.ts`, rules: docs/notes-format.md §5 and
+docs/notes-spike-report.md). Storage: `src/store.ts` (IndexedDB `rusuite-notes`: `docs` = `[notebook, doc, 0]` snapshot +
+`[notebook, doc, seq]` log records, `blobs`, `meta`), written by `src/persister.ts` (batches ≤ 250 ms, flush on
+`visibilitychange`/`pagehide`). The UI reaches the core only through `NotesBackend` (`src/backend.ts`; web: in-process
+wasm, Tauri later).
+
+- **Ribbon**: File (backstage) · Home (Undo/Redo, Clipboard, Font: B/I/U/S, Highlight ▾, text colour, Clear formatting;
+  Paragraph: bullets, numbering, checklist, outdent/indent; Styles: Normal, Heading 1–3, Quote, Code; Tags: To Do and the
+  Tags ▾ picker – it writes the block attribute `tags` (+ `checked: false` for to-dos), display and tasks view: P11-N3) ·
+  Insert (Link…, Page link `[[…]]` via a page picker – also typing `[[`, Divider, Code block, Date / Time / Date and
+  time) · View (Navigation pane, page width Normal/Wide, zoom 75–200 %, Dark mode: like the system / light / dark via
+  `<html data-theme>`). Draw and Share come with P11-N4/N5. No search box before P11-N3.
+- **Navigation pane** (left, resizable 200–520 px by its right edge or ←/→ on it, hidden with View › Navigation pane):
+  notebook switcher (open notebooks, New notebook, ⋯ / right-click: Rename, Colour…, Download backup, Close notebook);
+  sections as a coloured vertical list with section groups (collapsible); the pages of the current section with sub-page
+  indentation (levels 0–2). Drag & drop: sections before/after each other and into groups, pages within the list – the
+  pointer's x position picks the level (16 px per level, at most one deeper than the page above), pages onto a section.
+  Page list keys: ↑/↓, Tab / Shift+Tab (sub-page / promote), F2 rename, Delete, Shift+F10 menu. Context menus: Rename,
+  Colour…, Delete (to the recycle bin), Move to… (also another open notebook: the pages are copied with their current
+  content and the originals go to the recycle bin – the core has no cross-notebook move), Copy link to page
+  (`…/notes/#page=<page doc id>`), New sub-page. Recycle bin (bottom): Restore (a page whose section is deleted too is
+  restored into the current section), Empty recycle bin (the core's Purge with a clock 60 days ahead).
+- **Page**: title field (the tree title; renamed through the core 600 ms after the last key, on blur or Enter – Enter
+  moves into the body), the created date, the editor (paragraph, headings 1–3, lists, task lists, quote, code block,
+  divider, hard break, link, `pageLink` inline node – a click opens the page). ⋮⋮ left of the block under the pointer
+  drags the block. Undo/redo in the editor: Loro `UndoManager` on the mirror (this device only); structural edits undo
+  through the core (Ctrl+Z outside the editor; the ribbon's Undo takes the newer of both).
+- **Backstage**: New (notebook), Download backup (`.rnotes`), Open backup…, Close (notebook), Options… (appearance, page
+  width, whether the browser keeps the data persistently), About, Report a problem; the Home page lists the notebooks of
+  this browser (click: open), recent pages and the privacy entry with **Remove local data from this browser**
+  (ADR 0009 rule 4: every notebook and setting of Notes in this browser). `BackstageActions.commands` (app commands,
+  `footer` for the lower list) and `reportHost` (the report sender without a document session) were added to ui-shared
+  for this.
+- **Status bar**: "Saved in this browser" / "Saving…" / an error, the page's word count (250 ms after the last edit).
+  When `navigator.storage.persist()` is refused, a dismissable hint offers "Download backup".
+- **First start**: "My notebook" › "Quick notes" › a short welcome page (en/de). A new notebook starts with "New section"
+  and an untitled page; a new section with an untitled page.
+- **Compact** (< 900 px): the shared compact ribbon (top bar, command bar); the navigation pane is a drawer (☰ in the top
+  bar), closed by picking a page.
+- Tests: `apps/notes/src/*.test.ts` (effects framing, store on fake-indexeddb, persister, tree moves, IME queue; with
+  `src-wasm/pkg` built also the mirror ↔ core binding and the controller with the real core), e2e
+  `packages/e2e/tests/notes.spec.ts`, `notes-compact.spec.ts` (`mobile`), the Notes case of `privacy.spec.ts`.

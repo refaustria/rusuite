@@ -330,3 +330,30 @@ freely. Shift keeps the aspect ratio while resizing a shape (pictures keep it by
 | ↑ / ↓ in the Slide Master panel | Select the master / the previous or next layout |
 | Click a section header in the slide panel | Collapse / expand the section (right-click: rename, remove, move, collapse / expand all) |
 | Drag a slide onto a section header | Move the slide to the start of that section |
+
+## Notes
+
+OneNote's keys where the browser lets a page have them (Ctrl+N, Ctrl+1–9 may be taken by the browser itself outside the
+desktop apps; the ribbon has every command).
+
+| Keys | Action |
+| --- | --- |
+| Mod+N | New page in the current section |
+| Mod+Alt+Shift+N | New sub-page of the current page |
+| Mod+Alt+] / Mod+Alt+[ | Make the current page a sub-page / promote it |
+| Tab / Shift+Tab (page list) | Make the page a sub-page / promote it; ↑/↓ move, F2 renames, Delete deletes, Shift+F10 menu |
+| Mod+Z, Mod+Y, Mod+Shift+Z in the page | Undo / redo typing and formatting (this device's changes only) |
+| Mod+Z, Mod+Y outside the page and fields | Undo / redo the last change to notebooks, sections and pages |
+| Mod+B, Mod+I, Mod+U | Bold, italic, underline |
+| Mod+Alt+H | Highlight |
+| Mod+Space | Clear formatting |
+| Mod+Alt+1 / 2 / 3, Mod+Alt+0 | Heading 1–3, normal text |
+| Mod+Shift+8 / 7 / 9 | Bulleted list / numbered list / checklist |
+| Mod+1 … Mod+9 | Tags: To Do, Important, Question, Remember for later, Definition, Highlight, Contact, Address, Phone number (again: remove) |
+| Mod+K | Link |
+| `[[` | Insert a page link (page picker) |
+| Alt+Shift+D / T / F | Insert the date / time / date and time |
+| Enter in the page title | Into the page body |
+| Mod+O | File (notebooks in this browser) |
+| Mod+S | Nothing to do: Notes saves as you type (writes pending changes now) |
+| Mod+/ | Shortcut help |

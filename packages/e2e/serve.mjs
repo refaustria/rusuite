@@ -1,4 +1,4 @@
-// Tiny static server: apps/<app>/dist-web served under /<app>/ (calc, write, show), apps/portal at /
+// Tiny static server: apps/<app>/dist-web served under /<app>/ (calc, write, show, notes), apps/portal at /
 // and a stub /version.json (the deploy script writes the real one).
 import http from "node:http";
 import fs from "node:fs";
@@ -42,7 +42,7 @@ http
       res.end(JSON.stringify({ version, commit: "local", builtAt: new Date().toISOString() }));
       return;
     }
-    const isApp = ["calc", "write", "show"].includes(app);
+    const isApp = ["calc", "write", "show", "notes"].includes(app);
     const dist = isApp ? path.join(root, app, "dist-web") : path.join(root, "portal");
     let file = path.join(dist, ...(isApp ? rest : [app, ...rest]).filter((p) => p && p !== ".."));
     if (!file.startsWith(dist)) return void res.writeHead(403).end();
@@ -51,4 +51,4 @@ http
     res.writeHead(200, { ...securityHeaders, "content-type": types[path.extname(file)] ?? "application/octet-stream" });
     fs.createReadStream(file).pipe(res);
   })
-  .listen(port, "127.0.0.1", () => console.log(`e2e server on http://127.0.0.1:${port}/ (portal, calc, write, show)`));
+  .listen(port, "127.0.0.1", () => console.log(`e2e server on http://127.0.0.1:${port}/ (portal, calc, write, show, notes)`));
