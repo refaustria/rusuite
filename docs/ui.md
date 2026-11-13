@@ -2158,7 +2158,7 @@ items in pt; list order = z-order), `"ink"` strokes (1/10 pt, pressure 0–255),
 - **Draw tab**: Tools (Type, Lasso select, Eraser – whole strokes), Pens (Pen, Highlighter; Pen colour ▾ /
   Highlighter colour ▾: black, the suite colours Notes/Write/Calc/Show, red, blue, grey resp. five highlighter colours,
   and Fine/Medium/Thick = 1/2/4 pt resp. 8/12/18 pt), Selection (Recolour ▾ – strokes and the text of selected boxes,
-  Bring to front, Send to back), Edit (Delete), Page (Free canvas, Print canvas). Tool and pen settings are kept in
+  Bring to front, Send to back), Edit (Delete), Page (Free canvas). Tool and pen settings are kept in
   `localStorage` (`rusuite.notes.ink`).
 - **Ink**: pointer events with pressure (`pressure`; mouse and 0 → 0.5), coalesced events; while a pen is in use touch
   input is ignored (500 ms after its last event); two touches pinch-zoom. The live stroke is drawn at pointer rate on a
@@ -2172,8 +2172,51 @@ items in pt; list order = z-order), `"ink"` strokes (1/10 pt, pressure 0–255),
 - **Zoom** 25–400 %: Ctrl+wheel / trackpad pinch (anchored at the pointer), touch pinch, Ctrl + / Ctrl −, the zoom control
   at the bottom right (click on the percentage: 100 %). Scrolling pans; the surface always extends 800 px beyond the
   content.
-- **Print canvas**: the surface's content bounding box, scaled to the printable width of A4 (never enlarged) under the
-  page title, cut into pages (`canvas/print.ts`, ui-shared `PrintDoc`) – for P11-N3's File › Print to reuse.
+- **Printing a canvas page** (File › Print / Export PDF, P11-N3): the surface's content bounding box, scaled to the
+  printable width of the paper (never enlarged) under the page title, cut into pages (`canvas/print.ts`).
 - **Compact**: canvas pages scroll and pan at 412 px; Draw is in the command bar; touch draws with the pen tools.
 - Tests: `apps/notes/src/canvas/*.test.ts` (geometry, Loro model and undo steps, layout and actions on a real editor),
   e2e `packages/e2e/tests/notes-canvas.spec.ts` (incl. a OneNote import with ink and the 2 000-stroke frame-time check).
+
+### Notes rich content (P11-N3)
+
+- **Tables** (Insert › Table: the shared grid picker; header row on): Tab / Shift+Tab between cells (Tab in the last
+  cell adds a row), cell selection by Shift+click or dragging, column resize at a cell's right edge (`colwidth`),
+  right-click menu and the contextual **Layout** tab (Table Tools): insert above/below/left/right, delete row /
+  column / table, merge / split cells, header row / column. prosemirror-tables' `fixTables` normalisation is off
+  (it would edit the document on every peer at once, spike rule a): a table malformed by concurrent edits stays as
+  it is.
+- **Pictures** (Insert › Picture, paste, drop): stored as blobs (SHA-256 via `blob_id`, the core's Blob effect,
+  binary `put_blob`) and shown from IndexedDB as object URLs; larger than 4096 px → stored downscaled (a toast says
+  so; the original is not kept). Selected: four corner handles (aspect kept, size in points), the contextual
+  **Picture** tab and the right-click menu: Alt text…, Left / Centre (`align`), Reset size, Delete.
+- **Attachments** (Insert › File, pasted / dropped non-pictures): a card with type, name, size, **Open** (new tab) and
+  **Download**; files over 25 MB (the relay's blob limit) are refused with a message.
+- **Tags**: icons before the tagged paragraph (built-ins with OneNote's icons, custom tags with their icon and
+  colour); the to-do icon is a check box (a ticked paragraph is struck through). Enter continues the tag (unticked).
+  Home › Tags ▾ lists built-in and custom tags, **Customize tags…** creates (plain or with a check box), renames,
+  recolours and re-icons custom tags (notebook doc, `addTag` / `updateTag`).
+- **Tasks** (navigation pane › Tasks, View › Tasks): every to-do of the open notebooks (check-list items and to-do
+  tags, a tagged check-list item once) grouped by notebook › section › page; Open / Done / All and a tag filter; the
+  check box ticks it on its page (the open editor, else through a mirror of that page); a click opens the page,
+  scrolls to the block and highlights it.
+- **Search**: box at the top of the navigation pane (Ctrl+E), results 120 ms after the last key with title, path and
+  snippet (matches highlighted), scope All notebooks / This notebook; Enter or a click opens the page with the
+  matches highlighted in the find bar. **Find on page** (Ctrl+F, View › Find on page): all matches, n of m,
+  next / previous.
+- **Page links**: titles are read live (renames show at once); a link to a deleted page is struck through. Under
+  the page, **Linked from** lists the pages linking here.
+- **Page history** (View › Page history): versions newest first (time, a colour and the device id until member
+  names exist, P11-N5b); a version shows read-only with the paragraphs that differ from the current page
+  highlighted; **Restore** brings it back with new operations (history only grows). ↑/↓, Enter, Esc.
+- **Print / PDF** (File › Print, File › Export PDF): this page or the whole section (each page on new sheets), paper,
+  orientation, margins, page range, preview; blocks are measured and packed on sheets (a block taller than a sheet
+  is cut).
+- **Recycle bin**: Delete permanently per entry (core `purgeNode`).
+- **One tab at a time**: a second tab shows "Notes is open in another tab" › **Use here**; the first one writes what
+  is pending and becomes read-only (`src/tablock.ts`, BroadcastChannel).
+- Blocks the editor creates get their (empty) text container in the same undo step (spike Q5): undoing a block's
+  first keystroke never deletes a peer's text typed into it.
+- Tests: `apps/notes/src/*.test.ts` (blobs, render/diff, tab lock, print packing, controller: tasks, tags, purge,
+  blobs; mirror: Q5 with a second peer), e2e `notes-rich.spec.ts`, `notes-perf.spec.ts` (500 pages / 200 pictures
+  / 50 edits per page: open page and search times).

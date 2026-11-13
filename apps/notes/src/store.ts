@@ -25,6 +25,8 @@ export interface NotesStore {
   loadNotebook(notebook: string): Promise<StoredDoc[]>;
   /** All blobs of a notebook. */
   blobs(notebook: string): Promise<Uint8Array[]>;
+  /** One blob (`undefined` when it is not stored). */
+  getBlob(notebook: string, sha: string): Promise<Uint8Array | undefined>;
   /** Removes a notebook's documents and blobs. */
   deleteNotebook(notebook: string): Promise<void>;
   getMeta<T>(key: string): Promise<T | undefined>;
@@ -157,6 +159,12 @@ export class IdbNotesStore implements NotesStore {
     return values.map(asBytes);
   }
 
+  async getBlob(notebook: string, sha: string): Promise<Uint8Array | undefined> {
+    const db = await this.open();
+    const v = await promised(db.transaction("blobs", "readonly").objectStore("blobs").get([notebook, sha]));
+    return v === undefined ? undefined : asBytes(v);
+  }
+
   async deleteNotebook(notebook: string): Promise<void> {
     const db = await this.open();
     const tx = db.transaction(["docs", "blobs"], "readwrite");
@@ -218,6 +226,10 @@ export class MemoryNotesStore implements NotesStore {
 
   async blobs(notebook: string): Promise<Uint8Array[]> {
     return [...this.blobMap].filter(([k]) => k.startsWith(`${notebook}\0`)).map(([, v]) => v);
+  }
+
+  async getBlob(notebook: string, sha: string): Promise<Uint8Array | undefined> {
+    return this.blobMap.get(`${notebook}\0${sha}`);
   }
 
   async deleteNotebook(notebook: string): Promise<void> {

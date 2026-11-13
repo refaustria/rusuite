@@ -6,6 +6,7 @@ import type { NotesController } from "../controller";
 import { allPages, allSections, SECTION_COLORS } from "../tree";
 import { useT } from "../i18n";
 import { useNotes } from "./hooks";
+import { CustomizeTagsDialog } from "./TagsDialog";
 
 export type DialogSpec =
   | { kind: "prompt"; title: string; label: string; initial?: string; confirm?: string; onSubmit: (value: string) => void }
@@ -15,6 +16,7 @@ export type DialogSpec =
   | { kind: "pagePicker"; onPick: (page: { docId: string; title: string }) => void }
   | { kind: "moveTo"; node: string; notebook: string }
   | { kind: "about" }
+  | { kind: "customizeTags" }
   | { kind: "options" };
 
 const DialogContext = createContext<(d: DialogSpec | null) => void>(() => undefined);
@@ -51,6 +53,7 @@ export function DialogHost({ ctl, children }: { ctl: NotesController; children: 
       {spec?.kind === "pagePicker" && <PagePicker ctl={ctl} onPick={spec.onPick} onClose={close} />}
       {spec?.kind === "moveTo" && <MoveToDialog ctl={ctl} node={spec.node} notebook={spec.notebook} onClose={close} />}
       {spec?.kind === "about" && <AboutDialog onClose={close} />}
+      {spec?.kind === "customizeTags" && <CustomizeTagsDialog ctl={ctl} onClose={close} />}
       {spec?.kind === "options" && <OptionsDialog ctl={ctl} onClose={close} />}
     </DialogContext.Provider>
   );

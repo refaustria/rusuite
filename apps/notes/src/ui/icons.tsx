@@ -29,6 +29,7 @@ const PATHS = {
   newPage: <><path d="M5 2.5h7l3 3v12H5z" /><path d="M10 8.5v5M7.5 11h5" /></>,
   subPage: <><path d="M3 4h7M7 9h10M7 14h10M4 4v7.5h2" /></>,
   section: <><rect x="3" y="3" width="14" height="14" rx="1.5" /><path d="M7 3v14" /></>,
+  history: <><path d="M3.5 10a6.5 6.5 0 102-4.7" /><path d="M3 3.5v3h3" /><path d="M10 6.5V10l2.5 1.5" /></>,
 } satisfies Record<string, ReactNode>;
 
 export type NotesIconName = keyof typeof PATHS;

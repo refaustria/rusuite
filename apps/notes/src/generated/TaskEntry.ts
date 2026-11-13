@@ -7,4 +7,8 @@ export type TaskEntry = { notebookId: string, docId: string, pageTitle: string, 
 /**
  * Top-level block index on the page.
  */
-block: number, tags: Array<string>, };
+block: number, tags: Array<string>, 
+/**
+ * Child indices from the page's `doc` node to the node holding `checked` (`path[0] == block`).
+ */
+path: Array<number>, };

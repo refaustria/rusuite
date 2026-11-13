@@ -358,6 +358,45 @@ fn custom_tags() {
         (t.label.as_str(), t.icon.as_deref()),
         ("Waiting", Some("hourglass"))
     );
+    nb.update_tag(&id, Some("Blocked"), Some("lock"), Some(""))
+        .unwrap();
+    let t = nb.tags().into_iter().find(|t| t.id == id).unwrap();
+    assert_eq!(
+        (t.label.as_str(), t.icon.as_deref(), t.color.as_deref()),
+        ("Blocked", Some("lock"), None)
+    );
+    // Built-in tags: colour only, the label stays empty (the UI's catalog text).
+    nb.update_tag("idea", None, None, Some("#FF0000")).unwrap();
+    let idea = nb.tags().into_iter().find(|t| t.id == "idea").unwrap();
+    assert_eq!(
+        (idea.label.as_str(), idea.color.as_deref()),
+        ("", Some("#FF0000"))
+    );
+    assert!(nb.update_tag("nope", Some("x"), None, None).is_err());
+}
+
+#[test]
+fn purge_one_recycle_bin_entry() {
+    let nb = NotebookDoc::new("Work", T0);
+    let s = nb.create_section(None, None, "S", T0).unwrap();
+    let a = nb.create_page(&s, None, "a", T0).unwrap();
+    let b = nb.create_page(&s, None, "b", T0).unwrap();
+    let sub = nb.create_page(&a.node, None, "sub", T0).unwrap();
+    assert!(
+        nb.purge_node(&a.node, T0).is_err(),
+        "only recycle-bin entries"
+    );
+    nb.delete(&a.node, T0 + 1).unwrap();
+    nb.delete(&b.node, T0 + 2).unwrap();
+    let mut docs = nb.purge_node(&a.node, T0 + 3).unwrap();
+    docs.sort();
+    let mut want = vec![a.doc_id.clone(), sub.doc_id.clone()];
+    want.sort();
+    assert_eq!(docs, want);
+    let bin = nb.recycle_bin();
+    assert_eq!(bin.len(), 1, "the other entry stays");
+    assert_eq!(bin[0].node.id, b.node);
+    assert_eq!(nb.page_doc_ids(), vec![b.doc_id.clone()]);
 }
 
 #[test]

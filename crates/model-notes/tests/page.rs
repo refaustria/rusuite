@@ -166,13 +166,15 @@ fn readers_over_prosemirror_content() {
                 tags: vec!["todo".into(), "important".into()],
                 checked: Some(false),
                 text: "file taxes".into(),
-                block: 5
+                block: 5,
+                path: vec![5]
             },
             BlockTag {
                 tags: vec!["idea".into()],
                 checked: None,
                 text: "a bot".into(),
-                block: 6
+                block: 6,
+                path: vec![6]
             },
         ]
     );
@@ -184,20 +186,59 @@ fn readers_over_prosemirror_content() {
                 text: "call mum".into(),
                 checked: true,
                 block: 4,
-                tags: vec![]
+                tags: vec![],
+                path: vec![4, 0]
             },
             TaskItem {
                 text: "buy flowers".into(),
                 checked: false,
                 block: 4,
-                tags: vec![]
+                tags: vec![],
+                path: vec![4, 1]
             },
             TaskItem {
                 text: "file taxes".into(),
                 checked: false,
                 block: 5,
-                tags: vec!["todo".into(), "important".into()]
+                tags: vec!["todo".into(), "important".into()],
+                path: vec![5]
             },
+        ]
+    );
+}
+
+/// A to-do tag on a check-list item's paragraph (or on the item) lists the item once (N1 report: it was listed
+/// twice, as the `taskItem` and as the tagged block).
+#[test]
+fn tagged_task_items_are_listed_once() {
+    let page = PageDoc::create(Some("T"), T0);
+    page.append_blocks(&[json!({"type": "taskList", "content": [
+        {"type": "taskItem", "attrs": {"checked": false}, "content": [
+            {"type": "paragraph", "attrs": {"tags": ["todo", "important"], "checked": false},
+             "content": [{"type": "text", "text": "one"}]},
+            {"type": "taskList", "content": [
+                {"type": "taskItem", "attrs": {"checked": true, "tags": ["todo"]}, "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "nested"}]}]}]}]},
+    ]}),
+    json!({"type": "blockquote", "content": [
+        {"type": "paragraph", "attrs": {"tags": ["todo"], "checked": true}, "content": [{"type": "text", "text": "quoted"}]}]})])
+    .unwrap();
+    let tasks = page.tasks(&["todo".to_string()]);
+    let got: Vec<(&str, bool, Vec<u32>, Vec<String>)> = tasks
+        .iter()
+        .map(|t| (t.text.as_str(), t.checked, t.path.clone(), t.tags.clone()))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (
+                "one",
+                false,
+                vec![1, 0],
+                vec!["todo".to_string(), "important".to_string()]
+            ),
+            ("nested", true, vec![1, 0, 1, 0], vec!["todo".to_string()]),
+            ("quoted", true, vec![2, 0], vec!["todo".to_string()]),
         ]
     );
 }

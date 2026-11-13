@@ -138,6 +138,11 @@ pub enum Request {
     Purge {
         notebook: String,
     },
+    /// Permanently deletes one recycle-bin entry and its subtree → `purged`.
+    PurgeNode {
+        notebook: String,
+        node: String,
+    },
     /// Structural undo/redo of this device's own tree edits → `undone` (`changed`).
     Undo {
         notebook: String,
@@ -160,6 +165,20 @@ pub enum Request {
         #[ts(optional)]
         color: Option<String>,
         kind: TagKind,
+    },
+    /// Changes a tag definition → `done`. Absent fields stay; `""` clears `icon` / `color`.
+    UpdateTag {
+        notebook: String,
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        icon: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        color: Option<String>,
     },
     /// → `page`. Bind the editor mirror afterwards (seed it with the binary `export_updates(docId, empty)`).
     OpenPage {
@@ -491,6 +510,9 @@ fn handle(host: &mut NotesHost, req: Request) -> Result<ResponseBody, crate::Cor
         R::Purge { notebook } => B::Purged {
             doc_ids: host.purge_expired(&notebook)?,
         },
+        R::PurgeNode { notebook, node } => B::Purged {
+            doc_ids: host.purge_node(&notebook, &node)?,
+        },
         R::Undo { notebook } => B::Undone {
             changed: host.undo(&notebook)?,
         },
@@ -509,6 +531,22 @@ fn handle(host: &mut NotesHost, req: Request) -> Result<ResponseBody, crate::Cor
         } => B::Created {
             id: host.add_tag(&notebook, &label, icon.as_deref(), color.as_deref(), kind)?,
         },
+        R::UpdateTag {
+            notebook,
+            id,
+            label,
+            icon,
+            color,
+        } => {
+            host.update_tag(
+                &notebook,
+                &id,
+                label.as_deref(),
+                icon.as_deref(),
+                color.as_deref(),
+            )?;
+            B::Done
+        }
         R::OpenPage { doc_id } => B::Page {
             page: host.open_page(&doc_id)?,
         },
@@ -689,6 +727,12 @@ pub mod binary {
             host.import_updates(doc, bytes, None)
                 .map(|result| ResponseBody::Imported { result }),
         )
+    }
+
+    /// `put_blob(notebook, bytes)`: stores an image / attachment (Blob effect) → the blob id (SHA-256 hex), or
+    /// the JSON error reply.
+    pub fn put_blob(host: &mut NotesHost, notebook: &str, bytes: &[u8]) -> Result<String, String> {
+        host.put_blob(notebook, bytes).map_err(|e| error_json(&e))
     }
 
     /// `import_backup(bytes)` → `backupImported`.

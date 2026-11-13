@@ -80,6 +80,8 @@ pub struct TaskEntry {
     /// Top-level block index on the page.
     pub block: u32,
     pub tags: Vec<String>,
+    /// Child indices from the page's `doc` node to the node holding `checked` (`path[0] == block`).
+    pub path: Vec<u32>,
 }
 
 /// Which to-dos `Tasks` returns.
@@ -892,20 +894,51 @@ impl NotesHost {
     /// Purges recycle-bin entries older than 60 days; their page docs are dropped (Delete effects).
     pub fn purge_expired(&mut self, notebook: &str) -> Result<Vec<String>, CoreError> {
         let docs = self.edit(notebook, |d, now| d.purge_expired(now))?;
+        self.drop_pages(notebook, &docs)?;
+        Ok(docs)
+    }
+
+    /// Permanently deletes one recycle-bin entry (with its subtree); their page docs are dropped (Delete effects).
+    /// The UI does not offer to undo it (like `Purge`).
+    pub fn purge_node(&mut self, notebook: &str, node: &str) -> Result<Vec<String>, CoreError> {
+        let docs = self.edit(notebook, |d, now| d.purge_node(node, now))?;
+        self.drop_pages(notebook, &docs)?;
+        Ok(docs)
+    }
+
+    fn drop_pages(&mut self, notebook: &str, docs: &[String]) -> Result<(), CoreError> {
         let nb = self.nb_mut(notebook)?;
-        for d in &docs {
+        for d in docs {
             nb.pages.remove(d);
             nb.persist.remove(d);
             nb.data.remove(d);
         }
-        for d in &docs {
+        for d in docs {
             self.index.remove(notebook, d);
             self.effects.push(PersistEffect::Delete {
                 notebook: notebook.into(),
                 doc: d.clone(),
             });
         }
-        Ok(docs)
+        Ok(())
+    }
+
+    /// Stores a blob (image, attachment) of a notebook: queues a Blob effect (content addressed, written once)
+    /// and returns its id (SHA-256 hex).
+    pub fn put_blob(&mut self, notebook: &str, bytes: &[u8]) -> Result<String, CoreError> {
+        self.nb(notebook)?;
+        let id = blob_id(bytes);
+        let queued = self.effects.iter().any(|e| {
+            matches!(e, PersistEffect::Blob { sha256, notebook: n, .. } if *sha256 == id && n == notebook)
+        });
+        if !queued {
+            self.effects.push(PersistEffect::Blob {
+                notebook: notebook.into(),
+                sha256: id.clone(),
+                bytes: bytes.to_vec(),
+            });
+        }
+        Ok(id)
     }
 
     /// Structural undo of this device's own last tree edit (never others'). Returns whether anything changed.
@@ -930,6 +963,17 @@ impl NotesHost {
         kind: model_notes::TagKind,
     ) -> Result<String, CoreError> {
         self.edit(notebook, |d, _| d.add_tag(label, icon, color, kind))
+    }
+
+    pub fn update_tag(
+        &mut self,
+        notebook: &str,
+        id: &str,
+        label: Option<&str>,
+        icon: Option<&str>,
+        color: Option<&str>,
+    ) -> Result<(), CoreError> {
+        self.edit(notebook, |d, _| d.update_tag(id, label, icon, color))
     }
 
     pub fn set_canvas(&mut self, doc: &str, canvas: bool) -> Result<(), CoreError> {
@@ -1003,6 +1047,7 @@ impl NotesHost {
                             checked: t.checked,
                             block: t.block,
                             tags: t.tags,
+                            path: t.path,
                         });
                     }
                 }

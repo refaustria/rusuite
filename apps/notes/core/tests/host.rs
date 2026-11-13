@@ -365,6 +365,7 @@ fn tasks_backlinks_and_blobs_across_notebooks() {
         .collect();
     assert_eq!(texts, ["pay rent", "buy milk"]);
     assert_eq!(open[1]["notebookId"], "nb2");
+    assert_eq!(open[0]["path"], json!([open[0]["block"].clone()]));
     let done = ok(&mut host, json!({"type": "tasks", "filter": "done"}))["tasks"].clone();
     assert_eq!(done[0]["text"], "done thing");
 
@@ -405,6 +406,88 @@ fn tasks_backlinks_and_blobs_across_notebooks() {
             ["title"],
         "Linker"
     );
+}
+
+#[test]
+fn purge_node_update_tag_and_put_blob() {
+    let (mut host, inbox) = host_with_section();
+    let a = create_page(&mut host, &inbox, "A");
+    let b = create_page(&mut host, &inbox, "B");
+    let doc = host.notebook_doc("nb").unwrap();
+    let (na, nb_) = (
+        doc.node_of_page_doc(&a).unwrap(),
+        doc.node_of_page_doc(&b).unwrap(),
+    );
+    host.take_effects();
+    for n in [&na, &nb_] {
+        ok(
+            &mut host,
+            json!({"type": "delete", "notebook": "nb", "node": n}),
+        );
+    }
+    let purged = ok(
+        &mut host,
+        json!({"type": "purgeNode", "notebook": "nb", "node": na}),
+    );
+    assert_eq!(purged["docIds"], json!([a.clone()]));
+    let bin = ok(&mut host, json!({"type": "recycleBin", "notebook": "nb"}))["entries"].clone();
+    assert_eq!(bin.as_array().unwrap().len(), 1);
+    assert_eq!(bin[0]["node"]["title"], "B");
+    assert!(host
+        .take_effects()
+        .iter()
+        .any(|e| matches!(e, notes_core::PersistEffect::Delete { doc, .. } if *doc == a)));
+    let code = err(
+        &mut host,
+        json!({"type": "purgeNode", "notebook": "nb", "node": "999@1"}),
+    );
+    assert!(!code.is_empty());
+
+    let id = ok(
+        &mut host,
+        json!({"type": "addTag", "notebook": "nb", "label": "Waiting", "kind": "customToDo"}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ok(
+        &mut host,
+        json!({"type": "updateTag", "notebook": "nb", "id": id, "label": "Blocked", "color": "#FF0000", "icon": "lock"}),
+    );
+    let tags = ok(&mut host, json!({"type": "tags", "notebook": "nb"}))["tags"].clone();
+    let t = tags
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == json!(id))
+        .unwrap();
+    assert_eq!(
+        (&t["label"], &t["color"], &t["icon"], &t["kind"]),
+        (
+            &json!("Blocked"),
+            &json!("#FF0000"),
+            &json!("lock"),
+            &json!("customToDo")
+        )
+    );
+    assert_eq!(
+        err(
+            &mut host,
+            json!({"type": "updateTag", "notebook": "nb", "id": "nope", "label": "x"})
+        ),
+        "unknown_tag"
+    );
+
+    let sha = notes_core::binary::put_blob(&mut host, "nb", b"png bytes").unwrap();
+    assert_eq!(sha, notes_core::blob_id(b"png bytes"));
+    notes_core::binary::put_blob(&mut host, "nb", b"png bytes").unwrap();
+    let blobs: Vec<_> = host
+        .take_effects()
+        .into_iter()
+        .filter(|e| matches!(e, notes_core::PersistEffect::Blob { .. }))
+        .collect();
+    assert_eq!(blobs.len(), 1, "queued once");
+    assert!(notes_core::binary::put_blob(&mut host, "nope", b"x").is_err());
 }
 
 #[test]

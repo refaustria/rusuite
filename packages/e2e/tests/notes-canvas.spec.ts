@@ -6,7 +6,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { testdata, trackErrors } from "../support/common";
+import { fileCommand, testdata, trackErrors } from "../support/common";
 
 const shots = process.env.NOTES_SHOTS;
 
@@ -382,7 +382,8 @@ test.describe("Notes canvas pages and ink (P11-N4)", () => {
     await tool(page, "Pen").click();
     await stroke(page, wave(20, 200, 25, 40, 20)); // ~980 px wide: wider than A4's printable 698 px
     await tool(page, "Type").click();
-    await page.getByRole("button", { name: "Print canvas", exact: true }).click();
+    // File › Export PDF (the web: the print dialog) prints a canvas page as drawn (P11-N3 took over Draw › Print canvas).
+    await fileCommand(page, /^Export PDF/);
     await expect.poll(() => page.evaluate(() => (window as unknown as { __print: unknown }).__print)).not.toBeNull();
     const p = (await page.evaluate(() => (window as unknown as { __print: { pages: number; strokes: number; text: string; transform: string; editable: number } }).__print))!;
     expect(p.pages).toBe(1);

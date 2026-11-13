@@ -145,4 +145,39 @@ describe.runIf(coreAvailable)("NotesController (real core)", () => {
     expect(hits.map((h) => h.docId)).toContain(copy);
     await ctl.clearLocalData();
   });
+
+  it("tasks: listed once, ticked from the tasks view through a mirror of a closed page; tags; purge one entry; blobs", async () => {
+    const { ctl, store } = make();
+    await ctl.start();
+    // The welcome page has a check list; its first item, ticked from the tasks view while another page is open.
+    const welcome = ctl.getState().opened!.docId;
+    await ctl.createPage();
+    await ctl.showTasks(true);
+    const open = ctl.getState().tasks.filter((x) => x.docId === welcome);
+    expect(open.length).toBe(4);
+    expect(new Set(open.map((x) => x.path.join("/"))).size).toBe(4);
+    const first = open.find((x) => !x.checked)!;
+    await ctl.setTaskChecked(first, true);
+    expect(ctl.getState().tasks.find((x) => x.docId === welcome && x.path.join() === first.path.join())?.checked).toBe(true);
+    // Custom tags.
+    const id = (await ctl.addTag("Waiting", "customToDo", "clock", "#D13438"))!;
+    expect(ctl.tagDefs().find((x) => x.id === id)).toMatchObject({ label: "Waiting", kind: "customToDo", icon: "clock" });
+    await ctl.updateTag(id, { label: "Blocked" });
+    expect(ctl.tagDefs().find((x) => x.id === id)?.label).toBe("Blocked");
+    // Purge one recycle-bin entry.
+    const a = ctl.getState().page!;
+    await ctl.createPage();
+    const b = ctl.getState().page!;
+    await ctl.deleteNode(a);
+    await ctl.deleteNode(b);
+    await ctl.showRecycleBin(true);
+    expect(ctl.getState().recycle.length).toBe(2);
+    await ctl.purgeNode(a);
+    expect(ctl.getState().recycle.map((e) => e.node.id)).toEqual([b]);
+    // Blobs go through the core's Blob effect into the store.
+    const sha = (await ctl.storeBlob(new Uint8Array([1, 2, 3])))!;
+    await ctl.idle();
+    expect(await store.getBlob(ctl.getState().notebook!, sha)).toEqual(new Uint8Array([1, 2, 3]));
+    await ctl.clearLocalData();
+  });
 });

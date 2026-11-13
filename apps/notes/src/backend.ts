@@ -2,7 +2,7 @@
 // interface. The web implementation wraps `app-notes-wasm` in-process; the Tauri shell (P11-N7) will implement the
 // same calls over IPC. JSON commands go through `dispatch`, bytes through the binary calls (docs/notes-format.md §5).
 
-import { base64ToBytes, bytesToBase64, WasmBackend, type ReportHost } from "@rusuite/ui-shared";
+import { base64ToBytes, bytesToBase64, WasmBackend, type BackendCapabilities, type PdfPaper, type ReportHost } from "@rusuite/ui-shared";
 import { decodeEffects, frameRecords, type PersistEffect } from "./effects";
 import type { Request } from "./generated/Request";
 import type { Response } from "./generated/Response";
@@ -47,6 +47,13 @@ export interface NotesBackend extends ReportHost {
   importBackup(bytes: Uint8Array): Promise<Response>;
   pageGenesis(): Promise<Uint8Array>;
   blobId(bytes: Uint8Array): Promise<string>;
+  /** Stores an image / attachment of `notebook` (a Blob persist effect) → its id (SHA-256 hex). */
+  putBlob(notebook: string, bytes: Uint8Array): Promise<string>;
+  /** Print (ui-shared's print pipeline): the system print dialog for the mounted print root. */
+  print(paper?: PdfPaper): Promise<void>;
+  /** Export PDF without a dialog where the shell renders PDFs (`capabilities.pdf`). */
+  exportPdf?(suggestedName: string, paper: PdfPaper): Promise<string | null>;
+  readonly capabilities?: BackendCapabilities;
   /** Lets the user pick a file (`.rnotes` backups); `null` when cancelled. */
   openFile(): Promise<{ name: string; bytes: Uint8Array } | null>;
   /** Web: a download. */
@@ -67,6 +74,7 @@ export interface NotesWasmModule {
   export_backup(notebook: string, blobs: Uint8Array): Uint8Array;
   import_backup(bytes: Uint8Array): string;
   blob_id(bytes: Uint8Array): string;
+  put_blob(notebook: string, bytes: Uint8Array): string;
 }
 
 export const BACKUP_EXT = ".rnotes";
@@ -139,6 +147,19 @@ export class WebNotesBackend implements NotesBackend {
   }
   async blobId(bytes: Uint8Array): Promise<string> {
     return this.m.blob_id(bytes);
+  }
+  async putBlob(notebook: string, bytes: Uint8Array): Promise<string> {
+    try {
+      return this.m.put_blob(notebook, bytes);
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+  get capabilities(): BackendCapabilities {
+    return this.files.capabilities;
+  }
+  print(): Promise<void> {
+    return this.files.print();
   }
   async openFile(): Promise<{ name: string; bytes: Uint8Array } | null> {
     const f = await this.files.openFile();

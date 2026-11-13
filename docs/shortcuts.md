@@ -352,6 +352,11 @@ desktop apps; the ribbon has every command).
 | Mod+1 … Mod+9 | Tags: To Do, Important, Question, Remember for later, Definition, Highlight, Contact, Address, Phone number (again: remove) |
 | Mod+K | Link |
 | `[[` | Insert a page link (page picker) |
+| Mod+E | Search (the box at the top of the navigation pane); ↓/↑ choose a result, Enter opens it, Esc clears |
+| Mod+F | Find on page; Enter / ↓ next match, Shift+Enter / ↑ previous, Esc closes |
+| Tab / Shift+Tab in a table | Next / previous cell (Tab in the last cell adds a row) |
+| Enter after a tagged paragraph | The tag continues (a to-do unticked); Mod+1… removes it again |
+| ↑/↓, Enter, Esc in Page history | Choose a version, preview it, leave the preview |
 | Alt+Shift+D / T / F | Insert the date / time / date and time |
 | Enter in the page title | Into the page body |
 | Mod+O | File (notebooks in this browser) |

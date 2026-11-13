@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { openBackstage, ShortcutHelp, useShortcuts, type HelpRow, type ShortcutMap } from "@rusuite/ui-shared";
 import type { NotesController } from "./controller";
 import { BUILTIN_TAGS } from "./tags";
+import { SEARCH_INPUT_ID } from "./ui/SearchBox";
 import { useT } from "./i18n";
 
 /** Whether a key event comes from the page editor or a text field (they keep Ctrl+Z / Ctrl+Y). */
@@ -32,6 +33,18 @@ export function NotesShortcuts({ ctl }: { ctl: NotesController }) {
       "Mod+Z": { label: t("notes.sc.undoStructure"), group: Edit, inField: true, when: (e) => !inText(e), run: () => void ctl.undoStructure() },
       "Mod+Y": { label: t("notes.sc.redoStructure"), group: Edit, inField: true, when: (e) => !inText(e), run: () => void ctl.redoStructure() },
       "Mod+Shift+Z": { label: t("notes.sc.redoStructure"), group: Edit, inField: true, when: (e) => !inText(e), run: () => void ctl.redoStructure() },
+      "Mod+E": {
+        label: t("notes.search.label"),
+        group: Edit,
+        inField: true,
+        run: () => {
+          const el = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
+          if (!el) return false;
+          el.focus();
+          el.select();
+        },
+      },
+      "Mod+F": { label: t("notes.find.label"), group: Edit, inField: true, when: (e) => !(e.target as HTMLElement | null)?.closest?.(".ProseMirror"), run: () => ctl.requestFind() },
       "Mod+/": { label: t("shortcuts.title"), inField: true, run: () => setHelp(true) },
     };
   }, [ctl, t]);

@@ -11,6 +11,8 @@ import { findNode, flatPages, planPageDrop } from "../tree";
 import { useT } from "../i18n";
 import { useDialog } from "./dialogs";
 import { useNotes } from "./hooks";
+import { NotesIcon } from "./icons";
+import { SearchBox } from "./SearchBox";
 
 /** What is being dragged (HTML5 drag data cannot be read during dragover). */
 let dragging: { kind: "page" | "section" | "group"; id: string; notebook: string } | null = null;
@@ -29,14 +31,18 @@ interface Menu {
 export function NavPane({ ctl, onNavigate, width, onResize }: { ctl: NotesController; onNavigate?: () => void; width?: number; onResize?: (w: number) => void }) {
   const t = useT();
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [searching, setSearching] = useState(false);
   const notebook = useNotes(ctl, (s) => s.notebook);
   const notebooks = useNotes(ctl, (s) => s.notebooks);
   const view = useNotes(ctl, (s) => s.view);
   const current = notebooks.find((n) => n.summary.id === notebook) ?? null;
   return (
     <nav aria-label={t("notes.nav.label")} data-testid="nav-pane" className="relative flex min-h-0 shrink-0 flex-col border-r border-ui-border bg-ui-panel text-sm" style={width ? { width } : undefined}>
-      <NotebookSwitcher ctl={ctl} openMenu={setMenu} />
-      {current ? (
+      <SearchBox ctl={ctl} onActive={setSearching} onNavigate={onNavigate} />
+      {!searching && <NotebookSwitcher ctl={ctl} openMenu={setMenu} />}
+      {searching ? (
+        <div className="flex-1" />
+      ) : current ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <SectionList ctl={ctl} tree={current.tree} notebook={current.summary.id} openMenu={setMenu} onNavigate={onNavigate} />
           <PageList ctl={ctl} tree={current.tree} notebook={current.summary.id} openMenu={setMenu} onNavigate={onNavigate} />
@@ -45,6 +51,21 @@ export function NavPane({ ctl, onNavigate, width, onResize }: { ctl: NotesContro
         <p className="p-3 text-ui-muted" data-testid="nav-empty">
           {t("notes.nav.noNotebook")}
         </p>
+      )}
+      {current && (
+        <button
+          type="button"
+          data-testid="tasks-button"
+          aria-pressed={view === "tasks"}
+          className={`flex items-center gap-2 border-t border-ui-border px-3 py-2 text-left hover:bg-ui-hover ${view === "tasks" ? "font-semibold" : ""} ${FOCUS_RING}`}
+          onClick={() => {
+            void ctl.showTasks(view !== "tasks");
+            onNavigate?.();
+          }}
+        >
+          <NotesIcon name="checklist" />
+          {t("notes.tasks.title")}
+        </button>
       )}
       {current && (
         <button

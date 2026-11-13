@@ -2,7 +2,7 @@
 // enlarged), as a strip cut into pages of the shared print pipeline (ui-shared `PrintDoc`). The pages carry a copy of
 // the rendered surface (text boxes as laid out, images, both ink layers) without the editing chrome.
 
-import { escapeHtml, paperSize, printDocument, type PaperName, type PrintDoc } from "@rusuite/ui-shared";
+import { escapeHtml, paperSize, type PaperName, type PrintDoc } from "@rusuite/ui-shared";
 import type { Rect } from "./geometry";
 
 const DPI = 96;
@@ -67,9 +67,4 @@ export function canvasPrintDoc(surface: HTMLElement, title: string, paperName: P
 .nc-print-strip .notes-ink-highlighter { mix-blend-mode: multiply; }`,
     pages: html,
   };
-}
-
-/** Prints the canvas page shown in `surface` (the web shell prints with `window.print`). */
-export async function printCanvas(surface: HTMLElement, title: string): Promise<void> {
-  await printDocument(canvasPrintDoc(surface, title), { kind: "wasm", print: async () => window.print() });
 }

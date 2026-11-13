@@ -132,7 +132,9 @@ wasm export `page_genesis()`), never let the binding initialise an empty doc. P1
 
 Plain text = one line per non-empty text block (paragraph/heading/codeBlock or any node with text children),
 `hardBreak` → newline, `pageLink` nodes → their `title`. Tasks = every `taskItem` plus every block whose `tags`
-contain a to-do-kind tag. Block positions (`block`) are top-level child indices of `doc`.
+contain a to-do-kind tag; a tagged block inside a `taskItem` is that item (listed once, its tags merged). Block
+positions (`block`) are top-level child indices of `doc`; `path` (tasks, block tags) = child indices from `doc` to
+the node (the same in PM and in the Loro `children` lists).
 
 ## 5. Core interfaces (shells)
 
@@ -149,6 +151,7 @@ every request may carry `"now"`: the UI clock in Unix ms, the core has none). By
 | `take_persist_effects()` | – | effects (below) |
 | `export_backup(notebook, blobs)` / `import_backup(bytes)` | blobs as `{len:u32 LE, bytes}*` | `.rnotes` bytes / JSON `backupImported` |
 | `page_genesis()`, `blob_id(bytes)` | – | genesis bytes, SHA-256 hex |
+| `put_blob(notebook, bytes)` | an image / attachment | its SHA-256 hex; queues a Blob effect (kind 4) |
 | `import_file(request, bytes)` | an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request (JSON) + the file | JSON `fileImported` (§7) |
 | `export(request, blobs)` | an `exportPage` / `exportSection` request (JSON) + blobs as `{len:u32 LE, bytes}*` | file bytes (§7) |
 
@@ -189,8 +192,8 @@ of §4.4) and other formats; `notes-core` applies imports to notebooks (`host/co
 | `taskList`, `taskItem` | nodes | `taskItem.checked` |
 | `blockquote`, `horizontalRule`, `hardBreak` | nodes | – |
 | `codeBlock` | node | `language?` |
-| `table`, `tableRow`, `tableCell`, `tableHeader` | nodes (Tiptap table) | cells: `colspan?`, `rowspan?` (> 1) |
-| `image` | block node (atom) | `blob`, `alt?`, `width?`/`height?` (points) |
+| `table`, `tableRow`, `tableCell`, `tableHeader` | nodes (Tiptap table) | cells: `colspan?`, `rowspan?` (> 1), `colwidth?` (px per spanned column, the editor's column resize) |
+| `image` | block node (atom) | `blob`, `alt?`, `width?`/`height?` (points), `align?` (`center`; absent = left, P11-N3) |
 | `attachment` | block node (atom) | `blob`, `name`, `size` (bytes) |
 | `pageLink` | inline node / mark | node: `pageId`, `title`; mark: `pageId` |
 | `link` | mark | `href` (only `http(s):`, `mailto:`, `tel:`, `#…`; `onenote:` links of an import are page links or text) |

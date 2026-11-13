@@ -57,6 +57,9 @@ describe.each(stores)("%s store", (_name, make) => {
       { kind: "append", notebook: "m", doc: "m", bytes: b(1) },
     ]);
     expect(await s.blobs("n")).toEqual([b(5)]);
+    expect(await s.getBlob("n", "a".repeat(64))).toEqual(b(5));
+    expect(await s.getBlob("n", "b".repeat(64))).toBeUndefined();
+    expect(await s.getBlob("m", "a".repeat(64))).toBeUndefined();
     await s.setMeta("notebooks", [{ id: "n" }]);
     expect(await s.getMeta("notebooks")).toEqual([{ id: "n" }]);
     await s.deleteNotebook("n");

@@ -7,7 +7,17 @@ import { Node as PMNode } from "@tiptap/pm/model";
 import { EditorState } from "@tiptap/pm/state";
 import { createNodeFromLoroObj, updateLoroToPmState, type LoroDocType } from "loro-prosemirror";
 import { CoreError, unwrap, type Body, type NotesBackend, type NotesRequest } from "./backend";
+import { LoroList, LoroMap } from "loro-crdt";
+import { BlobUrls } from "./blobs";
 import type { DeletedNode } from "./generated/DeletedNode";
+import type { HistoryEntry } from "./generated/HistoryEntry";
+import type { PageRef } from "./generated/PageRef";
+import type { SearchHit } from "./generated/SearchHit";
+import type { TagDef } from "./generated/TagDef";
+import type { TagKind } from "./generated/TagKind";
+import type { TaskEntry } from "./generated/TaskEntry";
+import type { TaskFilter } from "./generated/TaskFilter";
+import type { VersionPreview } from "./generated/VersionPreview";
 import type { LoadWarning } from "./generated/LoadWarning";
 import type { NotebookSummary } from "./generated/NotebookSummary";
 import type { OpenedPage } from "./generated/OpenedPage";
@@ -68,8 +78,23 @@ export interface NotesState {
   /** The open page (core reply) and its editor mirror. */
   opened: OpenedPage | null;
   mirror: PageMirror | null;
-  view: "page" | "recycleBin";
+  view: "page" | "recycleBin" | "tasks";
   recycle: DeletedNode[];
+  /** Tag definitions per open notebook. */
+  tags: Record<string, TagDef[]>;
+  /** The tasks view: to-dos across the open notebooks. */
+  tasks: TaskEntry[];
+  taskFilter: TaskFilter;
+  /** Only to-dos with this tag (null = all). */
+  taskTag: string | null;
+  /** The side panel of the page (View › Page history). */
+  panel: "history" | null;
+  /** The node to scroll to and highlight once the page shows (tasks view, search). */
+  focus: { docId: string; path: number[]; at: number } | null;
+  /** Find on page with this query once the page shows (a search result was opened). */
+  find: { docId: string; query: string; at: number } | null;
+  /** Another tab took over: nothing is written any more. */
+  readOnly: boolean;
   recent: RecentPage[];
   settings: Settings;
   storage: StorageStatus;
@@ -78,6 +103,12 @@ export interface NotesState {
   error: string | null;
   canUndo: boolean;
   canRedo: boolean;
+}
+
+/** What the open page's editor does for the controller (registered by the page view). */
+export interface PageEditorHooks {
+  /** Ticks / unticks the to-do at `path` (child indices from the doc); false when there is none. */
+  setChecked(path: readonly number[], checked: boolean): boolean;
 }
 
 /** The editor's undo/redo (registered by the page view). */
@@ -99,6 +130,9 @@ export const RECYCLE_BIN_MS = 60 * 24 * 3600 * 1000;
 
 type Kind = ResponseBody["type"];
 
+/** Requests a read-only tab may still make (another tab took over writing). */
+const READ_ONLY_OK = new Set<string>(["listNotebooks", "getTree", "recycleBin", "tags", "search", "tasks", "backlinks", "referencedBlobs", "history", "checkoutPreview", "openPage", "closePage"]);
+
 export class NotesController {
   private state: NotesState = {
     phase: "loading",
@@ -111,6 +145,14 @@ export class NotesController {
     mirror: null,
     view: "page",
     recycle: [],
+    tags: {},
+    tasks: [],
+    taskFilter: "open",
+    taskTag: null,
+    panel: null,
+    focus: null,
+    find: null,
+    readOnly: false,
     recent: [],
     settings: DEFAULT_SETTINGS,
     storage: "unknown",
@@ -130,6 +172,9 @@ export class NotesController {
   private lastTextAt = 0;
   private undoneKinds: ("tree" | "text")[] = [];
   private schema = getSchema(notesSchemaExtensions());
+  private pageHooks: PageEditorHooks | null = null;
+  /** Object URLs of the notebooks' blobs (images, attachments). */
+  readonly blobs: BlobUrls;
 
   constructor(
     readonly backend: NotesBackend,
@@ -139,6 +184,7 @@ export class NotesController {
     persister?: Persister,
   ) {
     this.persister = persister ?? new Persister(store);
+    this.blobs = new BlobUrls((nb, sha) => this.store.getBlob(nb, sha));
   }
 
   // ---- store --------------------------------------------------------------------------------------------
@@ -184,6 +230,11 @@ export class NotesController {
     this.set({ error: message });
   }
 
+  /** A message in the toast (not an error). */
+  notify(message: string): void {
+    this.set({ error: message });
+  }
+
   dismissError(): void {
     this.set({ error: null });
   }
@@ -191,6 +242,7 @@ export class NotesController {
   // ---- core calls ---------------------------------------------------------------------------------------
 
   private async call<K extends Kind>(request: NotesRequest, _kind?: K): Promise<Body<K>> {
+    if (this.state.readOnly && !READ_ONLY_OK.has(request.type)) throw new Error(t("notes.lock.readOnly"));
     const body = unwrap(await this.backend.dispatch({ ...request, now: this.now() }));
     return body as Body<K>;
   }
@@ -267,6 +319,7 @@ export class NotesController {
       warnings.push(...r.warnings);
     }
     const opened = (await this.call({ type: "openNotebook", id })) as Body<"notebook">;
+    await this.loadTags(id);
     return { summary: normalizeSummary(opened.notebook), tree: opened.tree };
   }
 
@@ -343,6 +396,7 @@ export class NotesController {
       await this.saveKnown(this.state.known.map((x) => (x.id === id ? { ...x, name: summary.info.name, color: summary.info.color } : x)));
     }
     let patch: Partial<NotesState> = { notebooks };
+    if (!this.state.tags[id]) await this.loadTags(id);
     if (this.state.view === "recycleBin" && this.state.notebook === id) patch.recycle = await this.recycleEntries(id);
     // The open page may have been deleted / moved away by an undo.
     if (this.state.notebook === id && this.state.page && !findNode(tree, this.state.page)) {
@@ -698,6 +752,20 @@ export class NotesController {
     });
   }
 
+  /** Deletes one recycle-bin entry permanently (with its sub-pages). Not undoable. */
+  purgeNode(node: string): Promise<void> {
+    return this.run(async () => {
+      const nb = this.state.notebook;
+      if (!nb) return;
+      await this.call({ type: "purgeNode", notebook: nb, node });
+      await this.pump();
+      this.treeOps = this.treeOps.filter((o) => o.notebook !== nb);
+      this.treeRedo = [];
+      await this.refreshNotebook(nb);
+      this.set({ recycle: await this.recycleEntries(nb) });
+    });
+  }
+
   /**
    * Deletes everything in the recycle bin permanently. The core only purges entries older than 60 days
    * (`Purge`), so the request carries a clock 60 days ahead (only the purge change gets that timestamp).
@@ -790,6 +858,236 @@ export class NotesController {
     await this.refreshNotebook(notebook);
   }
 
+  // ---- tags ---------------------------------------------------------------------------------------------
+
+  private async loadTags(notebook: string): Promise<void> {
+    const tags = ((await this.call({ type: "tags", notebook })) as Body<"tags">).tags;
+    this.set({ tags: { ...this.state.tags, [notebook]: tags } });
+  }
+
+  /** The tag definitions of a notebook (default: the current one). */
+  tagDefs(notebook: string | null = this.state.notebook): TagDef[] {
+    return (notebook && this.state.tags[notebook]) || [];
+  }
+
+  /** Customize tags › New tag. Returns the new tag's id. */
+  addTag(label: string, kind: TagKind, icon?: string, color?: string): Promise<string | undefined> {
+    return this.run(async () => {
+      const nb = this.state.notebook;
+      if (!nb) return undefined;
+      const id = ((await this.call({ type: "addTag", notebook: nb, label, kind, ...(icon ? { icon } : {}), ...(color ? { color } : {}) })) as Body<"created">).id;
+      await this.pump();
+      await this.loadTags(nb);
+      return id;
+    });
+  }
+
+  /** Customize tags: rename / recolour / another icon. */
+  updateTag(id: string, patch: { label?: string; icon?: string; color?: string }): Promise<void> {
+    return this.run(async () => {
+      const nb = this.state.notebook;
+      if (!nb) return;
+      await this.call({ type: "updateTag", notebook: nb, id, ...patch });
+      await this.pump();
+      await this.loadTags(nb);
+    });
+  }
+
+  // ---- images and attachments -----------------------------------------------------------------------------
+
+  /** Stores a blob of the current notebook (Blob effect) and returns its id; its object URL is cached. */
+  storeBlob(bytes: Uint8Array, mime?: string): Promise<string | undefined> {
+    return this.run(async () => {
+      const nb = this.state.notebook;
+      if (!nb) throw new Error(t("notes.error.noNotebook"));
+      const sha = await this.backend.putBlob(nb, bytes);
+      this.blobs.remember(nb, sha, bytes, mime);
+      await this.pump();
+      return sha;
+    });
+  }
+
+  /** A fresh object URL of a stored blob with a MIME type (attachments: Open / Download). Revoke it after use. */
+  async fileUrl(sha: string, type: string): Promise<string | null> {
+    const nb = this.state.notebook;
+    if (!nb) return null;
+    await this.idle();
+    const bytes = await this.store.getBlob(nb, sha);
+    return bytes ? URL.createObjectURL(new Blob([bytes as BlobPart], { type })) : null;
+  }
+
+  /** The object URL of a blob of the current notebook. */
+  blobUrl(sha: string): Promise<string | null> {
+    const nb = this.state.notebook;
+    return nb ? this.blobs.url(nb, sha) : Promise.resolve(null);
+  }
+
+  // ---- search ---------------------------------------------------------------------------------------------
+
+  /** Full-text search (results while typing; not queued behind other commands). */
+  async search(query: string, notebook?: string | null, limit = 50): Promise<SearchHit[]> {
+    if (!query.trim()) return [];
+    try {
+      return (unwrap(await this.backend.dispatch({ type: "search", query, limit, ...(notebook ? { notebook } : {}) })) as Body<"searchHits">).hits;
+    } catch (e) {
+      this.fail(e);
+      return [];
+    }
+  }
+
+  /** Opens a search result and highlights `query` on the page. */
+  async openHit(hit: SearchHit, query: string): Promise<void> {
+    if (await this.openPageByDoc(hit.docId)) this.set({ find: { docId: hit.docId, query, at: this.now() } });
+  }
+
+  /** Ctrl+F outside the editor: find on the open page. */
+  requestFind(query = ""): void {
+    const docId = this.state.opened?.docId;
+    if (docId) this.set({ view: "page", find: { docId, query, at: this.now() } });
+  }
+
+  consumeFind(): void {
+    if (this.state.find) this.set({ find: null });
+  }
+
+  // ---- tasks ----------------------------------------------------------------------------------------------
+
+  /** View › Tasks: the to-dos of every open notebook. */
+  showTasks(show = true): Promise<void> {
+    return this.run(async () => {
+      if (!show) {
+        this.set({ view: "page" });
+        return;
+      }
+      await this.state.mirror?.settle();
+      this.set({ view: "tasks", tasks: await this.taskList() });
+    });
+  }
+
+  private async taskList(): Promise<TaskEntry[]> {
+    return ((await this.call({ type: "tasks", filter: "all" })) as Body<"tasks">).tasks;
+  }
+
+  setTaskFilter(filter: TaskFilter, tag: string | null = this.state.taskTag): void {
+    this.set({ taskFilter: filter, taskTag: tag });
+  }
+
+  /** Re-reads the tasks (after edits). */
+  refreshTasks(): Promise<void> {
+    return this.run(async () => {
+      if (this.state.view === "tasks") this.set({ tasks: await this.taskList() });
+    });
+  }
+
+  /** Ticks / unticks a to-do from the tasks view: in the open editor, else through a mirror of its page. */
+  setTaskChecked(task: TaskEntry, checked: boolean): Promise<void> {
+    return this.run(async () => {
+      const mirror = this.state.mirror;
+      if (mirror && mirror.docId === task.docId) {
+        // The open page: through its editor, or (editor not shown, e.g. the tasks view) its mirror – never a second
+        // mirror with the same peer id.
+        const ok = this.pageHooks ? this.pageHooks.setChecked(task.path, checked) : setCheckedInLoro(mirror.doc.getMap("doc"), task.path, checked);
+        if (!ok) throw new Error(t("notes.tasks.gone"));
+        if (!this.pageHooks) mirror.doc.commit({ origin: "notes:task" });
+        await mirror.settle();
+      } else {
+        await this.genesisBytes();
+        const opened = ((await this.call({ type: "openPage", docId: task.docId })) as Body<"page">).page;
+        const mirror = await PageMirror.open(opened, this.mirrorHost());
+        try {
+          if (!setCheckedInLoro(mirror.doc.getMap("doc"), task.path, checked)) throw new Error(t("notes.tasks.gone"));
+          mirror.doc.commit({ origin: "notes:task" });
+          await mirror.settle();
+        } finally {
+          mirror.dispose();
+          await this.call({ type: "closePage", docId: task.docId });
+        }
+      }
+      await this.pump();
+      if (this.state.view === "tasks") this.set({ tasks: await this.taskList() });
+    });
+  }
+
+  /** Opens the page of a to-do and highlights it. */
+  async openTask(task: TaskEntry): Promise<void> {
+    if (await this.openPageByDoc(task.docId)) this.set({ view: "page", focus: { docId: task.docId, path: task.path, at: this.now() } });
+  }
+
+  consumeFocus(): void {
+    if (this.state.focus) this.set({ focus: null });
+  }
+
+  /** The open page's editor hooks (null when it goes). */
+  setPageHooks(h: PageEditorHooks | null): void {
+    this.pageHooks = h;
+  }
+
+  // ---- links, history -------------------------------------------------------------------------------------
+
+  /** Pages linking to page doc `docId` ("Linked from"). */
+  async backlinks(docId: string): Promise<PageRef[]> {
+    try {
+      await this.state.mirror?.settle();
+      return (unwrap(await this.backend.dispatch({ type: "backlinks", pageId: docId })) as Body<"pages">).pages;
+    } catch {
+      return [];
+    }
+  }
+
+  /** The live title of a page (page doc id); `null` when no open notebook has it (deleted or unknown). */
+  pageTitle(docId: string): string | null {
+    for (const nb of this.state.notebooks) {
+      const p = allPages(nb.tree).find((x) => x.pageDoc === docId);
+      if (p) return p.title;
+    }
+    return null;
+  }
+
+  showPanel(panel: "history" | null): void {
+    this.set({ panel: this.state.panel === panel ? null : panel });
+  }
+
+  /** The versions of a page (newest first; the genesis is hidden by the core). */
+  async history(docId: string): Promise<HistoryEntry[]> {
+    await this.state.mirror?.settle();
+    return ((await this.call({ type: "history", docId })) as Body<"history">).entries.slice().reverse();
+  }
+
+  async preview(docId: string, frontiers: string[]): Promise<VersionPreview> {
+    return ((await this.call({ type: "checkoutPreview", docId, frontiers })) as Body<"preview">).preview;
+  }
+
+  /** Restore: the page goes back to that version with new operations (history only grows). */
+  restoreVersion(docId: string, frontiers: string[]): Promise<void> {
+    return this.run(async () => {
+      await this.state.mirror?.settle();
+      await this.call({ type: "restore", docId, frontiers });
+      await this.pump();
+      if (this.state.opened?.docId === docId) await this.state.mirror?.pull();
+      // The title may have changed with the content (meta.title): the tree title is authoritative and stays.
+    });
+  }
+
+  /** A page's content as ProseMirror JSON (print, section export). */
+  pageContent(docId: string): Promise<object> {
+    return this.run(async () => {
+      if (this.state.opened?.docId === docId && this.state.mirror) {
+        return createNodeFromLoroObj(this.schema, this.state.mirror.doc.getMap("doc") as never, new Map()).toJSON() as object;
+      }
+      return this.readContent(docId);
+    }).then((r) => r ?? { type: "doc", content: [] });
+  }
+
+  // ---- single tab ----------------------------------------------------------------------------------------
+
+  /** Another tab took over: flush what is pending and stop writing. */
+  async goReadOnly(): Promise<void> {
+    await this.state.mirror?.settle().catch(() => undefined);
+    await this.pump().catch(() => undefined);
+    await this.persister.flush().catch(() => undefined);
+    this.set({ readOnly: true });
+  }
+
   // ---- backup and local data ----------------------------------------------------------------------------
 
   /** The `.rnotes` backup of a notebook (everything in it, blobs included). */
@@ -846,10 +1144,11 @@ export class NotesController {
       await this.persister.flush();
       this.persister.discard();
       await this.store.clearAll();
+      this.blobs.clear();
       this.treeOps = [];
       this.treeRedo = [];
       this.undoneKinds = [];
-      this.set({ known: [], notebooks: [], notebook: null, section: null, page: null, recent: [], view: "page", recycle: [], warnings: [], settings: { ...this.state.settings, persistHintDismissed: false } });
+      this.set({ known: [], notebooks: [], notebook: null, section: null, page: null, recent: [], view: "page", recycle: [], tags: {}, tasks: [], warnings: [], settings: { ...this.state.settings, persistHintDismissed: false } });
     });
   }
 
@@ -885,4 +1184,20 @@ function normalizeSummary(s: NotebookSummary): NotebookSummary {
 
 function safeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").trim() || "notebook";
+}
+
+/** Sets `checked` on the node map at `path` (child indices from the `doc` map) of a page mirror. */
+export function setCheckedInLoro(doc: LoroMap, path: readonly number[], checked: boolean): boolean {
+  let node: LoroMap = doc;
+  for (const i of path) {
+    const kids = node.get("children");
+    if (!(kids instanceof LoroList)) return false;
+    const next = kids.get(i);
+    if (!(next instanceof LoroMap)) return false;
+    node = next;
+  }
+  if (node === doc) return false;
+  const attrs = node.getOrCreateContainer("attributes", new LoroMap());
+  attrs.set("checked", checked);
+  return true;
 }

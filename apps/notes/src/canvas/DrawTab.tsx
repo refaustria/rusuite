@@ -6,13 +6,11 @@ import { RibbonButton, RibbonMenuButton, RibbonStack, type RibbonMenuItem, type 
 import type { Editor } from "@tiptap/core";
 import type { NotesController } from "../controller";
 import { useT } from "../i18n";
-import { findNode } from "../tree";
 import { useNotes } from "../ui/hooks";
 import { deleteItems, enterCanvas, leaveCanvas, recolor, type CanvasCtx } from "./actions";
 import { canvasStepsFor, useCanvasMode } from "./hooks";
 import { DrawIcon, Swatch } from "./icons";
 import { reorderItems } from "./model";
-import { printCanvas } from "./print";
 import { clearSelection, HIGHLIGHTER_COLORS, HIGHLIGHTER_WIDTHS, PEN_COLORS, PEN_WIDTHS, setTools, useTools, type Tool } from "./tools";
 
 const COLOR_KEYS: Record<string, string> = {
@@ -34,7 +32,6 @@ const COLOR_KEYS: Record<string, string> = {
 export function useDrawTab(ctl: NotesController, editor: Editor | null): RibbonTab {
   const t = useT();
   const mirror = useNotes(ctl, (s) => s.mirror);
-  const title = useNotes(ctl, (s) => findNode(s.notebooks.find((n) => n.summary.id === s.notebook)?.tree ?? [], s.page)?.title ?? s.opened?.title ?? "");
   const canvas = useCanvasMode(mirror);
   const tools = useTools((s) => s);
   const ready = !!editor && !editor.isDestroyed && !!mirror;
@@ -196,16 +193,6 @@ export function useDrawTab(ctl: NotesController, editor: Editor | null): RibbonT
                   setTools({ tool: "select" });
                   leaveCanvas(c);
                 } else enterCanvas(c);
-              }}
-            />
-            <RibbonButton
-              label={t("notes.canvas.print")}
-              icon="print"
-              showLabel
-              disabled={off}
-              onClick={() => {
-                const surface = document.querySelector<HTMLElement>("[data-testid=canvas-surface]");
-                if (surface) void printCanvas(surface, title).catch((e: unknown) => ctl.fail(e));
               }}
             />
           </>
