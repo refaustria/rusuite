@@ -1,0 +1,39 @@
+[package]
+name = "notes-convert"
+description = "Rusuite Notes converters: OneNote/Markdown/HTML/.docx import, Markdown/HTML/.docx export (ProseMirror JSON)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+# ts-rs derives on the wire types (exported to apps/notes/src/generated/ by `cargo test`).
+ts = ["dep:ts-rs", "model-notes/ts"]
+
+[dependencies]
+model-notes = { path = "../model-notes" }
+fmt-onenote = { path = "../fmt-onenote" }
+fmt-docx = { path = "../fmt-docx" }
+model-text = { path = "../model-text" }
+core-model = { path = "../core-model" }
+# Markdown import (CommonMark + GFM tables/task lists); MIT. No HTML renderer (own writer).
+pulldown-cmark = { version = "0.13", default-features = false }
+# HTML import (paste, .html files): the spec-compliant, fuzzed Servo parser (MIT/Apache-2.0; already in the
+# lock file through dom_query). Our own tiny tree sink; sanitised by our own allow-list.
+html5ever = "0.39"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# Blob ids (SHA-256 of the bytes, as notes-core).
+sha2 = "0.10"
+# Section export as Markdown: a zip of pages + assets.
+zip.workspace = true
+ts-rs = { version = "12", features = ["serde-compat"], optional = true }
+
+[dev-dependencies]
+cab = "0.6"
+
+[lints]
+workspace = true

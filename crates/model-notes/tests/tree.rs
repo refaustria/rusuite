@@ -359,3 +359,12 @@ fn custom_tags() {
         ("Waiting", Some("hourglass"))
     );
 }
+
+#[test]
+fn node_times_can_be_set() {
+    let nb = NotebookDoc::new("N", 1_000);
+    let s = nb.create_section(None, None, "S", 1_000).unwrap();
+    nb.set_times(&s, 10, 20).unwrap();
+    let n = nb.get_node(&s).unwrap();
+    assert_eq!((n.created, n.modified), (10, 20));
+}

@@ -12,6 +12,7 @@ members = [
     "crates/model-show",
     "crates/fmt-onenote",
     "crates/model-notes",
+    "crates/notes-convert",
     "crates/app-common",
     "crates/tauri-plugin-rusuite-mobile",
     "apps/calc/src-tauri",

@@ -9,11 +9,13 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::effects::LoadWarning;
+use crate::host::convert::{FileImported, PageFormat};
 use crate::host::{
     HistoryEntry, ImportResult, NotebookSummary, NotesHost, OpenedPage, PageRef, TaskEntry,
     TaskFilter, VersionPreview,
 };
 use crate::search::SearchHit;
+use notes_convert::{ConvertWarning, ExportFormat};
 
 /// A request from the UI, e.g. `{"type":"createPage","notebook":"nb-1","parent":"3@7","title":"Hi","now":…}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -212,6 +214,63 @@ pub enum Request {
     Compact {
         doc_id: String,
     },
+    /// Binary `import_file` only → `fileImported`. A `.onepkg` (CAB) becomes a new notebook (`id`, else random);
+    /// a `.one` section a new section of `notebook` (in group `parent`, else at the root). Images, attachments →
+    /// blob effects; reader warnings in the reply.
+    ImportOneNote {
+        file_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        notebook: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        parent: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
+    },
+    /// A Markdown file as a new page under `parent` (section or page) → `fileImported`. `text` here, or the bytes
+    /// through `import_file`.
+    ImportMarkdown {
+        file_name: String,
+        notebook: String,
+        parent: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        text: Option<String>,
+    },
+    /// An HTML file as a new page (sanitised) → `fileImported`. `html` here, or the bytes through `import_file`.
+    ImportHtml {
+        file_name: String,
+        notebook: String,
+        parent: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        html: Option<String>,
+    },
+    /// Binary `import_file` only: a `.docx` as a new page → `fileImported`.
+    ImportDocx {
+        file_name: String,
+        notebook: String,
+        parent: String,
+    },
+    /// The editor's paste path: sanitised HTML → `pasted` (a ProseMirror `doc`; images become blobs of `notebook`).
+    PasteHtml {
+        notebook: String,
+        html: String,
+    },
+    /// Binary `export` only → the file's bytes.
+    ExportPage {
+        doc_id: String,
+        format: ExportFormat,
+    },
+    /// Binary `export` only: all pages of a section (sub-pages included) → a Markdown zip, one HTML file or one
+    /// `.docx`.
+    ExportSection {
+        notebook: String,
+        section: String,
+        format: ExportFormat,
+    },
 }
 
 /// A successful reply.
@@ -288,6 +347,17 @@ pub enum ResponseBody {
     /// Binary `import_updates`.
     Imported {
         result: ImportResult,
+    },
+    /// `importOneNote`, `importMarkdown`, `importHtml`, `importDocx`.
+    FileImported {
+        #[serde(flatten)]
+        result: FileImported,
+    },
+    Pasted {
+        /// A ProseMirror `doc` node.
+        #[ts(type = "unknown")]
+        content: serde_json::Value,
+        warnings: Vec<ConvertWarning>,
     },
     /// Binary `import_backup`.
     BackupImported {
@@ -483,7 +553,90 @@ fn handle(host: &mut NotesHost, req: Request) -> Result<ResponseBody, crate::Cor
             host.compact(&doc_id)?;
             B::Done
         }
+        R::PasteHtml { notebook, html } => {
+            let (content, warnings) = host.paste_html(&notebook, &html)?;
+            B::Pasted { content, warnings }
+        }
+        req @ (R::ImportOneNote { .. }
+        | R::ImportMarkdown { .. }
+        | R::ImportHtml { .. }
+        | R::ImportDocx { .. }) => import(host, req, None)?,
+        R::ExportPage { .. } | R::ExportSection { .. } => {
+            return Err(crate::CoreError::BadRequest(
+                "exports return bytes: use the binary export function".into(),
+            ))
+        }
     })
+}
+
+/// Runs an import request; `bytes` from the binary `import_file` (Markdown/HTML may carry their text instead).
+fn import(
+    host: &mut NotesHost,
+    req: Request,
+    bytes: Option<&[u8]>,
+) -> Result<ResponseBody, crate::CoreError> {
+    fn need(b: Option<&[u8]>) -> Result<&[u8], crate::CoreError> {
+        b.ok_or_else(|| {
+            crate::CoreError::BadRequest(
+                "this import takes the file's bytes: use import_file".into(),
+            )
+        })
+    }
+    let result = match req {
+        Request::ImportOneNote {
+            file_name,
+            notebook,
+            parent,
+            id,
+        } => host.import_onenote(
+            &file_name,
+            need(bytes)?,
+            notebook.as_deref(),
+            parent.as_deref(),
+            id.as_deref(),
+        )?,
+        Request::ImportMarkdown {
+            file_name,
+            notebook,
+            parent,
+            text,
+        } => {
+            let b = match &text {
+                Some(t) => t.as_bytes(),
+                None => need(bytes)?,
+            };
+            host.import_page(PageFormat::Markdown, &file_name, b, &notebook, &parent)?
+        }
+        Request::ImportHtml {
+            file_name,
+            notebook,
+            parent,
+            html,
+        } => {
+            let b = match &html {
+                Some(t) => t.as_bytes(),
+                None => need(bytes)?,
+            };
+            host.import_page(PageFormat::Html, &file_name, b, &notebook, &parent)?
+        }
+        Request::ImportDocx {
+            file_name,
+            notebook,
+            parent,
+        } => host.import_page(
+            PageFormat::Docx,
+            &file_name,
+            need(bytes)?,
+            &notebook,
+            &parent,
+        )?,
+        _ => {
+            return Err(crate::CoreError::BadRequest(
+                "import_file takes an import request".into(),
+            ))
+        }
+    };
+    Ok(ResponseBody::FileImported { result })
 }
 
 /// Runs one JSON request against `host` and returns the JSON reply.
@@ -548,6 +701,53 @@ pub mod binary {
                 warnings,
             })
         }))
+    }
+
+    /// `import_file(request, bytes)`: an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request
+    /// (JSON, may carry `"now"`) with the file's bytes → `fileImported`.
+    pub fn import_file(host: &mut NotesHost, request_json: &str, bytes: &[u8]) -> String {
+        let req = match serde_json::from_str::<super::Request>(request_json) {
+            Ok(r) => r,
+            Err(e) => return reply(Err(crate::CoreError::BadRequest(e.to_string()))),
+        };
+        set_clock(host, request_json);
+        reply(super::import(host, req, Some(bytes)))
+    }
+
+    /// `export(request, blobs)`: an `exportPage` / `exportSection` request (JSON) and the bytes of the blobs the
+    /// content uses (`{len:u32 LE, bytes}*`, as for `export_backup`) → the file's bytes, or the JSON error reply.
+    pub fn export(
+        host: &mut NotesHost,
+        request_json: &str,
+        blobs: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        let req = serde_json::from_str::<super::Request>(request_json)
+            .map_err(|e| error_json(&crate::CoreError::BadRequest(e.to_string())))?;
+        set_clock(host, request_json);
+        let blobs: std::collections::HashMap<String, Vec<u8>> = crate::split_blobs(blobs)
+            .into_iter()
+            .map(|b| (crate::blob_id(&b), b))
+            .collect();
+        let r = match req {
+            super::Request::ExportPage { doc_id, format } => {
+                host.export_page(&doc_id, format, &blobs)
+            }
+            super::Request::ExportSection {
+                notebook,
+                section,
+                format,
+            } => host.export_section(&notebook, &section, format, &blobs),
+            _ => Err(crate::CoreError::BadRequest(
+                "export takes an exportPage or exportSection request".into(),
+            )),
+        };
+        r.map_err(|e| error_json(&e))
+    }
+
+    fn set_clock(host: &mut NotesHost, request_json: &str) {
+        if let Ok(super::Clock { now: Some(now) }) = serde_json::from_str(request_json) {
+            host.set_now(now as i64);
+        }
     }
 
     /// An error reply for binary functions that return bytes (thrown by the shells).

@@ -14,6 +14,8 @@ use crate::effects::{blob_id, is_safe_id, log_record, split_log, LoadWarning, Pe
 use crate::search::{SearchHit, SearchIndex};
 use crate::CoreError;
 
+pub mod convert;
+
 /// After this many appended records a document's log is compacted into a new snapshot.
 pub const COMPACT_AFTER_APPENDS: u32 = 500;
 

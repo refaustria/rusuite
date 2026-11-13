@@ -208,6 +208,40 @@ impl PageDoc {
         Ok(())
     }
 
+    /// Fills a page from an importer: appends `blocks` and, when the page held nothing but the genesis' empty
+    /// paragraph, removes that paragraph (an imported page should not start with a blank line). With no blocks
+    /// the genesis paragraph stays.
+    pub fn import_blocks(&self, blocks: &[Value], now: i64) -> Result<(), NotesError> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        let root = self.doc.get_map(DOC);
+        let children = as_list(root.get("children"))
+            .ok_or_else(|| NotesError::Content("page has no genesis".into()))?;
+        let only_empty_genesis = children.len() == 1 && {
+            let c = self.content();
+            c.children().len() == 1
+                && c.children()[0].name() == content::names::PARAGRAPH
+                && c.children()[0].children().is_empty()
+        };
+        content::write_children(&children, children.len(), blocks)?;
+        if only_empty_genesis {
+            children.delete(0, 1)?;
+        }
+        self.doc.get_map(META).insert("modified", now)?;
+        commit_at(&self.doc, now);
+        Ok(())
+    }
+
+    /// Sets `meta.created` / `meta.modified` (Unix ms), e.g. to the times of an imported page.
+    pub fn set_times(&self, created: i64, modified: i64) -> Result<(), NotesError> {
+        let m = self.doc.get_map(META);
+        m.insert("created", created)?;
+        m.insert("modified", modified)?;
+        self.doc.commit();
+        Ok(())
+    }
+
     /// Everything the search/tasks/backlinks index needs, in one pass.
     #[must_use]
     pub fn index_data(&self) -> PageIndexData {

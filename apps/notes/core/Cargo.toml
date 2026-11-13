@@ -15,6 +15,9 @@ fs = []
 [dependencies]
 app-common = { path = "../../../crates/app-common" }
 model-notes = { path = "../../../crates/model-notes", features = ["ts"] }
+# Import/export (OneNote, Markdown, HTML, .docx) – P11-N6a.
+notes-convert = { path = "../../../crates/notes-convert", features = ["ts"] }
+fmt-onenote = { path = "../../../crates/fmt-onenote" }
 loro = "=1.17.1"
 serde.workspace = true
 serde_json.workspace = true
@@ -29,6 +32,8 @@ zip.workspace = true
 
 [dev-dependencies]
 notes-core = { path = ".", features = ["fs"] }
+# Builds .onepkg packages from the OneNote samples in tests.
+cab = "0.6"
 
 [lints]
 workspace = true
