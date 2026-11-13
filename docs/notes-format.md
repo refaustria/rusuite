@@ -128,6 +128,7 @@ wasm export `page_genesis()`), never let the binding initialise an empty doc. P1
 | `link`, `bold`, `italic`, `underline`, `strike`, `code`, `highlight`, `textStyle`, `subscript`, `superscript` | marks | – |
 | any node (e.g. `image`, `attachment`) | – | `blob` = SHA-256 of an image/attachment → backup/sync blob list |
 | any block | – | `tags: string[]` (tag ids), `checked: bool` for to-do kinds → tag/task index |
+| `image`, `attachment`, `table…`, `horizontalRule`, … | nodes | written by the importers (§7.1) |
 
 Plain text = one line per non-empty text block (paragraph/heading/codeBlock or any node with text children),
 `hardBreak` → newline, `pageLink` nodes → their `title`. Tasks = every `taskItem` plus every block whose `tags`
@@ -148,6 +149,8 @@ every request may carry `"now"`: the UI clock in Unix ms, the core has none). By
 | `take_persist_effects()` | – | effects (below) |
 | `export_backup(notebook, blobs)` / `import_backup(bytes)` | blobs as `{len:u32 LE, bytes}*` | `.rnotes` bytes / JSON `backupImported` |
 | `page_genesis()`, `blob_id(bytes)` | – | genesis bytes, SHA-256 hex |
+| `import_file(request, bytes)` | an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request (JSON) + the file | JSON `fileImported` (§7) |
+| `export(request, blobs)` | an `exportPage` / `exportSection` request (JSON) + blobs as `{len:u32 LE, bytes}*` | file bytes (§7) |
 
 **Persist effects** (`encode_effects`): `count: u32` then per effect `kind: u8`, `notebook: u16 len + UTF-8`,
 `doc: u16 len + UTF-8`, `bytes: u32 len + bytes` (all little-endian). Kinds: **1** append record to
@@ -169,3 +172,73 @@ time a peer of this device writes to a notebook.
 after the group in history order. `CheckoutPreview` renders that version (plain text + PM JSON) from a fork;
 `Restore` reverts to it with **new** operations (`revert_to`), so history only grows and peers merge it like any
 edit.
+
+## 7. Import and export (P11-N6a)
+
+Crate `crates/notes-convert` (pure functions, wasm-compatible) converts between page content (the ProseMirror JSON
+of §4.4) and other formats; `notes-core` applies imports to notebooks (`host/convert.rs`). A separate crate keeps
+`model-notes` free of the format dependencies (`fmt-onenote`, `fmt-docx`/`model-text`, `pulldown-cmark`,
+`html5ever`), and the converters testable without Loro.
+
+### 7.1 Schema used by the converters (additions are PM-safe: new optional attributes/nodes only)
+
+| Name | Kind | Attributes |
+|---|---|---|
+| `heading` | node | `level` 1–6 |
+| `bulletList`, `orderedList`, `listItem` | nodes | `orderedList.start` (absent = 1) |
+| `taskList`, `taskItem` | nodes | `taskItem.checked` |
+| `blockquote`, `horizontalRule`, `hardBreak` | nodes | – |
+| `codeBlock` | node | `language?` |
+| `table`, `tableRow`, `tableCell`, `tableHeader` | nodes (Tiptap table) | cells: `colspan?`, `rowspan?` (> 1) |
+| `image` | block node (atom) | `blob`, `alt?`, `width?`/`height?` (points) |
+| `attachment` | block node (atom) | `blob`, `name`, `size` (bytes) |
+| `pageLink` | inline node / mark | node: `pageId`, `title`; mark: `pageId` |
+| `link` | mark | `href` (only `http(s):`, `mailto:`, `tel:`, `#…`; `onenote:` links of an import are page links or text) |
+| `textStyle` | mark | **`color`** `#RRGGBB` (new) |
+| `highlight` | mark | **`color`** `#RRGGBB` (new; absent = default yellow) |
+| `bold`, `italic`, `underline`, `strike`, `code`, `subscript`, `superscript` | marks | – |
+| any top-level block | – | **`canvasItem`** (new): on canvas pages, the id of the text item (`"canvas"`) the block belongs to |
+
+Canvas pages (`meta.canvas = true`): a `"canvas"` item of kind `text` shows the top-level blocks whose `canvasItem`
+is its id (in document order); `image` items show their blob; ink strokes are in page coordinates (1/10 pt). With
+canvas mode off, all blocks flow in document order. The editor (N2/N4) must declare `canvasItem`, `tags` and
+`checked` as global block attributes, or the binding drops them.
+
+**Tag markers** (formats without tags – Markdown, HTML, .docx): ` [Label]` after the block's text, one per tag.
+Built-in tags use their English catalog label (`To-do`, `Important`, `Question`, `Idea`, `Critical`, `Contact`,
+`Address`, `Phone number`, `Remember for later`, `Definition`, `Highlight`), custom tags their label; a ticked to-do
+is ` [To-do: done]`. Importers turn trailing markers whose label is in the notebook's tags (case-insensitive) back
+into `tags`/`checked`. `[[Title]]` in imported text becomes a `pageLink` when a page of the notebook has that title
+(case-insensitive); otherwise it stays text.
+
+### 7.2 Commands
+
+| Request | Path | Result |
+|---|---|---|
+| `importOneNote { fileName, notebook?, parent?, id? }` | `import_file` | `.onepkg` (CAB, sniffed by bytes) → a **new notebook** (`id` or random): section groups, sections with colours, pages with sub-page levels and created/modified times. `.one` → a **new section** of `notebook` (at the root, or in group `parent`). One undo step for the tree. |
+| `importMarkdown { fileName, notebook, parent, text? }` | dispatch (`text`) or `import_file` | a new page under `parent` (section or page) |
+| `importHtml { fileName, notebook, parent, html? }` | dispatch (`html`) or `import_file` | a new page (sanitised) |
+| `importDocx { fileName, notebook, parent }` | `import_file` | a new page |
+| `pasteHtml { notebook, html }` | dispatch | `pasted { content: doc, warnings }` – the editor's paste path; images become blobs of `notebook` |
+| `exportPage { docId, format: md\|html\|docx }` | `export` | `.md` (images as `data:` URIs) / standalone `.html` / `.docx` |
+| `exportSection { notebook, section, format }` | `export` | `md`: `.zip` of `NN Title.md` + `assets/`; `html`: one file, an `<article>` per page; `docx`: one document, each page a Heading 1 starting on a new page. Sub-pages follow their page. |
+
+`fileImported { notebook, tree, nodes, pages, warnings }`: `nodes` = the top-level nodes created, `pages` = every
+page (`{node, docId}`). Page titles: OneNote's; else a leading level-1 heading (removed from the content), else the
+HTML `<title>`, else the file name. Images and attachments are queued as blob effects (kind 4). `export` needs the
+bytes of the blobs the content uses (`referencedBlobs` lists a notebook's); missing images export as their alt text.
+
+### 7.3 What each format keeps
+
+| Format | Kept | Lost / approximated |
+|---|---|---|
+| OneNote → Notes | hierarchy, section colours, page levels and times, outlines in reading order (top→bottom, then left→right), headings (`title` → H1), quotes, code, lists (nesting by outline level, start numbers), tables, run marks incl. text colour and highlight, links, built-in and custom tags (to-do state), pictures, attached files, ink | fonts and font sizes, outline indentation of non-list paragraphs, list number formats (roman/letters → decimal), `onenote:` links outside the import (text), what `fmt-onenote` reports (`onenote.*` warnings) |
+| Canvas rule | a page with ink, or with ≥ 2 outlines side by side (non-overlapping horizontal ranges; outlines without a stored width count as overlapping) is a canvas page | ink lifted out of text is placed at the page origin (`notes.onenote.inkPosition`) |
+| Markdown | CommonMark + GFM tables / task lists / strikethrough, underline/sub/sup/highlight as inline HTML, page links, tag markers, images (`data:` URIs; in a section zip `assets/`) | colours, table cell structure beyond one line (`<br>`), image size, attachments (page export: `📎 name`; zip: a link to `assets/`); import: other raw HTML dropped (`notes.md.html`), remote images stay links (`notes.image.remote`) |
+| HTML | everything of §7.1 except canvas data (colours via `style="color/background-color"`, images and attachments as `data:` URIs) | import: scripts/styles/frames/objects/forms and all other attributes (`notes.html.removed`), unsafe links (`notes.link.unsafe`), remote and SVG images (`notes.image.remote`, `notes.image.unsupported`) |
+| .docx | headings, paragraphs, lists (Word default numbering, start numbers), task items (`☐`/`☑`), quotes (`Quote` style), code blocks (`SourceCode` style, Courier New), tables (`colspan`), images, links, run marks, colours, highlight (Word's palette), tag markers | code-block language, `rowspan`, attachments (`📎 name`), page links (title text), rules (a bottom border; not re-imported); import: drawings (`docx.drawing`), footnotes (`docx.note`), tables of contents (`docx.toc`), fields → their text (`docx.field`), vertical merges (`docx.table.vmerge`) |
+
+Warning codes of `notes-convert`: `notes.link.unsafe`, `notes.image.remote`, `notes.image.missing`,
+`notes.image.unsupported`, `notes.html.removed`, `notes.md.html`, `notes.onenote.link`, `notes.onenote.inkPosition`,
+`docx.drawing`, `docx.field`, `docx.note`, `docx.toc`, `docx.table.vmerge`, `docx.image.missing`; plus the readers'
+own (`onenote.*`, `docx.*` from `fmt-docx`). Shape: `{ code, params?, text, count }` (`ConvertWarning`).

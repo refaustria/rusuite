@@ -274,3 +274,61 @@ fn meta_canvas_and_ink() {
     page.remove_stroke("s1").unwrap();
     assert!(page.ink_strokes().is_empty());
 }
+
+#[test]
+fn imported_content_replaces_the_empty_genesis_paragraph() {
+    let p = PageDoc::create(Some("Imported"), T0);
+    p.import_blocks(
+        &[
+            json!({"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "H"}]}),
+            json!({"type": "paragraph", "content": [{"type": "text", "text": "body"}]}),
+        ],
+        T0 + 5,
+    )
+    .unwrap();
+    let pm = p.to_pm_json();
+    let kinds: Vec<&str> = pm["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["heading", "paragraph"]);
+    // Nothing to import: the genesis paragraph stays (the editor needs a text block).
+    let q = PageDoc::create(None, T0);
+    q.import_blocks(&[], T0).unwrap();
+    assert_eq!(q.to_pm_json()["content"].as_array().unwrap().len(), 1);
+    // A page that already has content keeps it.
+    p.import_blocks(&[json!({"type": "paragraph"})], T0)
+        .unwrap();
+    assert_eq!(p.to_pm_json()["content"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn page_times_can_be_set() {
+    let p = PageDoc::create(Some("Old"), T0);
+    p.set_times(1_600_000_000_000, 1_600_000_500_000).unwrap();
+    let m = p.meta();
+    assert_eq!(
+        (m.created, m.modified),
+        (1_600_000_000_000, 1_600_000_500_000)
+    );
+}
+
+#[test]
+fn appended_marks_do_not_spread_to_the_next_run() {
+    let p = PageDoc::create(None, T0);
+    p.append_blocks(&[json!({"type": "paragraph", "content": [
+        {"type": "text", "text": "bold", "marks": [{"type": "bold"}]},
+        {"type": "text", "text": " plain "},
+        {"type": "text", "text": "link", "marks": [{"type": "link", "attrs": {"href": "https://x"}}]},
+        {"type": "text", "text": " end"}
+    ]})])
+    .unwrap();
+    let para = &p.to_pm_json()["content"][1]["content"];
+    assert_eq!(para[0]["text"], "bold");
+    assert_eq!(para[1]["text"], " plain ");
+    assert!(para[1].get("marks").is_none(), "{para}");
+    assert_eq!(para[3]["text"], " end");
+    assert!(para[3].get("marks").is_none(), "{para}");
+}

@@ -260,11 +260,16 @@ pub(crate) fn write_children(
 }
 
 fn write_text(t: &LoroText, runs: &[Value]) -> Result<(), NotesError> {
+    // All text first, then the marks: inserting after a marked run would extend an inclusive mark (`expand:
+    // after`) over the following runs.
+    let texts: Vec<&str> = runs
+        .iter()
+        .map(|r| r.get("text").and_then(Value::as_str).unwrap_or_default())
+        .collect();
+    t.insert(0, &texts.concat())?;
     let mut at = 0usize;
-    for run in runs {
-        let s = run.get("text").and_then(Value::as_str).unwrap_or_default();
+    for (run, s) in runs.iter().zip(texts) {
         let n = s.chars().count();
-        t.insert(at, s)?;
         if let Some(Value::Array(marks)) = run.get("marks") {
             for m in marks {
                 let name = m

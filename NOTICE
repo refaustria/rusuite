@@ -32,10 +32,10 @@ crates/tauri-plugin-rusuite-mobile) additionally include, all under the Apache L
 The iOS apps use no CocoaPods or other Swift packages besides the Tauri Swift API; Apple system frameworks are
 not redistributed.
 
-Rust crates (459)
+Rust crates (461)
 -----------------
 
-Apache-2.0 OR MIT (273)
+Apache-2.0 OR MIT (274)
   aes 0.8.4 – https://github.com/RustCrypto/block-ciphers
   android_system_properties 0.1.6 – https://github.com/nical/android_system_properties
   anyhow 1.0.104 – https://github.com/dtolnay/anyhow
@@ -247,6 +247,7 @@ Apache-2.0 OR MIT (273)
   typed-path 0.12.3 – https://github.com/chipsenkbeil/typed-path
   typeid 1.0.3 – https://github.com/dtolnay/typeid
   typenum 1.20.1 – https://github.com/paholg/typenum
+  unicase 2.10.0 – https://github.com/seanmonstar/unicase
   unicode-segmentation 1.13.3 – https://github.com/unicode-rs/unicode-segmentation
   url 2.5.8 – https://github.com/servo/rust-url
   utf8_iter 1.0.4 – https://github.com/hsivonen/utf8_iter
@@ -310,7 +311,7 @@ Apache-2.0 OR MIT (273)
   wry 0.57.0 – https://github.com/tauri-apps/wry
   zeroize 1.9.1 – https://github.com/RustCrypto/utils
 
-MIT (98)
+MIT (99)
   atk 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   atk-sys 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   axum 0.8.9 – https://github.com/tokio-rs/axum
@@ -367,6 +368,7 @@ MIT (98)
   phf 0.13.1 – https://github.com/rust-phf/rust-phf
   plist 1.10.1 – https://github.com/ebarnard/rust-plist/
   precomputed-hash 0.1.1 – https://github.com/emilio/precomputed-hash
+  pulldown-cmark 0.13.6 – https://github.com/raphlinus/pulldown-cmark
   quick-xml 0.42.0 – https://github.com/tafia/quick-xml
   redox_syscall 0.5.18 – https://gitlab.redox-os.org/redox-os/syscall
   redox_users 0.5.3 – https://gitlab.redox-os.org/redox-os/users

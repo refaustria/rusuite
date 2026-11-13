@@ -453,6 +453,15 @@ impl NotebookDoc {
         Ok(())
     }
 
+    /// Sets a node's `created` / `modified` times (Unix ms), e.g. to those of an imported page.
+    pub fn set_times(&self, id: &str, created: i64, modified: i64) -> Result<(), NotesError> {
+        let meta = self.meta(self.parse_id(id)?)?;
+        meta.insert("created", created)?;
+        meta.insert("modified", modified)?;
+        self.doc.commit();
+        Ok(())
+    }
+
     /// Sets or clears the colour (`#RRGGBB`) of a node (sections; groups and pages accept it too).
     pub fn set_color(&self, id: &str, color: Option<&str>, now: i64) -> Result<(), NotesError> {
         let meta = self.meta(self.parse_id(id)?)?;

@@ -36,12 +36,14 @@ pub use effects::{
     blob_id, decode_effects, encode_effects, is_safe_id, log_record, split_blobs, split_log,
     LoadWarning, PersistEffect,
 };
+pub use host::convert::{FileImported, PageFormat};
 pub use host::{
     HistoryEntry, ImportResult, NotebookSummary, NotesHost, OpenedPage, PageRef, TaskEntry,
     TaskFilter, VersionPreview, COMPACT_AFTER_APPENDS, MIRROR_MERGE_INTERVAL_SECS,
 };
 pub use model_notes;
 pub use model_notes::page_genesis;
+pub use notes_convert;
 pub use search::{SearchHit, SearchIndex};
 #[cfg(feature = "fs")]
 pub use store::FolderStore;
