@@ -5,6 +5,7 @@ import { FOCUS_RING } from "@rusuite/ui-shared";
 import type { NotesController } from "../controller";
 import { useT } from "../i18n";
 import { useNotes } from "./hooks";
+import { SyncIndicator } from "./Share";
 
 /** The status bar recounts 250 ms after the last edit (a keystroke never waits for it). */
 export const WORD_COUNT_DEBOUNCE_MS = 250;
@@ -60,6 +61,7 @@ export function StatusBar({ ctl, editor }: { ctl: NotesController; editor: Edito
       <span data-testid="save-state" data-state={save}>
         {save === "saved" ? t("notes.status.saved") : save === "saving" ? t("notes.status.saving") : t("notes.status.error")}
       </span>
+      <SyncIndicator ctl={ctl} />
       {words !== null && <span data-testid="words">{t("notes.status.words", { count: words })}</span>}
       {warnings.length > 0 && (
         <span data-testid="warnings" className="truncate text-amber-600" title={warnings.map((w) => `${w.doc}: ${w.message}`).join("\n")}>

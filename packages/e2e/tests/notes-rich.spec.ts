@@ -411,7 +411,7 @@ test.describe("Notes rich content (P11-N3)", () => {
     errors.expectNone();
   });
 
-  test("page history: versions with device, preview with changed paragraphs, restore; keyboard", async ({ page }) => {
+  test("page history: versions with who made them, preview with changed paragraphs, restore; keyboard", async ({ page }) => {
     const errors = trackErrors(page);
     await page.clock.install();
     await openNotes(page);
@@ -433,7 +433,7 @@ test.describe("Notes rich content (P11-N3)", () => {
     const entries = panel.getByTestId("history-entry");
     await expect.poll(() => entries.count()).toBeGreaterThanOrEqual(2);
     await expect(entries.first()).toContainText("Current version");
-    await expect(entries.first()).toContainText(/device web-/);
+    await expect(entries.first()).toContainText(/ · you · /); // this device (names since P11-N5b)
     // Keyboard: ↓ then Enter previews the earlier version.
     await panel.getByRole("listbox").focus();
     await page.keyboard.press("ArrowDown");

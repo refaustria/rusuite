@@ -40,6 +40,10 @@ export interface NotesBackend extends ReportHost {
   /** A stored document before `openNotebook`; `log` in `.log` framing. */
   loadDoc(notebook: string, doc: string, snapshot: Uint8Array, log: Uint8Array): Promise<Response>;
   importUpdates(doc: string, bytes: Uint8Array): Promise<Response>;
+  /** The device got its sharing id: peers recorded for `from` are recorded for `to` (P11-N5b). */
+  rebindDevice(from: string, to: string): Promise<void>;
+  /** Relay bytes into `doc` of open notebook `notebook` (P11-N5b) → whether anything changed. */
+  importRemote(notebook: string, doc: string, bytes: Uint8Array): Promise<boolean>;
   /** Updates missing from `vv` (`VersionVector.encode()`, empty = all). */
   exportUpdates(doc: string, vv: Uint8Array): Promise<Uint8Array>;
   versionVector(doc: string): Promise<Uint8Array>;
@@ -72,6 +76,8 @@ export interface NotesWasmModule {
   dispatch(request: string): string;
   load_doc(notebook: string, doc: string, snapshot: Uint8Array, log: Uint8Array): string;
   import_updates(doc: string, bytes: Uint8Array): string;
+  import_remote(notebook: string, doc: string, bytes: Uint8Array): boolean;
+  rebind_device(from: string, to: string): void;
   export_updates(doc: string, vv: Uint8Array): Uint8Array;
   version_vector(doc: string): Uint8Array;
   take_persist_effects(): Uint8Array;
@@ -125,6 +131,20 @@ export class WebNotesBackend implements NotesBackend {
   }
   async importUpdates(doc: string, bytes: Uint8Array): Promise<Response> {
     return JSON.parse(this.m.import_updates(doc, bytes)) as Response;
+  }
+  async rebindDevice(from: string, to: string): Promise<void> {
+    try {
+      this.m.rebind_device(from, to);
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+  async importRemote(notebook: string, doc: string, bytes: Uint8Array): Promise<boolean> {
+    try {
+      return this.m.import_remote(notebook, doc, bytes);
+    } catch (e) {
+      rethrow(e);
+    }
   }
   async exportUpdates(doc: string, vv: Uint8Array): Promise<Uint8Array> {
     try {

@@ -7,11 +7,29 @@
 
 use std::cell::RefCell;
 
-use notes_core::{binary, NotesHost};
+use notes_core::{binary, log_record, NotesHost};
 use wasm_bindgen::prelude::wasm_bindgen;
+
+pub mod sync;
+use sync::{SyncClient, SyncResult};
 
 thread_local! {
     static HOST: RefCell<NotesHost> = RefCell::new(NotesHost::new("web"));
+    static SYNC: RefCell<SyncClient> = RefCell::new(SyncClient::new());
+}
+
+fn sync<T>(f: impl FnOnce(&mut SyncClient) -> T) -> T {
+    SYNC.with(|s| f(&mut s.borrow_mut()))
+}
+
+/// JS numbers for clocks and counters (wasm-bindgen maps `u64` to `BigInt`).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn u64_of(n: f64) -> u64 {
+    if n.is_finite() && n > 0.0 {
+        n as u64
+    } else {
+        0
+    }
 }
 
 fn with<T>(f: impl FnOnce(&mut NotesHost) -> T) -> T {
@@ -44,6 +62,26 @@ pub fn load_doc(notebook: &str, doc: &str, snapshot: &[u8], log: &[u8]) -> Strin
 #[must_use]
 pub fn import_updates(doc: &str, bytes: &[u8]) -> String {
     with(|h| binary::import_updates(h, doc, bytes))
+}
+
+/// The device got its sharing id: peers recorded for `from` are recorded for `to` (persist effects queued).
+#[wasm_bindgen]
+pub fn rebind_device(from: &str, to: &str) -> Result<(), String> {
+    with(|h| {
+        h.rebind_device(from, to)
+            .map_err(|e| binary::error_json(&e))
+    })
+}
+
+/// Imports relay bytes into `doc` of open notebook `notebook` (a page doc may arrive before its tree node) →
+/// whether anything changed. Throws the JSON error reply.
+#[wasm_bindgen]
+pub fn import_remote(notebook: &str, doc: &str, bytes: &[u8]) -> Result<bool, String> {
+    with(|h| {
+        h.import_updates(doc, bytes, Some(notebook))
+            .map(|r| r.changed)
+            .map_err(|e| binary::error_json(&e))
+    })
 }
 
 /// Updates of `doc` missing from version vector `vv` (`VersionVector.encode()`; empty = everything). Throws the
@@ -113,6 +151,179 @@ pub fn put_blob(notebook: &str, bytes: &[u8]) -> Result<String, String> {
 #[must_use]
 pub fn blob_id(bytes: &[u8]) -> String {
     notes_core::blob_id(bytes)
+}
+
+// ---- sharing (P11-N5b, `sync` module; secrets never leave this module except as the bytes the UI stores) ----------
+
+/// New device keys → their bytes (store them; they are the device's identity).
+#[wasm_bindgen]
+#[must_use]
+pub fn sync_device_create() -> Vec<u8> {
+    sync(SyncClient::device_create)
+}
+
+/// Loads stored device keys → the device id (hex).
+#[wasm_bindgen]
+pub fn sync_device_load(bytes: &[u8]) -> SyncResult<String> {
+    sync(|s| s.device_load(bytes))
+}
+
+/// Restores a shared notebook's state → its status JSON.
+#[wasm_bindgen]
+pub fn sync_book_load(bytes: &[u8]) -> SyncResult<String> {
+    sync(|s| s.book_load(bytes).map(|v| v.to_string()))
+}
+
+/// A shared notebook's state to store (member lists, keyring, invites, open join requests).
+#[wasm_bindgen]
+pub fn sync_book_save(notebook: &str) -> SyncResult<Vec<u8>> {
+    sync(|s| s.book_save(notebook))
+}
+
+#[wasm_bindgen]
+pub fn sync_book_forget(notebook: &str) -> SyncResult<()> {
+    sync(|s| s.book_forget(notebook))
+}
+
+#[wasm_bindgen]
+pub fn sync_set_local_id(notebook: &str, local_id: &str) -> SyncResult<()> {
+    sync(|s| s.set_local_id(notebook, local_id))
+}
+
+/// Turns sharing on → `{len u32 LE, status JSON}{len, genesis envelope}`.
+#[wasm_bindgen]
+pub fn sync_share_create(local_id: &str, display_name: &str) -> SyncResult<Vec<u8>> {
+    sync(|s| {
+        let (v, env) = s.share_create(local_id, display_name)?;
+        let mut out = log_record(v.to_string().as_bytes());
+        out.extend(log_record(&env));
+        Ok(out)
+    })
+}
+
+#[wasm_bindgen]
+pub fn sync_join_start(fragment: &str, now_secs: f64) -> SyncResult<String> {
+    sync(|s| {
+        s.join_start(fragment, u64_of(now_secs))
+            .map(|v| v.to_string())
+    })
+}
+
+#[wasm_bindgen]
+pub fn sync_join_request(notebook: &str, name: &str, now_secs: f64) -> SyncResult<Vec<u8>> {
+    sync(|s| s.join_request(notebook, name, u64_of(now_secs)))
+}
+
+#[wasm_bindgen]
+pub fn sync_status(notebook: &str) -> SyncResult<String> {
+    sync(|s| s.status(notebook).map(|v| v.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn sync_doc_id(notebook: &str, doc: &str) -> SyncResult<String> {
+    sync(|s| s.doc_id(notebook, doc))
+}
+
+#[wasm_bindgen]
+pub fn sync_blob_doc_id(notebook: &str, sha: &str) -> SyncResult<String> {
+    sync(|s| s.blob_doc_id(notebook, sha))
+}
+
+/// `Subscribe` for `docs` = JSON `[[doc hex, seq], …]`.
+#[wasm_bindgen]
+pub fn sync_subscribe(notebook: &str, docs: &str) -> SyncResult<Vec<u8>> {
+    let list: Vec<(String, f64)> = serde_json::from_str(docs).map_err(|e| e.to_string())?;
+    let list: Vec<(String, u64)> = list.into_iter().map(|(d, n)| (d, u64_of(n))).collect();
+    sync(|s| s.subscribe_frame(notebook, &list))
+}
+
+#[wasm_bindgen]
+pub fn sync_publish(tag: u32, envelope: &[u8]) -> SyncResult<Vec<u8>> {
+    SyncClient::publish_frame(tag, envelope)
+}
+
+#[wasm_bindgen]
+pub fn sync_fetch_blob(notebook: &str, sha: &str) -> SyncResult<Vec<u8>> {
+    sync(|s| s.fetch_blob_frame(notebook, sha))
+}
+
+#[wasm_bindgen]
+pub fn sync_stop_sharing(notebook: &str, now_secs: f64) -> SyncResult<Vec<u8>> {
+    sync(|s| s.stop_sharing_frame(notebook, u64_of(now_secs)))
+}
+
+/// An Update (`covers` 0) or Snapshot envelope of local doc `doc`.
+#[wasm_bindgen]
+pub fn sync_seal_doc(notebook: &str, doc: &str, covers: f64, data: &[u8]) -> SyncResult<Vec<u8>> {
+    sync(|s| s.seal_doc(notebook, doc, u64_of(covers), data))
+}
+
+#[wasm_bindgen]
+pub fn sync_seal_blob(notebook: &str, sha: &str, data: &[u8]) -> SyncResult<Vec<u8>> {
+    sync(|s| s.seal_blob(notebook, sha, data))
+}
+
+#[wasm_bindgen]
+pub fn sync_seal_presence(notebook: &str, data: &[u8]) -> SyncResult<Vec<u8>> {
+    sync(|s| s.seal_presence(notebook, data))
+}
+
+#[wasm_bindgen]
+pub fn sync_reencrypt(notebook: &str, envelope: &[u8]) -> SyncResult<Vec<u8>> {
+    sync(|s| s.reencrypt(notebook, envelope))
+}
+
+#[wasm_bindgen]
+pub fn sync_envelope_epoch(envelope: &[u8]) -> SyncResult<u32> {
+    SyncClient::envelope_epoch(envelope)
+}
+
+#[wasm_bindgen]
+pub fn sync_invite_create(
+    notebook: &str,
+    role: &str,
+    relay_hint: &str,
+    now_secs: f64,
+) -> SyncResult<String> {
+    sync(|s| {
+        s.invite_create(notebook, role, relay_hint, u64_of(now_secs))
+            .map(|v| v.to_string())
+    })
+}
+
+/// Admits a join request → framed envelopes (member list, key wrap).
+#[wasm_bindgen]
+pub fn sync_admit(notebook: &str, invite_id: &str) -> SyncResult<Vec<u8>> {
+    sync(|s| s.admit(notebook, invite_id))
+}
+
+#[wasm_bindgen]
+pub fn sync_decline(notebook: &str, invite_id: &str) -> SyncResult<()> {
+    sync(|s| s.decline(notebook, invite_id))
+}
+
+/// Removes a device (key rotation) → framed envelopes (member list, key wraps).
+#[wasm_bindgen]
+pub fn sync_remove(notebook: &str, device: &str) -> SyncResult<Vec<u8>> {
+    sync(|s| s.remove(notebook, device))
+}
+
+#[wasm_bindgen]
+pub fn sync_set_role(notebook: &str, device: &str, role: &str) -> SyncResult<Vec<u8>> {
+    sync(|s| s.set_role(notebook, device, role))
+}
+
+/// One relay frame of `notebook`'s connection → JSON event (decrypted bytes via `sync_take_payload`).
+#[wasm_bindgen]
+#[must_use]
+pub fn sync_handle(notebook: &str, frame: &[u8], now_secs: f64) -> String {
+    sync(|s| s.handle(notebook, frame, u64_of(now_secs)).to_string())
+}
+
+#[wasm_bindgen]
+#[must_use]
+pub fn sync_take_payload() -> Vec<u8> {
+    sync(SyncClient::take_payload)
 }
 
 #[cfg(test)]

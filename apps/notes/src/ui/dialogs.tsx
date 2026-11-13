@@ -8,6 +8,7 @@ import { useT } from "../i18n";
 import { useNotes } from "./hooks";
 import { ExportDialog, ImportDialog } from "./ImportExport";
 import { CustomizeTagsDialog } from "./TagsDialog";
+import { ShareDialog } from "./Share";
 
 export type DialogSpec =
   | { kind: "prompt"; title: string; label: string; initial?: string; confirm?: string; onSubmit: (value: string) => void }
@@ -20,7 +21,8 @@ export type DialogSpec =
   | { kind: "customizeTags" }
   | { kind: "options" }
   | { kind: "import" }
-  | { kind: "export"; scope: "page" | "section"; node?: string };
+  | { kind: "export"; scope: "page" | "section"; node?: string }
+  | { kind: "share" };
 
 const DialogContext = createContext<(d: DialogSpec | null) => void>(() => undefined);
 
@@ -60,6 +62,7 @@ export function DialogHost({ ctl, children }: { ctl: NotesController; children: 
       {spec?.kind === "options" && <OptionsDialog ctl={ctl} onClose={close} />}
       {spec?.kind === "import" && <ImportDialog ctl={ctl} onClose={close} />}
       {spec?.kind === "export" && <ExportDialog ctl={ctl} scope={spec.scope} node={spec.node} onClose={close} />}
+      {spec?.kind === "share" && <ShareDialog ctl={ctl} onClose={close} />}
     </DialogContext.Provider>
   );
 }

@@ -8,15 +8,18 @@ import { NotesController } from "./controller";
 import { initLoro } from "./loro";
 import { IdbNotesStore, MemoryNotesStore } from "./store";
 import { TabLock } from "./tablock";
+import { wasmCrypto, type SyncWasmModule } from "./sync/crypto";
+import { SyncManager } from "./sync/manager";
+import { relaySocket } from "./sync/socket";
 import "./i18n";
 import "./styles.css";
 
-async function loadWasm(): Promise<NotesWasmModule> {
+async function loadWasm(): Promise<NotesWasmModule & SyncWasmModule> {
   // Produced by `pnpm build:wasm` (gitignored).
   // @ts-ignore -- generated
   const mod = await import("../src-wasm/pkg/app_notes_wasm.js");
   await mod.default();
-  return mod as NotesWasmModule;
+  return mod as NotesWasmModule & SyncWasmModule;
 }
 
 /** The converters (P11-N6b): a second wasm module, fetched the first time an import, export or rich paste needs it. */
@@ -32,6 +35,14 @@ async function boot() {
   const backend = new WebNotesBackend(wasm, loadConverter);
   const store = IdbNotesStore.available() ? new IdbNotesStore() : new MemoryNotesStore();
   const ctl = new NotesController(backend, store);
+  // Sharing (P11-N5b): engines (and their connection) exist only for shared notebooks.
+  const sync = new SyncManager(wasmCrypto(wasm), store, ctl.syncHost(), relaySocket);
+  ctl.attachSync(sync);
+  window.addEventListener("online", () => sync.setOnline(true));
+  window.addEventListener("offline", () => sync.setOnline(false));
+  window.addEventListener("pagehide", () => {
+    for (const e of sync.engines.values()) void e.persistNow();
+  });
   ctl.persister.installPageHooks();
   (window as unknown as { __rusuiteNotes?: NotesController }).__rusuiteNotes = ctl; // e2e and diagnostics
   const lock = TabLock.browser();

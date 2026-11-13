@@ -239,6 +239,39 @@ impl NotesHost {
         self.device_id = device_id.to_string();
     }
 
+    /// The device got a new id (sharing keys, P11-N5b): every peer recorded for `from` in the open notebooks'
+    /// `"peers"` maps is recorded for `to`, and this session's peers are recorded again under `to` (history and the
+    /// last editor of a block then show the member's name on every device).
+    pub fn rebind_device(&mut self, from: &str, to: &str) -> Result<(), CoreError> {
+        self.device_id = to.to_string();
+        let ids: Vec<String> = self.notebooks.keys().cloned().collect();
+        for id in ids {
+            let mut changed = false;
+            if let Some(nb) = self.notebooks.get_mut(&id) {
+                nb.registered.clear();
+                let peers = nb.doc.doc().get_map("peers").get_value();
+                let mut mine = Vec::new();
+                if let loro::LoroValue::Map(m) = peers {
+                    for (k, v) in m.iter() {
+                        if matches!(v, loro::LoroValue::String(d) if d.as_str() == from) {
+                            if let Ok(p) = k.parse::<u64>() {
+                                mine.push(p);
+                            }
+                        }
+                    }
+                }
+                for p in mine {
+                    changed |= nb.doc.register_peer(p, to)?;
+                }
+            }
+            self.register_peers(&id, &id)?;
+            if changed {
+                self.flush(&id, &id)?;
+            }
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub fn peer(&self) -> u64 {
         self.peer

@@ -629,3 +629,41 @@ fn genesis_is_exposed_and_identical() {
     assert_eq!(notes_core::page_genesis(), model_notes::page_genesis());
     assert!(!notes_core::page_genesis().is_empty());
 }
+
+#[test]
+fn rebind_device_records_earlier_peers_under_the_new_id() {
+    let (mut host, inbox) = host_with_section();
+    let page = create_page(&mut host, &inbox, "R");
+    let mut m = Mirror::open(&mut host, &page);
+    let t = m.block_text(0);
+    t.insert(0, "before sharing").unwrap();
+    m.commit_and_send(&mut host, &page, T0 + 1000);
+    let devices = |host: &mut NotesHost| -> Vec<Option<String>> {
+        let h = ok(host, json!({"type": "history", "docId": page}))["entries"].clone();
+        h.as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g["deviceId"].as_str().map(str::to_string))
+            .collect()
+    };
+    assert!(devices(&mut host)
+        .iter()
+        .all(|d| d.as_deref() == Some("dev-a")));
+    host.take_effects();
+    host.rebind_device("dev-a", "a1b2").unwrap();
+    assert!(devices(&mut host)
+        .iter()
+        .all(|d| d.as_deref() == Some("a1b2")));
+    // The new records are persisted (and so travel to the other members).
+    assert!(host
+        .take_effects()
+        .iter()
+        .any(|e| matches!(e, PersistEffect::Append { doc, .. } if doc == "nb")));
+    // Further edits of this session record the new id too.
+    let t = m.block_text(0);
+    t.insert(0, "x").unwrap();
+    m.commit_and_send(&mut host, &page, T0 + 900_000);
+    assert!(devices(&mut host)
+        .iter()
+        .all(|d| d.as_deref() == Some("a1b2")));
+}

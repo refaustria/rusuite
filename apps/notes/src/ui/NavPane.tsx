@@ -16,6 +16,8 @@ import { NotesIcon } from "./icons";
 import { SearchBox } from "./SearchBox";
 import { importFileList } from "./ImportExport";
 import { importKindOf } from "../convert/formats";
+import { peersOn } from "./Share";
+import { colorOf } from "../sync/manager";
 
 /** What is being dragged (HTML5 drag data cannot be read during dragover). */
 let dragging: { kind: "page" | "section" | "group"; id: string; notebook: string } | null = null;
@@ -556,6 +558,7 @@ function PageList({ ctl, tree, notebook, openMenu, onNavigate }: { ctl: NotesCon
                 }}
               >
                 <span className="truncate">{f.node.title || t("notes.untitled")}</span>
+                <PageDots ctl={ctl} pageDoc={f.node.pageDoc} />
               </button>
             </li>
           );
@@ -567,6 +570,20 @@ function PageList({ ctl, tree, notebook, openMenu, onNavigate }: { ctl: NotesCon
         )}
       </ul>
     </section>
+  );
+}
+
+/** Small dots for the people on a page (shared notebooks). */
+function PageDots({ ctl, pageDoc }: { ctl: NotesController; pageDoc: string | null | undefined }) {
+  const view = useNotes(ctl, (s) => (s.notebook ? s.shares[s.notebook] : undefined));
+  const peers = peersOn(view, pageDoc);
+  if (peers.length === 0) return null;
+  return (
+    <span className="ml-auto flex shrink-0 gap-0.5 pl-1" data-testid="page-dots">
+      {peers.slice(0, 4).map((p) => (
+        <span key={p.device} className="h-2 w-2 rounded-full" style={{ background: colorOf(p.device) }} title={view?.names[p.device] ?? ""} data-testid="page-dot" />
+      ))}
+    </span>
   );
 }
 

@@ -128,6 +128,38 @@ problem" into GitHub issues. It listens on `127.0.0.1:8787`; nginx forwards `loc
   systemctl reload nginx` (the Help entry then shows "The report service could not be reached").
 
 
+## Notes relay (P11-N5b)
+
+`services/notes-relay` (binary `rusuite-notes-relay`, axum + tokio, no keys, no outgoing connections) stores and
+forwards the encrypted envelopes of shared notebooks (protocol and threat model: `docs/notes-sync-protocol.md`). The
+web app talks to it only for notebooks the user shared or joined, over the same-origin WebSocket `/api/notes/ws`.
+
+- **Install** (PM, once; needs `sudo`):
+  ```
+  cargo build --release -p notes-relay
+  sudo install -m 0755 target/release/rusuite-notes-relay /usr/local/bin/rusuite-notes-relay
+  sudo install -m 0644 deploy/notes-relay.service /etc/systemd/system/rusuite-notes-relay.service
+  sudo systemctl daemon-reload && sudo systemctl enable --now rusuite-notes-relay
+  sudo install -m 0644 deploy/nginx/notes-relay.conf /etc/nginx/snippets/rusuite-notes.conf
+  # in the TLS server block of the vhost, next to the report relay's include:
+  #   include /etc/nginx/snippets/rusuite-notes*.conf;
+  sudo nginx -t && sudo systemctl reload nginx
+  curl -s https://rusuit.es/api/notes/health   # {"connections":0,"ok":true,"version":"…"}
+  ```
+  The unit uses `DynamicUser` and `StateDirectory=rusuite-notes` (`/var/lib/rusuite-notes`), listens on
+  `127.0.0.1:8732`. Limits by environment (`NOTES_QUOTA_MB` 200, `NOTES_BLOB_MAX_MB` 25, `NOTES_ENVELOPE_MAX_KB` 1024,
+  `NOTES_RATE_PER_SEC` 50, `NOTES_INACTIVE_DAYS` 365, `NOTES_EPOCH_GRACE_SECS` 300), e.g. in a drop-in
+  `systemctl edit rusuite-notes-relay`.
+- **Update**: build, `install` the binary again, `sudo systemctl restart rusuite-notes-relay` (clients reconnect and
+  catch up by themselves; nothing is lost – their outboxes are persisted).
+- **Operations**: `journalctl -u rusuite-notes-relay` (one line per notable event, no ids, names or IPs). Disk use:
+  `du -sh /var/lib/rusuite-notes`. nginx has no access log for `/api/notes/`.
+- **Removing it**: `sudo systemctl disable --now rusuite-notes-relay`, delete the snippet, reload nginx – shared
+  notebooks then show "Offline – changes will sync" and keep working locally.
+- **Local testing** (agents): `NOTES_LISTEN=127.0.0.1:<port> NOTES_DATA_DIR=<tmp> target/debug/rusuite-notes-relay`,
+  then `E2E_PORT=<p> NOTES_RELAY_PORT=<port> node packages/e2e/serve.mjs` (proxies `/api/notes/` incl. the WebSocket
+  upgrade) and `BASE_URL=http://127.0.0.1:<p> NOTES_RELAY_DIR=<tmp> npx playwright test notes-sharing`.
+
 ## Domain rusuit.es (2026-10-16)
 
 The owner bought `rusuit.es`; `rusuit.es`, `www.rusuit.es` and `resuite.inceptum.at` point to this server. The vhost (`deploy/nginx/rusuit.es.conf`) serves only `rusuit.es`; `www.rusuit.es` and `resuite.inceptum.at` answer 301 to `https://rusuit.es$request_uri` (HTTP and HTTPS, same certificate; the Let's Encrypt lineage is still named `resuite.inceptum.at` and covers all three names). Canonical public address: **https://rusuit.es** (P8-49).

@@ -14,9 +14,9 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "=0.2.129"
 # Without the converters (P11-N6b): they are in the lazily loaded `app-notes-convert-wasm` (../src-wasm-convert).
 notes-core = { path = "../core", default-features = false }
-
-[dev-dependencies]
+notes-sync = { path = "../../../crates/notes-sync" }
 serde_json = { workspace = true }
+
 
 [lints]
 workspace = true

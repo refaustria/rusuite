@@ -18,6 +18,9 @@ export interface MirrorHost {
 /** Local updates reach the core this long after the first of a batch (≤ the persist delay budget of 250 ms). */
 export const SHIP_DELAY_MS = 40;
 
+/** Shared notebooks ship sooner (the relay forwards what reached the core; P11-N5b). */
+export const SHARED_SHIP_DELAY_MS = 10;
+
 /** Undo steps of the editor: typing within this many ms is one step. */
 export const UNDO_MERGE_MS = 1000;
 
@@ -94,6 +97,8 @@ export class PageMirror {
   readonly ime = new ImeGuard();
   /** Called after each local update (word count, the app's undo stack). */
   onLocalUpdate: (() => void) | null = null;
+  /** Delay of the first local update of a batch before it goes to the core. */
+  shipDelay = SHIP_DELAY_MS;
   private outbox: Uint8Array[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The mirror's version when its updates were last handed to the core. */
@@ -161,7 +166,7 @@ export class PageMirror {
     this.outbox.push(bytes);
     // Shipped in a task of their own, a few keystrokes together (the keystroke's task only commits to the mirror);
     // strictly in order.
-    this.timer ??= setTimeout(() => this.drain(), SHIP_DELAY_MS);
+    this.timer ??= setTimeout(() => this.drain(), this.shipDelay);
   }
 
   private drain(): void {

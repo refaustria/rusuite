@@ -243,6 +243,26 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
   };
 
   const draw = useDrawTab(ctl, editor);
+  const shared = useNotes(ctl, (s) => !!(s.notebook && s.shares[s.notebook]));
+  const shareTab: RibbonTab = {
+    id: "share",
+    label: t("notes.share.tab"),
+    groups: [
+      {
+        label: t("notes.share.group"),
+        items: (
+          <>
+            <RibbonButton size="large" label={t("notes.share.notebook")} icon={<NotesIcon name="share" size={22} />} disabled={!notebook || !ctl.sync} onClick={() => open({ kind: "share" })} />
+            <RibbonButton size="large" label={t("notes.share.members")} icon={<NotesIcon name="people" size={22} />} disabled={!shared} onClick={() => open({ kind: "share" })} />
+          </>
+        ),
+      },
+      {
+        label: t("notes.page"),
+        items: <RibbonButton size="large" label={t("notes.history.title")} icon={<NotesIcon name="history" size={22} />} pressed={panel === "history"} disabled={!opened} onClick={() => ctl.showPanel("history")} />,
+      },
+    ],
+  };
   const zoomIdx = ZOOM_STEPS.indexOf(settings.zoom);
   const view: RibbonTab = {
     id: "view",
@@ -392,7 +412,7 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
 
   return (
     <Ribbon
-      tabs={[home, insertTab, draw, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
+      tabs={[home, insertTab, draw, view, shareTab, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
       appName="Notes"
       documentTitle={pageTitle ?? title ?? undefined}
       accent={NOTES_ACCENT}

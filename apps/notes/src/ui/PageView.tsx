@@ -27,6 +27,9 @@ import { canvasExtension, CanvasView, InkHiddenNotice, useCanvasMode } from "../
 import { useT } from "../i18n";
 import { useDialog, type DialogSpec } from "./dialogs";
 import { useNotes } from "./hooks";
+import { PagePresence } from "../editor/presence";
+import { colorOf } from "../sync/manager";
+import { LastEditorGutter } from "./LastEditor";
 
 /** The link dialog for the editor's selection. */
 export function linkDialog(editor: Editor): DialogSpec {
@@ -129,14 +132,29 @@ function PageEditor({ ctl, mirror, opened, onEditor }: { ctl: NotesController; m
   const tagDefs = useNotes(ctl, (s) => (s.notebook ? s.tags[s.notebook] : undefined));
   const focus = useNotes(ctl, (s) => s.focus);
   const findReq = useNotes(ctl, (s) => s.find);
-  const readOnly = useNotes(ctl, (s) => s.readOnly);
+  const readOnly = useNotes(ctl, (s) => s.readOnly || ctl.sharedReadOnly(opened.notebookId));
   const { env, live } = useEditorEnv(ctl);
+  // Remote cursors (shared notebooks; the plugin is always there, presence only goes out when shared).
+  const presence = useMemo(() => new PagePresence(mirror, (bytes) => ctl.setPresence(bytes)), [mirror, ctl]);
+  useEffect(() => {
+    ctl.pagePresence = presence;
+    return () => {
+      if (ctl.pagePresence === presence) ctl.pagePresence = null;
+      presence.dispose();
+    };
+  }, [ctl, presence]);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; label: string; items: ContextMenuItem[] } | null>(null);
   const [find, setFindOpen] = useState<{ query: string; n: number } | null>(null);
   const extensions = useMemo(
     () => [
       ...notesSchemaExtensions({ onOpenPage: (docId) => void ctl.openPageByDoc(docId), taskLabel: (text) => t("notes.task.checkbox", { text }), env, live }),
-      LoroBinding(mirror),
+      LoroBinding(mirror, () =>
+        presence.plugin({ name: ctl.getState().profile?.name || t("notes.share.you"), color: colorOf(ctl.getState().device ?? "") }, (peer) => {
+          const device = presence.deviceOf.get(peer);
+          if (!device) return null;
+          return { name: ctl.nameOf(device) ?? "…", color: colorOf(device) };
+        }),
+      ),
       canvasExtension(mirror),
       NotesKeys.configure({
         onLink: () => editorRef.current && dialog(linkDialog(editorRef.current)),
@@ -220,6 +238,29 @@ function PageEditor({ ctl, mirror, opened, onEditor }: { ctl: NotesController; m
     };
   }, [editor, mirror, ctl, onEditor]);
 
+  // Presence: announce this page, apply the cursors of the people on it.
+  const view = useNotes(ctl, (s) => s.shares[opened.notebookId]);
+  useEffect(() => {
+    ctl.setPresence(presence.local());
+  }, [ctl, presence, opened.docId, view?.phase]);
+  const applied = useRef(new Map<string, Uint8Array>());
+  useEffect(() => {
+    if (!view) return;
+    const here = new Set<string>();
+    for (const p of view.peers) {
+      if (p.page !== opened.docId || !p.cursor) continue;
+      here.add(p.device);
+      if (applied.current.get(p.device) === p.cursor) continue;
+      applied.current.set(p.device, p.cursor);
+      presence.apply(p.cursor, p.device);
+    }
+    for (const d of [...applied.current.keys()]) {
+      if (here.has(d)) continue;
+      applied.current.delete(d);
+      presence.drop(d);
+    }
+  }, [view, presence, opened.docId]);
+
   // Live page titles (renames, deletes) and tag definitions.
   useEffect(() => live.refresh(), [live, notebooks]);
   useEffect(() => {
@@ -280,8 +321,9 @@ function PageEditor({ ctl, mirror, opened, onEditor }: { ctl: NotesController; m
     <article data-testid="page" data-doc={opened.docId}>
       {header}
       <InkHiddenNotice mirror={mirror} />
-      <div onContextMenu={onContextMenu}>
+      <div onContextMenu={onContextMenu} className="relative">
         <EditorContent editor={editor} className="notes-editor relative" />
+        {view && editor && <LastEditorGutter ctl={ctl} editor={editor} mirror={mirror} docId={opened.docId} />}
       </div>
       <LinkedFrom ctl={ctl} docId={opened.docId} />
       {menuEl}
