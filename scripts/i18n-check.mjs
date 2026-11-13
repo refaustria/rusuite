@@ -60,6 +60,7 @@ export const PACKAGES = [
   { name: "calc", src: "apps/calc/src", locales: "apps/calc/src/locales" },
   { name: "write", src: "apps/write/src", locales: "apps/write/src/locales" },
   { name: "show", src: "apps/show/src", locales: "apps/show/src/locales" },
+  { name: "notes", src: "apps/notes/src", locales: "apps/notes/src/locales" },
 ];
 /** Catalogs that must stay complete: a missing key fails even without `--strict`. */
 export const CORE = ["en", "de"];

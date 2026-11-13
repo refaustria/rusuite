@@ -17,8 +17,8 @@ const ALLOWED_PATH = [
   /^\/(styles\.css|i18n\.js|version\.js|version\.json)$/,
   /^\/logos\/[\w.-]+$/,
   /^\/locales\/(en|de)\.json$/,
-  /^\/(calc|write|show)\/(index\.html)?$/,
-  /^\/(calc|write|show)\/assets\/[\w.-]+$/,
+  /^\/(calc|write|show|notes)\/(index\.html)?$/,
+  /^\/(calc|write|show|notes)\/assets\/[\w.-]+$/,
   /^\/favicon\.ico$/,
 ];
 
@@ -169,6 +169,34 @@ test.describe("Privacy (ADR 0009)", () => {
       errors.expectNone();
     });
   }
+
+  // P11-N2: Notes keeps every notebook in IndexedDB; an unshared notebook never talks to a server (ADR 0009/0010).
+  test("notes: start, write, structure edits and a backup download only request own static files", async ({ page, baseURL }, info) => {
+    const errors = trackErrors(page);
+    const rec = recordRequests(page);
+    const main = await page.goto("notes/");
+    const csp = (await main!.allHeaders())["content-security-policy"];
+    expect(csp).toContain("connect-src 'self';");
+    const editor = page.getByTestId("page-editor");
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.type("private note");
+    await page.getByTestId("new-section").click();
+    await page.getByRole("dialog").getByRole("textbox").fill("Secret");
+    await page.getByRole("dialog").getByRole("textbox").press("Enter");
+    await expect(page.getByTestId("section-item").filter({ hasText: "Secret" })).toBeVisible();
+    await hidePage(page);
+    await expect.poll(() => idbCount(page, "rusuite-notes", "docs")).toBeGreaterThan(0);
+    await page.getByRole("tab", { name: "File", exact: true }).click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("backstage").getByRole("button", { name: "Download backup" }).click()]);
+    const file = info.outputPath("privacy.rnotes");
+    await download.saveAs(file);
+    await page.reload();
+    await expect(editor).toBeVisible();
+    rec.expectOnlyOwnFiles(baseURL!);
+    expect(rec.urls.some((u) => /\/notes\/assets\/.*\.wasm$/.test(u))).toBe(true);
+    errors.expectNone();
+  });
 
   test("portal: only its own files and /version.json; security headers", async ({ page, baseURL }) => {
     const rec = recordRequests(page);

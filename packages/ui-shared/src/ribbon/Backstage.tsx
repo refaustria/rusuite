@@ -16,6 +16,7 @@ import { RemotePage } from "../connectors/ui/RemotePage";
 import { baseName } from "../connectors/paths";
 import { AiOverlay } from "../ai/ui/AiOverlay";
 import { ReportOverlay } from "../report/ui/ReportDialog";
+import type { ReportHost } from "../report/controller";
 import { ReportBackstageItem } from "../report/ui/ribbon";
 import { publicVersion, RUSUITE_VERSION } from "../version";
 import { useCompact } from "../compact/useCompact";
@@ -52,6 +53,24 @@ export interface BackstageActions {
   infoPage?: ReactNode;
   /** The Save As shortcut shown (default `F12`, Office's key in all three apps; Calc and Show also take Ctrl+Shift+S). */
   saveAsShortcut?: string;
+  /**
+   * App commands of their own (Notes: Download backup, Open backup…), after Export PDF; `footer: true` puts one in
+   * the lower list next to Options (About).
+   */
+  commands?: BackstageCommand[];
+  /** The "Report a problem" sender of an app without a document session (Notes); default: the session's backend. */
+  reportHost?: ReportHost | null;
+}
+
+/** An app command of the backstage (`BackstageActions.commands`). */
+export interface BackstageCommand {
+  id: string;
+  label: string;
+  icon: RibbonIconName;
+  onSelect: () => void;
+  shortcut?: string;
+  disabled?: boolean;
+  footer?: boolean;
 }
 
 /**
@@ -196,6 +215,7 @@ export function canSharePdf(session: AnySession | undefined): boolean {
 export function Backstage({
   open, onClose, appName, documentTitle, accent = "var(--ui-focus)", onNew, onOpen, onSave, onSaveAs, onExportPdf: exportPdfProp, onCloseDocument, onOptions,
   session, fileDisabledReason, exportDisabled, info, infoPage, print: printProp, page: pageProp = "home", onPage, saveAsShortcut = "F12",
+  commands = [], reportHost,
 }: BackstageProps) {
   const t = useT();
   const compact = useCompact();
@@ -240,7 +260,7 @@ export function Backstage({
     <>
       {connectors && <ConnectorsOverlay connectors={connectors} />}
       {ai && <AiOverlay ai={ai} />}
-      <ReportOverlay host={session?.backend} />
+      <ReportOverlay host={reportHost ?? session?.backend} />
       <PdfBusySheet />
     </>
   );
@@ -385,10 +405,12 @@ export function Backstage({
           )}
           {item("export", t("backstage.exportPdf"), "pdf", onExportPdf, print ? undefined : "Mod+P", !!exportDisabled)}
           {item("sharePdf", t("backstage.sharePdf"), "pdf", onSharePdf, undefined, !!exportDisabled)}
+          {commands.filter((c) => !c.footer).map((c) => item(c.id, c.label, c.icon, c.onSelect, c.shortcut, !!c.disabled))}
         </ul>
         <ul className="mt-auto flex flex-col border-t border-white/20 pt-2">
           {item("close", t("backstage.close"), "close", onCloseDocument)}
           {item("options", t("backstage.options"), "options", options)}
+          {commands.filter((c) => c.footer).map((c) => item(c.id, c.label, c.icon, c.onSelect, c.shortcut, !!c.disabled))}
           <ReportBackstageItem pick={pick} />
         </ul>
         <LanguageSelect className={`px-5 pb-1 pt-2 ${compact ? "text-sm [&_select]:min-h-11" : "text-xs"} [&_span]:text-white/90`} />

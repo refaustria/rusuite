@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Calc, Write and Show web targets and publish them, plus the portal (apps/portal) at the root,
+# Build the Calc, Write, Show and Notes web targets and publish them, plus the portal (apps/portal) at the root,
 # to /var/www/resuite (ADR 0005). The portal's downloads.html is generated from the GitHub release
 # (scripts/gen-downloads.sh).
 # Usage: scripts/deploy-web.sh [--no-build] [--e2e]
@@ -24,7 +24,8 @@ done
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 commit="$(git rev-parse --short HEAD)"
 
-apps=(calc write show)
+# Notes is deployed to /notes/ but not linked from the portal until its release (P11-N2, plan-3.14159).
+apps=(calc write show notes)
 
 if [ "$build" = 1 ]; then
   pnpm install --frozen-lockfile

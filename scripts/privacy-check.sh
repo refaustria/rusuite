@@ -5,6 +5,8 @@
 set -euo pipefail
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
+# Scanned: every app's sources (apps/*/src: calc, write, show, notes – Notes has no network code before its relay
+# client, P11-N4/N5), the portal and the shared packages.
 # Network APIs. `navigator.share` is included: sharing is an owner decision (new ADR) – add it to the allow-list then.
 PATTERN='fetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|navigator\.share'
 # Allowed: the portal reads /version.json (version.js) and its own translation catalogs (i18n.js); the opt-in
