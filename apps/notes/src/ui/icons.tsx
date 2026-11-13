@@ -30,6 +30,8 @@ const PATHS = {
   subPage: <><path d="M3 4h7M7 9h10M7 14h10M4 4v7.5h2" /></>,
   section: <><rect x="3" y="3" width="14" height="14" rx="1.5" /><path d="M7 3v14" /></>,
   history: <><path d="M3.5 10a6.5 6.5 0 102-4.7" /><path d="M3 3.5v3h3" /><path d="M10 6.5V10l2.5 1.5" /></>,
+  share: <><circle cx="14.5" cy="4.5" r="2" /><circle cx="5.5" cy="10" r="2" /><circle cx="14.5" cy="15.5" r="2" /><path d="M7.3 9l5.4-3.4M7.3 11l5.4 3.4" /></>,
+  people: <><circle cx="7.5" cy="7" r="2.5" /><path d="M2.5 16c0-3 2.2-5 5-5s5 2 5 5" /><circle cx="14" cy="7.5" r="2" /><path d="M13 11.2c2.6-.3 4.5 1.6 4.5 4.3" /></>,
 } satisfies Record<string, ReactNode>;
 
 export type NotesIconName = keyof typeof PATHS;

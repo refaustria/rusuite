@@ -140,6 +140,7 @@ name = "app-notes-wasm"
 version = "3.1415.0"
 dependencies = [
  "notes-core",
+ "notes-sync",
  "serde_json",
  "wasm-bindgen",
 ]

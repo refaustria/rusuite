@@ -2258,3 +2258,30 @@ items in pt; list order = z-order), `"ink"` strokes (1/10 pt, pressure 0–255),
    (roman/letters become 1, 2, 3), equations (their text is kept), handwriting inside text (placed at the page
    origin), `onenote:` links to pages outside the package (text). Details: `docs/onenote-subset.md` and
    `docs/notes-format.md` §7.3; the result dialog lists every note for the file.
+### Notes sharing (P11-N5b)
+
+- **Share tab** (ribbon) and the **Share** button top right open **Share "<notebook>"**: the display name (asked once,
+  shown to the others), **Turn on sharing** (creates the relay notebook with this device as owner and uploads the
+  notebook encrypted), then for owners/co-owners **Invite people** – single-use links valid for 7 days for *Can edit*,
+  *Read only* and *Add my other device* (a co-owner link for yourself), each with **Copy** and **Create another link** –,
+  *Waiting to join* (Admit / Decline), the **Members** (avatar, online dot, role, device count; one person's devices
+  grouped under the name; owners/co-owners change roles, make co-owner, **Remove** with the explanation that the
+  person keeps what they have), the co-owner tip when nobody else can manage the notebook, and **Stop sharing**
+  (owner; deletes the server copy, everybody keeps theirs).
+- **Invite links** `…/notes/#i=<invite>&n=<inviter>` (the fragment never reaches a server): the name prompt, then
+  "Waiting for Anna to let you in…" (Cancel) until an owner/co-owner admits from the toast "Anna wants to join –
+  Admit / Decline" or from the Share dialog; then the notebook syncs and opens.
+- **Presence**: the people bar (initials, colour per device) left of Share; dots on the pages others have open (page
+  list); remote carets and selections with the name label in the editor (`loro-prosemirror` cursor plugin, encrypted
+  presence, 10 Hz max, heartbeat 10 s); hovering a block shows a gutter bar in the last editor's colour and "Edited by
+  Anna, 2 min ago" (CRDT change history → peer → device → member name).
+- **Status bar**: Synced / Syncing… / Offline – changes will sync / Waiting to be let in / Sync error: <reason> (quota,
+  read-only, removed …). Banners: read-only member ("You can read this notebook but not change it.", editor not
+  editable), removed ("You were removed from this notebook. Your copy stays on this device." – read-only, nothing is
+  applied or sent any more, the text can still be copied), sharing stopped by the owner (dismissable; the notebook is
+  local again).
+- **Page history** shows member names (this device: your name; devices of removed members keep theirs).
+- Editor detail: remote imports keep the caret where it was (`selectionKeeper` in `editor/binding.ts`): the binding's
+  late selection restore is dropped – it was computed from pre-import offsets and scrambled concurrent typing.
+- Tests: `apps/notes/src/sync/engine.test.ts` (state machine), `app-notes-wasm` `sync` tests (crypto flows), e2e
+  `notes-sharing.spec.ts` (needs a relay: `NOTES_RELAY_DIR`, serve.mjs `NOTES_RELAY_PORT`).

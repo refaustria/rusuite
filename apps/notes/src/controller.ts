@@ -29,13 +29,17 @@ import type { NotebookSummary } from "./generated/NotebookSummary";
 import type { OpenedPage } from "./generated/OpenedPage";
 import type { ResponseBody } from "./generated/ResponseBody";
 import type { TreeNode } from "./generated/TreeNode";
-import { PageMirror } from "./editor/mirror";
+import { PageMirror, SHARED_SHIP_DELAY_MS } from "./editor/mirror";
 import { notesSchemaExtensions } from "./editor/schema";
 import { Persister } from "./persister";
 import type { NotesStore } from "./store";
 import { allPages, allSections, findNode, flatPages, indentTarget, MAX_PAGE_LEVEL, nextSectionColor, outdentTarget, sectionOf } from "./tree";
 import { t } from "./i18n";
 import { welcomeContent } from "./welcome";
+import type { PersistEffect } from "./effects";
+import { canWrite, type JoinInfo, type Role } from "./sync/crypto";
+import type { SyncDocHost } from "./sync/engine";
+import { parseInviteHash, type Profile, type ShareView, type SyncManager } from "./sync/manager";
 
 export interface KnownNotebook {
   id: string;
@@ -131,6 +135,16 @@ export interface NotesState {
   canRedo: boolean;
   busy: BusyState | null;
   importResult: ImportSummary | null;
+  /** Shared notebooks of this device (local notebook id, or `joining:<relay id>` while joining). */
+  shares: Record<string, ShareView>;
+  /** The display name for sharing (asked on first share / join). */
+  profile: Profile | null;
+  /** This device's sharing id (hex), once it has keys. */
+  device: string | null;
+  /** Join requests waiting for this owner's answer (toasts). */
+  joinRequests: { localId: string; join: JoinInfo }[];
+  /** Sharing notices (removed from a notebook, sharing stopped by the owner) per local notebook. */
+  shareNotice: Record<string, "removed" | "stopped">;
 }
 
 /** What the open page's editor does for the controller (registered by the page view). */
@@ -157,6 +171,17 @@ export const RECENT_LIMIT = 10;
 export const RECYCLE_BIN_MS = 60 * 24 * 3600 * 1000;
 
 type Kind = ResponseBody["type"];
+
+/** Requests that are fine on a read-only shared notebook besides `READ_ONLY_OK` (no edit of its docs). */
+const SHARE_FREE = new Set<string>(["hello", "createNotebook", "openNotebook", "closeNotebook", "listNotebooks", "exportPage", "exportSection"]);
+
+/** The notebook a request edits (`notebook` field, or the notebook of its `docId`). */
+function requestNotebook(r: NotesRequest, notebookOfDoc: (doc: string) => string | null): string | null {
+  const o = r as { notebook?: unknown; docId?: unknown };
+  if (typeof o.notebook === "string") return o.notebook;
+  if (typeof o.docId === "string") return notebookOfDoc(o.docId);
+  return null;
+}
 
 /** Requests a read-only tab may still make (another tab took over writing). */
 const READ_ONLY_OK = new Set<string>(["listNotebooks", "getTree", "recycleBin", "tags", "search", "tasks", "backlinks", "referencedBlobs", "history", "checkoutPreview", "openPage", "closePage", "importContext", "pageExportSource", "sectionExportSource"]);
@@ -196,6 +221,11 @@ export class NotesController {
     canRedo: false,
     busy: null,
     importResult: null,
+    shares: {},
+    profile: null,
+    device: null,
+    joinRequests: [],
+    shareNotice: {},
   };
   private listeners = new Set<() => void>();
   readonly persister: Persister;
@@ -211,6 +241,12 @@ export class NotesController {
   private pageHooks: PageEditorHooks | null = null;
   /** Object URLs of the notebooks' blobs (images, attachments). */
   readonly blobs: BlobUrls;
+  /** The open page's cursor presence (diagnostics, e2e). */
+  pagePresence: unknown = null;
+  /** Sharing (P11-N5b); `null` until `attachSync` (tests without a relay). */
+  sync: SyncManager | null = null;
+  /** The device id the core uses without sharing keys (`web-…`; its history entries are this device's). */
+  private legacyDevice: string | null = null;
 
   constructor(
     readonly backend: NotesBackend,
@@ -220,7 +256,7 @@ export class NotesController {
     persister?: Persister,
   ) {
     this.persister = persister ?? new Persister(store);
-    this.blobs = new BlobUrls((nb, sha) => this.store.getBlob(nb, sha));
+    this.blobs = new BlobUrls(async (nb, sha) => (await this.store.getBlob(nb, sha)) ?? (await this.sync?.engineFor(nb)?.fetchBlob(sha)));
     const conv = backend.converter as { onLoading?: (loading: boolean) => void } | undefined;
     let before: BusyState | null = null;
     if (conv)
@@ -286,13 +322,30 @@ export class NotesController {
 
   private async call<K extends Kind>(request: NotesRequest, _kind?: K): Promise<Body<K>> {
     if (this.state.readOnly && !READ_ONLY_OK.has(request.type)) throw new Error(t("notes.lock.readOnly"));
+    if (!READ_ONLY_OK.has(request.type) && !SHARE_FREE.has(request.type)) {
+      const nb = requestNotebook(request, (doc) => this.notebookOfDoc(doc));
+      if (nb && this.sharedReadOnly(nb)) throw new Error(t("notes.share.readOnlyError"));
+    }
     const body = unwrap(await this.backend.dispatch({ ...request, now: this.now() }));
     return body as Body<K>;
   }
 
-  /** Moves the core's queued persist effects to storage. */
+  /** Moves the core's queued persist effects to storage (and the changed docs of shared notebooks to the relay). */
   private async pump(): Promise<void> {
-    this.persister.enqueue(await this.backend.takePersistEffects());
+    const effects = await this.backend.takePersistEffects();
+    this.persister.enqueue(effects);
+    if (this.sync && effects.length) this.forwardEffects(effects);
+  }
+
+  private forwardEffects(effects: readonly PersistEffect[]): void {
+    const byNb = new Map<string, { docs: Set<string>; blobs: Set<string> }>();
+    for (const e of effects) {
+      if (e.kind === "delete") continue;
+      let g = byNb.get(e.notebook);
+      if (!g) byNb.set(e.notebook, (g = { docs: new Set(), blobs: new Set() }));
+      (e.kind === "blob" ? g.blobs : g.docs).add(e.doc);
+    }
+    for (const [nb, g] of byNb) this.sync!.changed(nb, g.docs, g.blobs);
   }
 
   private async genesisBytes(): Promise<Uint8Array> {
@@ -309,6 +362,13 @@ export class NotesController {
       if (!device) {
         device = `web-${Math.random().toString(36).slice(2, 10)}`;
         await this.store.setMeta(META_DEVICE, device);
+      }
+      this.legacyDevice = device;
+      if (this.sync) {
+        await this.sync.init();
+        // With sharing keys the core records changes under the sharing device id (names in history, last editor).
+        if (this.sync.device) device = this.sync.device;
+        this.set({ profile: this.sync.profile, device: this.sync.device });
       }
       await this.call({ type: "hello", deviceId: device });
       const settings = { ...DEFAULT_SETTINGS, ...((await this.store.getMeta<Partial<Settings>>(META_SETTINGS)) ?? {}) };
@@ -336,6 +396,10 @@ export class NotesController {
       await this.pump();
       this.set({ phase: "ready" });
       void this.requestPersistence();
+      if (this.sync) {
+        await this.sync.startOpen((id) => this.state.notebooks.some((n) => n.summary.id === id));
+        this.refreshShares();
+      }
     }).then(() => {
       if (this.state.phase === "loading") this.set({ phase: "failed" });
     });
@@ -363,6 +427,7 @@ export class NotesController {
     }
     const opened = (await this.call({ type: "openNotebook", id })) as Body<"notebook">;
     await this.loadTags(id);
+    if (this.sync?.device) await this.rebind();
     return { summary: normalizeSummary(opened.notebook), tree: opened.tree };
   }
 
@@ -505,6 +570,7 @@ export class NotesController {
     const opened = ((await this.call({ type: "openPage", docId: page.pageDoc })) as Body<"page">).page;
     await this.pump();
     const mirror = await PageMirror.open(opened, this.mirrorHost());
+    if (this.sync?.isShared(notebook)) mirror.shipDelay = SHARED_SHIP_DELAY_MS;
     mirror.onLocalUpdate = () => {
       this.lastTextAt = this.now();
       if (this.treeRedo.length || this.undoneKinds.length) {
@@ -613,6 +679,7 @@ export class NotesController {
       await this.call({ type: "closeNotebook", id });
       await this.pump();
       await this.persister.flush();
+      this.sync?.close(id);
       this.treeOps = this.treeOps.filter((o) => o.notebook !== id);
       this.treeRedo = this.treeRedo.filter((o) => o.notebook !== id);
       const notebooks = this.state.notebooks.filter((n) => n.summary.id !== id);
@@ -639,6 +706,7 @@ export class NotesController {
       const k = this.state.known.find((x) => x.id === id);
       if (k) await this.saveKnown(this.state.known.map((x) => (x.id === id ? { ...x, open: true, lastOpened: this.now() } : x)));
       await this.selectIn(id, null, null);
+      await this.sync?.startOpen((x) => x === id);
     });
   }
 
@@ -1356,6 +1424,261 @@ export class NotesController {
     if (!n?.pageDoc) return null;
     const base = typeof location === "undefined" ? "" : `${location.origin}${location.pathname}`;
     return `${base}#page=${n.pageDoc}`;
+  }
+
+  // ---- sharing (P11-N5b) ----------------------------------------------------------------------------------
+
+  /** Connects the sharing manager (main.tsx; before `start`). */
+  attachSync(sync: SyncManager): void {
+    this.sync = sync;
+    sync.onChange = () => this.refreshShares();
+    sync.onJoinRequest = (localId, join) => {
+      if (this.state.joinRequests.some((j) => j.join.inviteId === join.inviteId)) return;
+      this.set({ joinRequests: [...this.state.joinRequests, { localId, join }] });
+    };
+    sync.onAdopted = () => this.refreshShares();
+    sync.onRemoved = (localId) => {
+      this.set({ shareNotice: { ...this.state.shareNotice, [localId]: "removed" } });
+      this.refreshShares();
+    };
+    sync.onStopped = (localId, wasOwner) => {
+      if (wasOwner) this.notify(t("notes.share.stopped.owner"));
+      else if (localId) this.set({ shareNotice: { ...this.state.shareNotice, [localId]: "stopped" } });
+      this.refreshShares();
+    };
+  }
+
+  /** The document-side callbacks of the sync engines. */
+  syncHost(): SyncDocHost {
+    return {
+      localDocs: (localId) => {
+        const nb = this.state.notebooks.find((n) => n.summary.id === localId);
+        if (!nb) return [];
+        return [localId, ...allPages(nb.tree).flatMap((p) => (p.pageDoc ? [p.pageDoc] : []))];
+      },
+      priorityDocs: (localId) => (this.state.opened?.notebookId === localId ? [this.state.opened.docId] : []),
+      hasNotebook: (localId) => !!localId && this.state.notebooks.some((n) => n.summary.id === localId),
+      versionVector: (doc) => this.backend.versionVector(doc),
+      exportSince: (doc, vv) => this.backend.exportUpdates(doc, vv),
+      importRemote: (localId, doc, bytes, notebookDoc) => this.importRemote(localId, doc, bytes, notebookDoc),
+      adoptNotebook: (localId, updates) => this.adoptNotebook(localId, updates),
+      readBlob: async (localId, sha) => {
+        await this.persister.flush();
+        return this.store.getBlob(localId, sha);
+      },
+      blobIds: async (localId) => {
+        try {
+          return ((await this.call({ type: "referencedBlobs", notebook: localId })) as Body<"blobIds">).ids;
+        } catch {
+          return [];
+        }
+      },
+      storeBlob: async (localId, sha, bytes) => {
+        this.persister.enqueue([{ kind: "blob", notebook: localId, doc: sha, bytes }]);
+        await this.persister.flush();
+      },
+      displayName: () => this.state.profile?.name ?? "",
+    };
+  }
+
+  private treeRefresh = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** Remote bytes from the relay: into the core (persisted), then into the open page's mirror / the tree. */
+  private async importRemote(localId: string, doc: string, bytes: Uint8Array, notebookDoc: boolean): Promise<void> {
+    await this.backend.importRemote(localId, doc, bytes);
+    await this.pump();
+    if (notebookDoc) {
+      // Coalesce bursts (catch-up) into one tree refresh, through the command queue.
+      if (!this.treeRefresh.has(localId)) {
+        this.treeRefresh.set(
+          localId,
+          setTimeout(() => {
+            this.treeRefresh.delete(localId);
+            void this.run(async () => {
+              await this.refreshNotebook(localId);
+              await this.loadTags(localId);
+            });
+          }, 30),
+        );
+      }
+    } else if (this.state.mirror && this.state.opened?.docId === doc) {
+      await this.state.mirror.pull();
+    }
+  }
+
+  /** Joining: the notebook doc arrived – the notebook is created in this browser and opened. */
+  private adoptNotebook(localId: string, updates: Uint8Array[]): Promise<void> {
+    return this.run(async () => {
+      if (this.state.notebooks.some((n) => n.summary.id === localId)) return;
+      unwrap(await this.backend.loadDoc(localId, localId, new Uint8Array(), frameRecords(updates)));
+      const opened = (await this.call({ type: "openNotebook", id: localId })) as Body<"notebook">;
+      await this.loadTags(localId);
+      const summary = normalizeSummary(opened.notebook);
+      this.set({ notebooks: [...this.state.notebooks, { summary, tree: opened.tree }] });
+      await this.addKnown(localId, summary.info.name, summary.info.color);
+      await this.pump();
+      await this.selectIn(localId, null, null);
+    }).then(() => undefined);
+  }
+
+  refreshShares(): void {
+    if (!this.sync) return;
+    const { mirror, opened } = this.state;
+    if (mirror && opened && this.sync.isShared(opened.notebookId)) mirror.shipDelay = SHARED_SHIP_DELAY_MS;
+    this.set({ shares: this.sync.views(), profile: this.sync.profile, device: this.sync.device });
+  }
+
+  private notebookOfDoc(doc: string): string | null {
+    if (this.state.opened?.docId === doc) return this.state.opened.notebookId;
+    for (const nb of this.state.notebooks) if (allPages(nb.tree).some((p) => p.pageDoc === doc)) return nb.summary.id;
+    return null;
+  }
+
+  /** The sharing view of a notebook (default: the current one). */
+  share(localId: string | null = this.state.notebook): ShareView | null {
+    return (localId && this.state.shares[localId]) || null;
+  }
+
+  /** Read-only shared notebook: a read-only member, or this device was removed. */
+  sharedReadOnly(localId: string | null = this.state.notebook): boolean {
+    if (!localId) return false;
+    if (this.state.shareNotice[localId] === "removed") return true;
+    const v = this.state.shares[localId];
+    return !!v && (v.phase === "removed" || (v.role !== null && !canWrite(v.role)));
+  }
+
+  /** A device id → its member's display name (history, last editor, presence). */
+  nameOf(device: string | null | undefined): string | null {
+    if (!device) return null;
+    if (device === this.state.device || device === this.legacyDevice) return this.state.profile?.name || t("notes.share.you");
+    for (const v of Object.values(this.state.shares)) {
+      const n = v.names[device];
+      if (n) return n;
+    }
+    return null;
+  }
+
+  /** Display name for sharing. */
+  setDisplayName(name: string): Promise<void> {
+    return this.run(async () => {
+      if (!this.sync) return;
+      await this.sync.setProfile(name);
+      this.refreshShares();
+    });
+  }
+
+  /** First share / join: device keys; the core records further changes under the sharing device id. */
+  private async ensureSharingDevice(): Promise<void> {
+    if (!this.sync) throw new Error(t("notes.share.unavailable"));
+    if (this.sync.device) return;
+    const device = await this.sync.ensureDevice();
+    await this.rebind();
+    this.set({ device });
+  }
+
+  /** Records this device's earlier (`web-…`) changes under its sharing id, so the others see its name. */
+  private async rebind(): Promise<void> {
+    const device = this.sync?.device;
+    if (!device) return;
+    await this.backend.rebindDevice(this.legacyDevice ?? device, device);
+    await this.pump();
+  }
+
+  /** Share › Turn on sharing for a notebook (default: the current one). */
+  shareNotebook(localId: string | null = this.state.notebook): Promise<void> {
+    return this.run(async () => {
+      if (!localId || !this.sync) return;
+      if (!this.state.profile?.name) throw new Error(t("notes.share.nameFirst"));
+      await this.state.mirror?.settle();
+      await this.ensureSharingDevice();
+      await this.pump();
+      await this.persister.flush();
+      await this.sync.share(localId);
+      this.refreshShares();
+    }).then(() => undefined);
+  }
+
+  /** An invite link (single use, 7 days) for `role` of the current shared notebook. */
+  createInvite(role: Role, localId: string | null = this.state.notebook): string | null {
+    const e = localId ? this.sync?.engineFor(localId) : undefined;
+    if (!e) return null;
+    try {
+      const inv = e.invite(role);
+      const base = typeof location === "undefined" ? "" : `${location.origin}${location.pathname}`;
+      const name = this.state.profile?.name ?? "";
+      return `${base}#i=${inv.fragment}${name ? `&n=${encodeURIComponent(name)}` : ""}`;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
+  admitJoin(localId: string, inviteId: string): void {
+    try {
+      this.sync?.engineFor(localId)?.admit(inviteId);
+    } catch (e) {
+      this.fail(e);
+    }
+    this.set({ joinRequests: this.state.joinRequests.filter((j) => j.join.inviteId !== inviteId) });
+  }
+
+  declineJoin(localId: string, inviteId: string): void {
+    this.sync?.engineFor(localId)?.decline(inviteId);
+    this.set({ joinRequests: this.state.joinRequests.filter((j) => j.join.inviteId !== inviteId) });
+  }
+
+  removeMember(localId: string, device: string): void {
+    try {
+      this.sync?.engineFor(localId)?.removeDevice(device);
+    } catch (e) {
+      this.fail(e);
+    }
+  }
+
+  setMemberRole(localId: string, device: string, role: Role): void {
+    try {
+      this.sync?.engineFor(localId)?.setRole(device, role);
+    } catch (e) {
+      this.fail(e);
+    }
+  }
+
+  /** Owner: Stop sharing (the relay deletes its copy; everybody keeps theirs). */
+  async stopSharing(localId: string | null = this.state.notebook): Promise<void> {
+    if (!localId || !this.sync) return;
+    if (!(await this.sync.stopSharing(localId))) this.fail(new Error(t("notes.share.offline")));
+  }
+
+  /** Opens an invite link (`#i=…`) → whether it was one. */
+  async joinFromHash(hash: string): Promise<boolean> {
+    const inv = parseInviteHash(hash);
+    if (!inv || !this.sync) return false;
+    await this.run(async () => {
+      await this.ensureSharingDevice();
+      await this.sync!.join(inv.fragment, inv.inviter);
+      this.refreshShares();
+    });
+    return true;
+  }
+
+  /** Cancels a pending join (or forgets a notebook whose sharing ended) on this device. */
+  async forgetShare(notebookHex: string): Promise<void> {
+    await this.sync?.forget(notebookHex);
+    this.refreshShares();
+  }
+
+  /** Clears a sharing notice; a notebook whose sharing stopped becomes an ordinary local notebook. */
+  dismissShareNotice(localId: string): void {
+    const notice = { ...this.state.shareNotice };
+    delete notice[localId];
+    this.set({ shareNotice: notice });
+  }
+
+  /** This device's place in the open page (presence; the page view reports the cursor). */
+  setPresence(cursor: Uint8Array | null): void {
+    const o = this.state.opened;
+    if (!o) return;
+    this.sync?.engineFor(o.notebookId)?.setPresence(o.docId, cursor);
   }
 
   /** Waits for queued commands and writes (tests, backups, page hide). */

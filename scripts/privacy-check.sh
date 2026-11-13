@@ -5,16 +5,17 @@
 set -euo pipefail
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
-# Scanned: every app's sources (apps/*/src: calc, write, show, notes – Notes has no network code before its relay
-# client, P11-N4/N5), the portal and the shared packages.
+# Scanned: every app's sources (apps/*/src: calc, write, show, notes), the portal and the shared packages.
 # Network APIs. `navigator.share` is included: sharing is an owner decision (new ADR) – add it to the allow-list then.
 PATTERN='fetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|navigator\.share'
 # Allowed: the portal reads /version.json (version.js) and its own translation catalogs (i18n.js); the opt-in
 # cloud connectors' browser WebDAV transport talks only to servers the user configured (P8-36, ADR 0009 amendment
 # 2026-10-16) – nothing runs until the user adds a connection; the opt-in AI assistant's transport talks only to the
 # provider the user configured, only when an AI action runs or Settings › AI › Test is pressed (P8-37); the
-# "Report a problem" client posts to the site's own relay (/api/report) only when the user submits the dialog (P8-43).
-ALLOW='^(apps/portal/version\.js|apps/portal/i18n\.js|packages/ui-shared/src/connectors/webdav-fetch\.ts|packages/ui-shared/src/ai/providers/http\.ts|packages/ui-shared/src/report/client\.ts):'
+# "Report a problem" client posts to the site's own relay (/api/report) only when the user submits the dialog (P8-43);
+# Rusuite Notes opens one WebSocket to its own origin's relay (/api/notes/ws) per notebook the user shared or joined –
+# end-to-end encrypted, never for unshared notebooks (ADR 0010, P11-N5b).
+ALLOW='^(apps/portal/version\.js|apps/portal/i18n\.js|packages/ui-shared/src/connectors/webdav-fetch\.ts|packages/ui-shared/src/ai/providers/http\.ts|packages/ui-shared/src/report/client\.ts|apps/notes/src/sync/socket\.ts):'
 
 fail=0
 hits="$(git grep --untracked -nE "$PATTERN" -- 'apps/*/src/*' 'apps/*/index.html' 'apps/portal/*' 'packages/*/src/*' \
@@ -49,6 +50,15 @@ if [ -n "$report_hits" ]; then
 fi
 if git grep -nE 'export \{[^}]*\bsendReport\b' -- 'packages/ui-shared/src/report/index.ts' >/dev/null; then
   echo "privacy-check: sendReport must not be exported from the report module" >&2
+  fail=1
+fi
+
+# The relay socket is created only by the sync manager (it exists only for shared notebooks).
+notes_hits="$(git grep --untracked -nE '\brelaySocket\b|sync/socket' -- 'apps/*/src/*' ':!*.test.ts' ':!*.test.tsx' \
+  ':!apps/notes/src/sync/socket.ts' ':!apps/notes/src/main.tsx' || true)"
+if [ -n "$notes_hits" ]; then
+  echo "privacy-check: the Notes relay socket used outside main.tsx (ADR 0010):" >&2
+  echo "$notes_hits" >&2
   fail=1
 fi
 

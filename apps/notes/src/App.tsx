@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/core";
 import { FOCUS_RING, RibbonIcon, useCompact } from "@rusuite/ui-shared";
 import type { NotesController } from "./controller";
@@ -12,6 +12,8 @@ import { NavPane } from "./ui/NavPane";
 import { NotesRibbon, NOTES_ACCENT } from "./ui/NotesRibbon";
 import { PageArea } from "./ui/PageView";
 import { PersistHint, StatusBar, Toast } from "./ui/StatusBar";
+import { JoinOverlay, JoinRequestToasts, PeopleBar, ShareBanner, ShareButton } from "./ui/Share";
+import { useDialog } from "./ui/dialogs";
 import { useT } from "./i18n";
 
 /** Applies View › Dark mode (system / light / dark) to `<html data-theme>`. */
@@ -37,6 +39,18 @@ function useHashLinks(ctl: NotesController) {
     window.addEventListener("hashchange", go);
     return () => window.removeEventListener("hashchange", go);
   }, [ctl, phase]);
+}
+
+/** People bar and the Share button (top right, inside the dialog host). */
+function TopRight({ ctl, extra }: { ctl: NotesController; extra?: ReactNode }) {
+  const open = useDialog();
+  return (
+    <span className="flex items-center">
+      <PeopleBar ctl={ctl} />
+      <ShareButton ctl={ctl} onOpen={() => open({ kind: "share" })} />
+      {extra}
+    </span>
+  );
 }
 
 export default function App({ ctl, lock }: { ctl: NotesController; lock?: TabLock }) {
@@ -67,8 +81,9 @@ export default function App({ ctl, lock }: { ctl: NotesController; lock?: TabLoc
   return (
     <DialogHost ctl={ctl}>
       <main className="flex h-screen flex-col bg-ui-bg text-ui-fg" data-rs-app="" style={{ ["--notes-accent" as string]: NOTES_ACCENT }}>
-        <NotesRibbon ctl={ctl} editor={editor} rightSlot={navButton} />
+        <NotesRibbon ctl={ctl} editor={editor} rightSlot={<TopRight ctl={ctl} extra={navButton} />} />
         <PersistHint ctl={ctl} />
+        <ShareBanner ctl={ctl} />
         <div className="relative flex min-h-0 flex-1">
           {!compact && settings.navOpen && <NavPane ctl={ctl} width={settings.navWidth} onResize={(w) => ctl.updateSettings({ navWidth: w })} />}
           {compact && drawer && (
@@ -85,6 +100,8 @@ export default function App({ ctl, lock }: { ctl: NotesController; lock?: TabLoc
         <Toast ctl={ctl} />
         <BusyCard ctl={ctl} />
         <ImportResultDialog ctl={ctl} />
+        <JoinRequestToasts ctl={ctl} />
+        <JoinOverlay ctl={ctl} />
         <NotesShortcuts ctl={ctl} />
         {lock && <TabLockOverlay ctl={ctl} lock={lock} />}
       </main>

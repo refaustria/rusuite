@@ -122,7 +122,7 @@ export function HistoryPanel({ ctl, docId, selected, onSelect }: { ctl: NotesCon
                 <span className="pl-4.5 text-xs text-ui-muted">
                   {i === 0 ? t("notes.history.current") : ""}
                   {i === 0 ? " · " : ""}
-                  {e.deviceId ? t("notes.history.device", { device: e.deviceId }) : t("notes.history.peer", { peer: e.peer.slice(-6) })}
+                  {ctl.nameOf(e.deviceId) ?? (e.deviceId ? t("notes.history.device", { device: e.deviceId.slice(0, 12) }) : t("notes.history.peer", { peer: e.peer.slice(-6) }))}
                   {" · "}
                   {t("notes.history.changes", { count: e.ops })}
                 </span>
