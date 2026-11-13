@@ -1,0 +1,206 @@
+/* Canvas pages (P11-N4). The surface is laid out in px at 100 % and scaled with a transform. */
+
+.notes-canvas-surface {
+  background-color: var(--ui-bg);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--ui-border) 70%, transparent) 0.6px, transparent 0.7px);
+  background-size: 16px 16px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.notes-canvas-surface[data-tool="select"] {
+  cursor: text;
+}
+
+/* The page editor's text, laid out as boxes by the CanvasLayout plugin. */
+.notes-canvas-text,
+.notes-canvas-text > .notes-editor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.notes-canvas-text .ProseMirror {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  pointer-events: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.notes-canvas-text .ProseMirror > * {
+  position: absolute;
+  margin: 0 !important;
+  box-sizing: border-box;
+  pointer-events: auto;
+  cursor: text;
+}
+.notes-canvas-text .notes-drag-handle {
+  display: none !important;
+}
+
+/* Box chrome: frame, move bar (top), width handle (right edge). */
+.notes-box-frame {
+  position: absolute;
+  z-index: 1100;
+  border: 1px dashed color-mix(in srgb, var(--ui-muted) 70%, transparent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+.notes-box-frame.is-selected {
+  border: 1.5px solid var(--notes-accent, #7719aa);
+}
+.notes-box-bar {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: -12px;
+  height: 11px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--ui-muted) 35%, transparent);
+  background-image: radial-gradient(circle, var(--ui-muted) 1px, transparent 1.2px);
+  background-size: 6px 6px;
+  background-position: center;
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+.notes-box-frame.is-selected .notes-box-bar {
+  background-color: color-mix(in srgb, var(--notes-accent, #7719aa) 45%, transparent);
+}
+.notes-box-resize {
+  position: absolute;
+  right: -5px;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+.notes-box-resize::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--ui-muted);
+}
+
+/* Images. */
+.notes-canvas-image {
+  position: absolute;
+  cursor: move;
+  touch-action: none;
+}
+.notes-canvas-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+.notes-canvas-missing {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--ui-border);
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+.notes-canvas-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+.notes-image-frame {
+  position: absolute;
+  z-index: 1100;
+  outline: 1.5px solid var(--notes-accent, #7719aa);
+  pointer-events: none;
+}
+.notes-image-resize {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--notes-accent, #7719aa);
+  background: var(--ui-bg);
+  cursor: nwse-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* Ink. Highlighters sit under the text (multiply in light mode). */
+.notes-ink-highlighter {
+  mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .notes-ink-highlighter {
+  mix-blend-mode: normal;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .notes-ink-highlighter {
+    mix-blend-mode: normal;
+  }
+}
+.notes-ink path {
+  shape-rendering: geometricPrecision;
+}
+
+.notes-canvas-tool {
+  position: absolute;
+  inset: 0;
+  z-index: 1150;
+  touch-action: none;
+}
+.notes-canvas-band {
+  position: absolute;
+  z-index: 1200;
+  border: 1px solid #0078d4;
+  background: rgba(0, 120, 212, 0.08);
+  pointer-events: none;
+}
+.notes-canvas-selection {
+  position: absolute;
+  z-index: 1200;
+  border: 1.5px dashed #0078d4;
+  border-radius: 4px;
+  background: rgba(0, 120, 212, 0.04);
+  cursor: move;
+  touch-action: none;
+}
+.notes-live-ink {
+  position: fixed;
+  display: none;
+  z-index: 40;
+  pointer-events: none;
+}
+.notes-canvas-zoom {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 0.75rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  background: var(--ui-panel);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* The flowing page's notice when the page has drawings. */
+.notes-ink-hidden {
+  margin: 0 0 1rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 4px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font-size: 0.85rem;
+}

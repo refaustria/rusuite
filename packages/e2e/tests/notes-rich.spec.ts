@@ -295,6 +295,9 @@ test.describe("Notes rich content (P11-N3)", () => {
     await page.getByRole("button", { name: "Checklist" }).click();
     await page.keyboard.type("Buy stamps");
     await page.keyboard.press("Control+1");
+    await expect(editor(page).locator('ul[data-type="taskList"] li')).toContainText("Buy stamps");
+    await expect(editor(page).locator("p", { hasText: "Answer from the bank" }).getByTestId("tag-checkbox")).toHaveCount(1);
+    await expect(editor(page).locator("p", { hasText: "Pay the rent" }).getByTestId("tag-checkbox")).toHaveCount(1);
     await shot(page, "tags");
     await saved(page);
     // The tasks view.

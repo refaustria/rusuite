@@ -13,6 +13,7 @@ import { imageBlobs, renderContent } from "../render";
 import { makeEditorEnv } from "../ui/editorEnv";
 import { useNotes } from "../ui/hooks";
 import { t, useT } from "../i18n";
+import { canvasPrintDoc } from "../canvas/print";
 import { buildNotesPrintDoc, DEFAULT_PRINT, type NotesPrintOptions, type PrintPage } from "./notesPrint";
 
 /** The print settings of this session (Print page and Export PDF share them). */
@@ -43,6 +44,13 @@ async function printPages(ctl: NotesController, what: NotesPrintOptions["what"])
 }
 
 async function build(ctl: NotesController, o: NotesPrintOptions): Promise<PrintDoc> {
+  // A canvas page (P11-N4): its surface as drawn, scaled to the paper width.
+  const surface = o.what === "page" ? document.querySelector<HTMLElement>("[data-testid=canvas-surface]") : null;
+  if (surface) {
+    const s = ctl.getState();
+    const title = findNode(ctl.tree(), s.page)?.title || s.opened?.title || t("notes.untitled");
+    return canvasPrintDoc(surface, title, o.paper);
+  }
   return buildNotesPrintDoc(await printPages(ctl, o.what), o);
 }
 

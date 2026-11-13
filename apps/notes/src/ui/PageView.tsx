@@ -23,6 +23,7 @@ import { NotesKeys } from "../editor/keys";
 import type { PageMirror } from "../editor/mirror";
 import { notesSchemaExtensions } from "../editor/schema";
 import { findNode } from "../tree";
+import { canvasExtension, CanvasView, InkHiddenNotice, useCanvasMode } from "../canvas";
 import { useT } from "../i18n";
 import { useDialog, type DialogSpec } from "./dialogs";
 import { useNotes } from "./hooks";
@@ -51,14 +52,20 @@ export function PageArea({ ctl, onEditor }: { ctl: NotesController; onEditor: (e
     if (!mirror) onEditor(null);
   }, [mirror, onEditor]);
   useEffect(() => setVersion(null), [opened?.docId, panel]);
+  const canvas = useCanvasMode(mirror);
   if (view === "recycleBin") return <RecycleBin ctl={ctl} />;
   if (view === "tasks") return <TasksView ctl={ctl} />;
   const style: CSSProperties = { maxWidth: settings.pageWidth === "wide" ? 1100 : 760, ...(settings.zoom !== 1 ? { zoom: settings.zoom } : {}) };
+  // Canvas pages (P11-N4) scroll and zoom inside their own surface; the same elements keep the editor mounted.
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <div className="notes-scroll relative min-h-0 min-w-0 flex-1 overflow-auto bg-ui-bg" data-testid="page-scroll">
+      <div className={canvas ? "relative flex min-h-0 min-w-0 flex-1 bg-ui-bg" : "notes-scroll relative min-h-0 min-w-0 flex-1 overflow-auto bg-ui-bg"} data-testid="page-scroll">
         {version && opened && <VersionPreviewView ctl={ctl} version={version} onBack={() => setVersion(null)} />}
-        <div className="notes-page mx-auto px-10 pb-24 pt-8" style={{ ...style, ...(version ? { display: "none" } : {}) }} data-width={settings.pageWidth}>
+        <div
+          className={canvas ? "flex min-h-0 min-w-0 flex-1" : "notes-page mx-auto px-10 pb-24 pt-8"}
+          style={{ ...(canvas ? {} : style), ...(version ? { display: "none" } : {}) }}
+          data-width={settings.pageWidth}
+        >
           {mirror && opened ? (
             <PageEditor key={mirror.docId} ctl={ctl} mirror={mirror} opened={opened} onEditor={onEditor} />
           ) : phase === "loading" ? (
@@ -130,6 +137,7 @@ function PageEditor({ ctl, mirror, opened, onEditor }: { ctl: NotesController; m
     () => [
       ...notesSchemaExtensions({ onOpenPage: (docId) => void ctl.openPageByDoc(docId), taskLabel: (text) => t("notes.task.checkbox", { text }), env, live }),
       LoroBinding(mirror),
+      canvasExtension(mirror),
       NotesKeys.configure({
         onLink: () => editorRef.current && dialog(linkDialog(editorRef.current)),
         onPageLinkPicker: () => editorRef.current && dialog(pageLinkDialog(editorRef.current)),
@@ -240,18 +248,35 @@ function PageEditor({ ctl, mirror, opened, onEditor }: { ctl: NotesController; m
     setMenu({ at: { x: e.clientX, y: e.clientY }, label: t("notes.menu.editor"), items });
   };
 
-  return (
-    <article data-testid="page" data-doc={opened.docId}>
+  const canvas = useCanvasMode(mirror);
+  const header = (
+    <>
       {find && editor && <FindBar key={find.n} editor={editor} initial={find.query} onClose={() => setFindOpen(null)} />}
       <TitleField ctl={ctl} nodeId={node?.id ?? null} title={node?.title ?? opened.title} onEnter={() => editor?.commands.focus("start")} />
       <p className="mb-6 mt-1 text-xs text-ui-muted" data-testid="page-created">
         {node ? formatCreated(node.created) : ""}
       </p>
+    </>
+  );
+  const menuEl = <ContextMenu at={menu?.at ?? null} label={menu?.label ?? ""} items={menu?.items ?? []} onClose={() => setMenu(null)} />;
+  if (canvas && editor)
+    return (
+      <article data-testid="page" data-doc={opened.docId} data-canvas="" className="flex min-h-0 min-w-0 flex-1" onContextMenu={onContextMenu}>
+        <CanvasView ctl={ctl} editor={editor} mirror={mirror} notebook={opened.notebookId} header={header}>
+          <EditorContent editor={editor} className="notes-editor relative" />
+        </CanvasView>
+        {menuEl}
+      </article>
+    );
+  return (
+    <article data-testid="page" data-doc={opened.docId}>
+      {header}
+      <InkHiddenNotice mirror={mirror} />
       <div onContextMenu={onContextMenu}>
         <EditorContent editor={editor} className="notes-editor relative" />
       </div>
       <LinkedFrom ctl={ctl} docId={opened.docId} />
-      <ContextMenu at={menu?.at ?? null} label={menu?.label ?? ""} items={menu?.items ?? []} onClose={() => setMenu(null)} />
+      {menuEl}
     </article>
   );
 }

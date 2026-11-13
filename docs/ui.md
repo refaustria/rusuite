@@ -2100,7 +2100,7 @@ wasm, Tauri later).
   Tags ▾ picker – it writes the block attribute `tags` (+ `checked: false` for to-dos), display and tasks view: P11-N3) ·
   Insert (Link…, Page link `[[…]]` via a page picker – also typing `[[`, Divider, Code block, Date / Time / Date and
   time) · View (Navigation pane, page width Normal/Wide, zoom 75–200 %, Dark mode: like the system / light / dark via
-  `<html data-theme>`). Draw and Share come with P11-N4/N5. No search box before P11-N3.
+  `<html data-theme>`) · Draw (canvas pages and ink, below). Share comes with P11-N5. No search box before P11-N3.
 - **Navigation pane** (left, resizable 200–520 px by its right edge or ←/→ on it, hidden with View › Navigation pane):
   notebook switcher (open notebooks, New notebook, ⋯ / right-click: Rename, Colour…, Download backup, Close notebook);
   sections as a coloured vertical list with section groups (collapsible); the pages of the current section with sub-page
@@ -2131,6 +2131,52 @@ wasm, Tauri later).
 - Tests: `apps/notes/src/*.test.ts` (effects framing, store on fake-indexeddb, persister, tree moves, IME queue; with
   `src-wasm/pkg` built also the mirror ↔ core binding and the controller with the real core), e2e
   `packages/e2e/tests/notes.spec.ts`, `notes-compact.spec.ts` (`mobile`), the Notes case of `privacy.spec.ts`.
+
+### Canvas pages and ink (P11-N4)
+
+Code: `apps/notes/src/canvas/` (the page view only switches to `CanvasView` and installs `canvasExtension`; the
+ribbon adds `useDrawTab`). Data: notes-format §4.1/§7.1 – `meta.canvas`, the `"canvas"` movable list (text/image
+items in pt; list order = z-order), `"ink"` strokes (1/10 pt, pressure 0–255), `canvasItem` on top-level blocks.
+
+- **Free canvas** (Draw › Page): flowing → canvas turns the page's content into one text box at (0, 0), 510 pt wide;
+  canvas → flowing puts boxes (and image items, as image blocks) in reading order (top to bottom, then left to right),
+  drops `canvasItem` and the items, and keeps the strokes in the data – a flowing page with strokes shows "Drawings are
+  hidden on flowing pages". Ink needs a canvas page (PM decision): the drawing tools are disabled on flowing pages. Each
+  switch is one undo step.
+- **Text boxes**: the page keeps its one editor. `loro-prosemirror` binds one ProseMirror document to the whole
+  `"doc"` map (no sub-range of `children`), so per-box editors would each need their own binding of a block subset;
+  instead the `CanvasLayout` plugin positions every top-level block with node decorations (`left` = the box's x, `top` =
+  the box's y plus the measured heights of the box's earlier blocks + 5 px, `width` = the box's w, 0 = automatic up to
+  600 px) and feeds the measured heights back as meta transactions (never a document change). Blocks without a valid
+  `canvasItem` (paste, the genesis paragraph) belong to the box of the block before them. Enter keeps `canvasItem`
+  (Tiptap `keepOnSplit`). A click on empty canvas creates a box there with the caret in it (an empty box elsewhere is
+  moved there instead – clicking around leaves no empty boxes); a drag on empty canvas selects with a rubber band.
+  Hovering a box shows its frame: the top bar moves it (selected boxes, images and strokes together), the right edge
+  changes its width; positions snap to an 8 px grid (Alt: free). Delete/Backspace removes the selection, Esc clears it.
+- **Images** (canvas items of kind `image`, e.g. from OneNote): shown from the notebook's blobs, moved like boxes,
+  resized by the corner (aspect kept).
+- **Draw tab**: Tools (Type, Lasso select, Eraser – whole strokes), Pens (Pen, Highlighter; Pen colour ▾ /
+  Highlighter colour ▾: black, the suite colours Notes/Write/Calc/Show, red, blue, grey resp. five highlighter colours,
+  and Fine/Medium/Thick = 1/2/4 pt resp. 8/12/18 pt), Selection (Recolour ▾ – strokes and the text of selected boxes,
+  Bring to front, Send to back), Edit (Delete), Page (Free canvas). Tool and pen settings are kept in
+  `localStorage` (`rusuite.notes.ink`).
+- **Ink**: pointer events with pressure (`pressure`; mouse and 0 → 0.5), coalesced events; while a pen is in use touch
+  input is ignored (500 ms after its last event); two touches pinch-zoom. The live stroke is drawn at pointer rate on a
+  2D canvas over the viewport; on pointer-up it is simplified (Ramer–Douglas–Peucker, ε 0.5 px), quantised to the
+  stored 1/10 pt and written as one Loro commit (one undo step). Committed strokes are filled SVG outlines
+  (`geometry.strokeOutline`, a small perfect-freehand-like outline: smoothed centre line, radius from pressure, round
+  caps; no dependency), highlighters in an SVG layer under the text (45 % opacity, multiply), pens above it.
+- **Undo/redo**: the mirror's UndoManager. A canvas action is one step (`CanvasSteps`: merging off, commits grouped,
+  merging resumes after the editor's next commit), so a stroke, a box move or a resize never merges with typing.
+  Ctrl+Z / Ctrl+Y on the canvas (outside a text box) and the ribbon's Undo use it.
+- **Zoom** 25–400 %: Ctrl+wheel / trackpad pinch (anchored at the pointer), touch pinch, Ctrl + / Ctrl −, the zoom control
+  at the bottom right (click on the percentage: 100 %). Scrolling pans; the surface always extends 800 px beyond the
+  content.
+- **Printing a canvas page** (File › Print / Export PDF, P11-N3): the surface's content bounding box, scaled to the
+  printable width of the paper (never enlarged) under the page title, cut into pages (`canvas/print.ts`).
+- **Compact**: canvas pages scroll and pan at 412 px; Draw is in the command bar; touch draws with the pen tools.
+- Tests: `apps/notes/src/canvas/*.test.ts` (geometry, Loro model and undo steps, layout and actions on a real editor),
+  e2e `packages/e2e/tests/notes-canvas.spec.ts` (incl. a OneNote import with ink and the 2 000-stroke frame-time check).
 
 ### Notes rich content (P11-N3)
 

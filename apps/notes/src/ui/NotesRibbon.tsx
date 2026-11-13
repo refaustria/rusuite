@@ -1,5 +1,5 @@
-// The ribbon of Notes: File (backstage, with Print / Export PDF) · Home · Insert · View, and the contextual Table
-// and Picture tabs. Draw and Share come with P11-N4 / P11-N5.
+// The ribbon of Notes: File (backstage, with Print / Export PDF) · Home · Insert · Draw (canvas/DrawTab.tsx, P11-N4) ·
+// View, and the contextual Table and Picture tabs. Share comes later (P11-N5).
 
 import type { ReactNode } from "react";
 import type { Editor } from "@tiptap/core";
@@ -24,6 +24,7 @@ import { useDialog } from "./dialogs";
 import { useEditorTick, useNotes } from "./hooks";
 import { NotesIcon } from "./icons";
 import { linkDialog, pageLinkDialog } from "./PageView";
+import { useDrawTab } from "../canvas";
 
 export const NOTES_ACCENT = "#7719AA";
 
@@ -241,6 +242,7 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
     ],
   };
 
+  const draw = useDrawTab(ctl, editor);
   const zoomIdx = ZOOM_STEPS.indexOf(settings.zoom);
   const view: RibbonTab = {
     id: "view",
@@ -390,7 +392,7 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
 
   return (
     <Ribbon
-      tabs={[home, insertTab, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
+      tabs={[home, insertTab, draw, view, ...(tableTab ? [tableTab] : []), ...(pictureTab ? [pictureTab] : [])]}
       appName="Notes"
       documentTitle={pageTitle ?? title ?? undefined}
       accent={NOTES_ACCENT}
