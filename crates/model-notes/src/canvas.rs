@@ -118,10 +118,16 @@ impl PageDoc {
                 color: get_str(&m, "color").unwrap_or_default(),
                 width: get_f64(&m, "width").map_or(0, |w| w as u32),
                 points: match value(m.get("points")) {
+                    // loro-crdt (JS) writes every number as a double: the editor's strokes arrive as
+                    // integral doubles.
                     Some(LoroValue::List(l)) => l
                         .iter()
                         .filter_map(|v| match v {
                             LoroValue::I64(i) => i32::try_from(*i).ok(),
+                            LoroValue::Double(d) if d.is_finite() => {
+                                Some(d.round().clamp(f64::from(i32::MIN), f64::from(i32::MAX))
+                                    as i32)
+                            }
                             _ => None,
                         })
                         .collect(),
