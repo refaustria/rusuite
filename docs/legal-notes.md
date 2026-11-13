@@ -79,3 +79,17 @@ code is linked into the mobile apps.
 State at 3.141 (P9-R1, NOTICE regenerated 2026-10-18): 447 crates and 63 npm packages, licence groups unchanged
 (still the same five MPL-2.0 crates, no GPL). New in the list since 0.1.0-rc.1: the report relay's `axum`, `axum-core`, `matchit`, `httpdate`, `serde_path_to_error` (item 8; listed
 because the relay is a workspace member, although it is not shipped in the apps) and `html-to-image`.
+
+## OneNote import (added 2026-11-12, P11-O1)
+9. **`onenote_parser` 2.1.0** (<https://github.com/msiemens/onenote.rs>, crates.io `onenote_parser` and its
+   `onenote_parser-macros`) is **MPL-2.0** and is used **unmodified** from crates.io by `crates/fmt-onenote` to parse
+   `.one`/`.onepkg` files (MS-ONESTORE/MS-ONE). MPL-2.0 is file-level copyleft: using its unmodified files in our MIT
+   project is fine (as for the five MPL crates above); no MPL code is copied into our files, and if we ever patch or
+   vendor it, the modified files must stay under MPL-2.0 and their source be offered. New permissive crates it brings:
+   `cab` 0.6.0 (MIT; CAB extraction for `.onepkg`), `lzxd` (MIT/Apache-2.0), `lru`, `sanitize-filename`,
+   `enum-primitive-derive` (MIT), `widestring`, `either`, `core_detect`, `itertools` 0.14
+   (MIT/Apache-2.0), `encoding_rs` ((Apache-2.0 OR MIT) AND BSD-3-Clause). NOTICE now lists 7 MPL-2.0 crates.
+   **Test files** in `testdata/onenote/` come from the same repository (MPL-2.0, unmodified) and one file vendored
+   there from Microsoft's Interop-TestSuites (MIT); sources and licences in `testdata/onenote/README.md`. Its
+   AGPL-licensed Joplin samples are deliberately not committed. "OneNote" is a Microsoft trademark, used only
+   nominatively ("imports OneNote files").

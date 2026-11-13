@@ -1,0 +1,22 @@
+[package]
+name = "fmt-onenote"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# MPL-2.0, used unmodified (docs/legal-notes.md). No `native-fs` (wasm); `onepkg` = CAB via the `cab` crate.
+onenote_parser = { version = "2.1", default-features = false, features = ["onepkg"] }
+typed-path = "0.12"
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+proptest.workspace = true
+cab = "0.6"
+
+[lints]
+workspace = true

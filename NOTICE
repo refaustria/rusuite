@@ -32,10 +32,10 @@ crates/tauri-plugin-rusuite-mobile) additionally include, all under the Apache L
 The iOS apps use no CocoaPods or other Swift packages besides the Tauri Swift API; Apple system frameworks are
 not redistributed.
 
-Rust crates (447)
+Rust crates (459)
 -----------------
 
-Apache-2.0 OR MIT (268)
+Apache-2.0 OR MIT (273)
   aes 0.8.4 – https://github.com/RustCrypto/block-ciphers
   android_system_properties 0.1.6 – https://github.com/nical/android_system_properties
   anyhow 1.0.104 – https://github.com/dtolnay/anyhow
@@ -68,6 +68,7 @@ Apache-2.0 OR MIT (268)
   cipher 0.4.4 – https://github.com/RustCrypto/traits
   concurrent-queue 2.5.0 – https://github.com/smol-rs/concurrent-queue
   cookie 0.18.2 – https://github.com/SergioBenitez/cookie-rs
+  core_detect 1.0.0 – https://github.com/thomcc/core_detect
   core-foundation 0.10.1 – https://github.com/servo/core-foundation-rs
   core-foundation 0.9.4 – https://github.com/servo/core-foundation-rs
   core-foundation-sys 0.8.7 – https://github.com/servo/core-foundation-rs
@@ -89,6 +90,7 @@ Apache-2.0 OR MIT (268)
   dirs-sys 0.5.0 – https://github.com/dirs-dev/dirs-sys-rs
   dtoa 1.0.11 – https://github.com/dtolnay/dtoa
   dyn-clone 1.0.20 – https://github.com/dtolnay/dyn-clone
+  either 1.19.0 – https://github.com/rayon-rs/either
   embed_plist 1.2.2 – https://github.com/nvzqz/embed-plist-rs
   equivalent 1.0.3 – https://github.com/indexmap-rs/equivalent
   erased-serde 0.4.10 – https://github.com/dtolnay/erased-serde
@@ -133,6 +135,7 @@ Apache-2.0 OR MIT (268)
   indexmap 2.14.2 – https://github.com/indexmap-rs/indexmap
   inout 0.1.4 – https://github.com/RustCrypto/utils
   ipnet 2.12.2 – https://github.com/krisprice/ipnet
+  itertools 0.14.0 – https://github.com/rust-itertools/itertools
   itoa 1.0.18 – https://github.com/dtolnay/itoa
   jni 0.21.1 – https://github.com/jni-rs/jni-rs
   jni 0.22.4 – https://github.com/jni-rs/jni-rs
@@ -150,6 +153,7 @@ Apache-2.0 OR MIT (268)
   libdbus-sys 0.2.7 – https://github.com/diwic/dbus-rs
   lock_api 0.4.14 – https://github.com/Amanieu/parking_lot
   log 0.4.34 – https://github.com/rust-lang/log
+  lzxd 0.2.7 – https://github.com/Lonami/lzxd
   markup5ever 0.39.0 – https://github.com/servo/html5ever
   mime 0.3.17 – https://github.com/hyperium/mime
   muda 0.20.0 – https://github.com/tauri-apps/muda
@@ -255,6 +259,7 @@ Apache-2.0 OR MIT (268)
   web_atoms 0.2.6 – https://github.com/servo/html5ever
   web-sys 0.3.106 – https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys
   web-time 1.1.0 – https://github.com/daxpedda/web-time
+  widestring 1.2.1 – https://github.com/VoidStarKat/widestring-rs
   winapi 0.3.9 – https://github.com/retep998/winapi-rs
   winapi-i686-pc-windows-gnu 0.4.0 – https://github.com/retep998/winapi-rs
   winapi-x86_64-pc-windows-gnu 0.4.0 – https://github.com/retep998/winapi-rs
@@ -305,13 +310,14 @@ Apache-2.0 OR MIT (268)
   wry 0.57.0 – https://github.com/tauri-apps/wry
   zeroize 1.9.1 – https://github.com/RustCrypto/utils
 
-MIT (94)
+MIT (98)
   atk 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   atk-sys 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   axum 0.8.9 – https://github.com/tokio-rs/axum
   axum-core 0.5.6 – https://github.com/tokio-rs/axum
   block2 0.6.2 – https://github.com/madsmtm/objc2
   bytes 1.12.1 – https://github.com/tokio-rs/bytes
+  cab 0.6.0 – https://github.com/mdsteele/rust-cab
   cairo-rs 0.18.5 – https://github.com/gtk-rs/gtk-rs-core
   cairo-sys-rs 0.18.2 – https://github.com/gtk-rs/gtk-rs-core
   cargo_metadata 0.19.2 – https://github.com/oli-obk/cargo_metadata
@@ -322,6 +328,7 @@ MIT (94)
   dlopen2 0.8.2 – https://github.com/OpenByteDev/dlopen2
   dom_query 0.28.0 – https://github.com/niklak/dom_query
   endi 1.1.1 – https://github.com/zeenix/endi
+  enum-primitive-derive 0.3.0 – https://gitlab.com/cardoe/enum-primitive-derive.git
   gdk 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   gdk-pixbuf 0.18.5 – https://github.com/gtk-rs/gtk-rs-core
   gdk-pixbuf-sys 0.18.0 – https://github.com/gtk-rs/gtk-rs-core
@@ -346,6 +353,7 @@ MIT (94)
   javascriptcore-rs 1.1.2 – https://github.com/tauri-apps/javascriptcore-rs
   javascriptcore-rs-sys 1.1.1 – https://github.com/tauri-apps/javascriptcore-rs
   libredox 0.1.25 – https://gitlab.redox-os.org/redox-os/libredox.git
+  lru 0.18.5 – https://github.com/jeromefroe/lru-rs.git
   memoffset 0.9.1 – https://github.com/Gilnaa/memoffset
   mio 1.2.4 – https://github.com/tokio-rs/mio
   new_debug_unreachable 1.0.6 – https://github.com/mbrubeck/rust-debug-unreachable
@@ -363,6 +371,7 @@ MIT (94)
   redox_syscall 0.5.18 – https://gitlab.redox-os.org/redox-os/syscall
   redox_users 0.5.3 – https://gitlab.redox-os.org/redox-os/users
   rfd 0.16.0 – https://github.com/PolyMeilex/rfd
+  sanitize-filename 0.6.0 – https://github.com/kardeiz/sanitize-filename
   schannel 0.1.29 – https://github.com/steffengy/schannel-rs
   schemars 0.8.22 – https://github.com/GREsau/schemars
   schemars 0.9.0 – https://github.com/GREsau/schemars
@@ -454,19 +463,21 @@ MIT OR Unlicense (9)
   walkdir 2.5.0 – https://github.com/BurntSushi/walkdir
   winapi-util 0.1.11 – https://github.com/BurntSushi/winapi-util
 
+MPL-2.0 (7)
+  cssparser 0.37.0 – https://github.com/servo/rust-cssparser
+  cssparser-macros 0.7.1 – https://github.com/servo/rust-cssparser
+  dtoa-short 0.3.5 – https://github.com/upsuper/dtoa-short
+  onenote_parser 2.1.0 – https://github.com/msiemens/onenote.rs
+  onenote_parser-macros 2.1.0 – https://github.com/msiemens/onenote.rs
+  option-ext 0.2.0 – https://github.com/soc/option-ext.git
+  selectors 0.38.0 – https://github.com/servo/stylo
+
 Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT (5)
   linux-raw-sys 0.12.1 – https://github.com/sunfishcode/linux-raw-sys
   rustix 1.1.5 – https://github.com/bytecodealliance/rustix
   wasi 0.11.1+wasi-snapshot-preview1 – https://github.com/bytecodealliance/wasi
   wasip2 1.0.4+wasi-0.2.12 – https://github.com/bytecodealliance/wasi-rs
   wit-bindgen 0.57.1 – https://github.com/bytecodealliance/wit-bindgen
-
-MPL-2.0 (5)
-  cssparser 0.37.0 – https://github.com/servo/rust-cssparser
-  cssparser-macros 0.7.1 – https://github.com/servo/rust-cssparser
-  dtoa-short 0.3.5 – https://github.com/upsuper/dtoa-short
-  option-ext 0.2.0 – https://github.com/soc/option-ext.git
-  selectors 0.38.0 – https://github.com/servo/stylo
 
 Apache-2.0 (3)
   sync_wrapper 1.0.2 – https://github.com/Actyx/sync_wrapper
@@ -503,6 +514,9 @@ BSD-3-Clause AND MIT (2)
 Zlib (2)
   foldhash 0.2.0 – https://github.com/orlp/foldhash
   zlib-rs 0.6.8 – https://github.com/trifectatechfoundation/zlib-rs
+
+(Apache-2.0 OR MIT) AND BSD-3-Clause (1)
+  encoding_rs 0.8.44 – https://github.com/hsivonen/encoding_rs
 
 (Apache-2.0 OR MIT) AND Unicode-3.0 (1)
   unicode-ident 1.0.27 – https://github.com/dtolnay/unicode-ident
