@@ -10,6 +10,7 @@ members = [
     "crates/model-sheet",
     "crates/engine-formula",
     "crates/model-show",
+    "crates/fmt-onenote",
     "crates/app-common",
     "crates/tauri-plugin-rusuite-mobile",
     "apps/calc/src-tauri",
@@ -52,3 +53,8 @@ debug = "line-tables-only"
 
 [profile.test]
 debug = "line-tables-only"
+
+# onenote_parser (fmt-onenote) relies on wrapping arithmetic in its size checks on damaged files; with debug
+# overflow checks those become panics in tests only. Match the release behaviour (an Err, never a panic).
+[profile.dev.package.onenote_parser]
+overflow-checks = false
