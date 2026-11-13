@@ -276,6 +276,33 @@ fn meta_canvas_and_ink() {
 }
 
 #[test]
+fn strokes_written_by_the_web_editor_read_back() {
+    // loro-crdt (JS) stores numbers as doubles; the canvas editor (P11-N4) writes strokes that way.
+    let page = PageDoc::create(Some("Ink"), T0);
+    let m = page
+        .doc()
+        .get_list("ink")
+        .push_container(loro::LoroMap::new())
+        .unwrap();
+    m.insert("id", "s-web").unwrap();
+    m.insert("tool", "highlighter").unwrap();
+    m.insert("color", "#FFEB3B").unwrap();
+    m.insert("width", 120.0).unwrap();
+    m.insert(
+        "points",
+        vec![
+            loro::LoroValue::Double(10.0),
+            loro::LoroValue::Double(-20.0),
+            loro::LoroValue::Double(128.0),
+        ],
+    )
+    .unwrap();
+    page.doc().commit();
+    let s = &page.ink_strokes()[0];
+    assert_eq!((s.width, s.points.clone()), (120, vec![10, -20, 128]));
+}
+
+#[test]
 fn imported_content_replaces_the_empty_genesis_paragraph() {
     let p = PageDoc::create(Some("Imported"), T0);
     p.import_blocks(
