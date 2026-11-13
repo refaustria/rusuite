@@ -40,7 +40,7 @@ OOXML subset is listed in [docs/ooxml-subset.md](docs/ooxml-subset.md). Document
 ### Non-Goals (deliberately excluded)
 - Legacy binary formats (`.doc`, `.xls`, `.ppt`)
 - Macros / VBA / scripting
-- Track changes, real-time co-authoring (comments and notes are supported)
+- Track changes, real-time co-authoring (comments and notes are supported; exception: shared notebooks in Rusuite Notes, ADR 0010)
 - Pixel-perfect reproduction of Office layout
 - Power Query, data connections (pivot tables are supported)
 - Pixel-exact print layout (printing goes through the webview's print pipeline with our own previews and options; see docs/ui.md)

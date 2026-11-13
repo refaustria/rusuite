@@ -26,6 +26,8 @@ members = [
     "apps/notes/core",
     "apps/notes/src-wasm",
     "services/report-relay",
+    "crates/notes-sync",
+    "services/notes-relay",
 ]
 
 [workspace.package]

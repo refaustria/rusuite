@@ -1,0 +1,29 @@
+[package]
+name = "notes-relay"
+description = "Rusuite Notes relay: a blind WebSocket relay that stores and forwards only signed ciphertext envelopes (P11-N5a)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "rusuite-notes-relay"
+path = "src/main.rs"
+
+[dependencies]
+notes-sync = { path = "../../crates/notes-sync" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tokio-tungstenite = "0.29"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

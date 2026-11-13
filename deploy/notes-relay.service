@@ -1,0 +1,48 @@
+# Rusuite Notes relay (P11-N5a): blind store-and-forward of end-to-end encrypted notebook envelopes.
+# Install: /usr/local/bin/rusuite-notes-relay (cargo build --release -p notes-relay), this file as
+# /etc/systemd/system/rusuite-notes-relay.service, then `systemctl daemon-reload && systemctl enable --now
+# rusuite-notes-relay`. Data: /var/lib/rusuite-notes (StateDirectory, owned by the dynamic service user).
+# Optional overrides (none secret): /etc/rusuite/notes-relay.env – NOTES_QUOTA_MB, NOTES_BLOB_MAX_MB,
+# NOTES_ENVELOPE_MAX_KB, NOTES_RATE_PER_SEC, NOTES_INACTIVE_DAYS, NOTES_EPOCH_GRACE_SECS (docs/notes-sync-protocol.md).
+[Unit]
+Description=Rusuite Notes relay (end-to-end encrypted notebook sync)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=rusuite-notes
+StateDirectoryMode=0700
+Environment=NOTES_LISTEN=127.0.0.1:8732
+Environment=NOTES_DATA_DIR=/var/lib/rusuite-notes
+EnvironmentFile=-/etc/rusuite/notes-relay.env
+ExecStart=/usr/local/bin/rusuite-notes-relay
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+MemoryMax=512M
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
