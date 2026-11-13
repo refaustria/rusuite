@@ -1,0 +1,34 @@
+[package]
+name = "notes-core"
+description = "Rusuite Notes core shared by the Tauri and wasm shells"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+# `FolderStore`: the desktop notebook folder (std::fs; never built for wasm).
+fs = []
+
+[dependencies]
+app-common = { path = "../../../crates/app-common" }
+model-notes = { path = "../../../crates/model-notes", features = ["ts"] }
+loro = "=1.17.1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ts-rs = { version = "12", features = ["serde-compat"] }
+# Search normalisation (NFKD + strip combining marks).
+unicode-normalization = "0.1"
+# Blob ids (content addressing) and backup verification.
+sha2 = "0.10"
+# `.rnotes` backup archive.
+zip.workspace = true
+
+[dev-dependencies]
+notes-core = { path = ".", features = ["fs"] }
+
+[lints]
+workspace = true

@@ -11,6 +11,7 @@ members = [
     "crates/engine-formula",
     "crates/model-show",
     "crates/fmt-onenote",
+    "crates/model-notes",
     "crates/app-common",
     "crates/tauri-plugin-rusuite-mobile",
     "apps/calc/src-tauri",
@@ -22,6 +23,8 @@ members = [
     "apps/show/core",
     "apps/show/src-tauri",
     "apps/show/src-wasm",
+    "apps/notes/core",
+    "apps/notes/src-wasm",
     "services/report-relay",
 ]
 
