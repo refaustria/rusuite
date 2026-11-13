@@ -1,0 +1,135 @@
+{
+  "doc": {
+    "attributes": {},
+    "nodeName": "doc",
+    "children": [
+      {
+        "attributes": {
+          "level": 1
+        },
+        "nodeName": "heading",
+        "children": [
+          "Shopping and plans"
+        ]
+      },
+      {
+        "attributes": {},
+        "nodeName": "paragraph",
+        "children": [
+          "Plain paragraph with bold and italic and a link"
+        ]
+      },
+      {
+        "attributes": {
+          "level": 2
+        },
+        "nodeName": "heading",
+        "children": [
+          "Lists"
+        ]
+      },
+      {
+        "attributes": {},
+        "nodeName": "bulletList",
+        "children": [
+          {
+            "attributes": {},
+            "nodeName": "listItem",
+            "children": [
+              {
+                "attributes": {},
+                "nodeName": "paragraph",
+                "children": [
+                  "milk"
+                ]
+              }
+            ]
+          },
+          {
+            "attributes": {},
+            "nodeName": "listItem",
+            "children": [
+              {
+                "attributes": {},
+                "nodeName": "paragraph",
+                "children": [
+                  "bread"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "attributes": {
+          "start": 1
+        },
+        "nodeName": "orderedList",
+        "children": [
+          {
+            "attributes": {},
+            "nodeName": "listItem",
+            "children": [
+              {
+                "attributes": {},
+                "nodeName": "paragraph",
+                "children": [
+                  "first"
+                ]
+              }
+            ]
+          },
+          {
+            "attributes": {},
+            "nodeName": "listItem",
+            "children": [
+              {
+                "attributes": {},
+                "nodeName": "paragraph",
+                "children": [
+                  "second"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "attributes": {},
+        "nodeName": "taskList",
+        "children": [
+          {
+            "attributes": {
+              "checked": true
+            },
+            "nodeName": "taskItem",
+            "children": [
+              {
+                "attributes": {},
+                "nodeName": "paragraph",
+                "children": [
+                  "call mum"
+                ]
+              }
+            ]
+          },
+          {
+            "attributes": {
+              "checked": false
+            },
+            "nodeName": "taskItem",
+            "children": [
+              {
+                "attributes": {},
+                "nodeName": "paragraph",
+                "children": [
+                  "buy flowers"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

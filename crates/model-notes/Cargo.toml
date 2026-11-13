@@ -1,0 +1,25 @@
+[package]
+name = "model-notes"
+description = "Rusuite Notes document model: notebook and page Loro documents, schema, readers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+# ts-rs derives on the wire types (TypeScript definitions for Notes,
+# exported to apps/notes/src/generated/ by `cargo test`).
+ts = ["dep:ts-rs"]
+
+[dependencies]
+# The CRDT (P11-N0 verdict, docs/notes-spike-report.md). Must stay in lockstep with npm `loro-crdt` in the editor.
+loro = "=1.17.1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ts-rs = { version = "12", features = ["serde-compat"], optional = true }
+
+[lints]
+workspace = true

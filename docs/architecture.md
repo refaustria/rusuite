@@ -35,6 +35,9 @@ fmt-xlsx | fmt-docx | fmt-pptx ──► model-sheet | model-text | model-show �
 | `app-common` | – | `Document` trait, undo/redo `Host`, `Envelope`, `DispatchError`, recent files and crash recovery (`Session`). |
 | `calc-core`, `write-core`, `show-core` | `app-common`, the app's model and format crate | Transport-agnostic app core: commands, patches, snapshots, `dispatch`. |
 | `app-calc`/`app-write`/`app-show`, `app-*-wasm` | the app core | Shells. No document logic. |
+| `model-notes` | – (crate `loro`; optional `ts-rs` with feature `ts`) | Rusuite Notes model: notebook Loro doc (movable tree of groups/sections/pages, tags, peers) and page Loro docs in `loro-prosemirror`'s layout (deterministic page genesis, readers for text/outline/links/tags/tasks/blobs, canvas and ink schema), history change groups ([notes-format.md](notes-format.md)). |
+| `notes-core` | `app-common`, `model-notes` | Notes core: `NotesHost` (docs of record, lazy page docs, persist effects instead of storage I/O, search index, tasks, backlinks, history/restore, compaction, `.rnotes` backups), `dispatch`; `FolderStore` behind feature `fs` (desktop). Notes edits flow as CRDT updates, not commands/patches. |
+| `app-notes-wasm` | `notes-core` | Notes wasm shell: `dispatch` plus binary functions for Loro updates, stored docs, effects and backups. |
 
 Two edges go beyond ADR 0003 as written: `fmt-xlsx → engine-formula` (formula text and cell values,
 ADR 0004) and, since P7-3, `fmt-ooxml → core-model` (the theme part all three formats share parses into
