@@ -23,6 +23,8 @@ members = [
     "apps/show/src-tauri",
     "apps/show/src-wasm",
     "services/report-relay",
+    "crates/notes-sync",
+    "services/notes-relay",
 ]
 
 [workspace.package]
