@@ -1,0 +1,27 @@
+[package]
+name = "notes-sync"
+description = "Rusuite Notes sharing: device keys, epoch notebook keys, signed/encrypted envelopes, member lists, invites and the relay wire protocol (P11-N5a)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "rand_core"] }
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["zeroize", "static_secrets"] }
+hkdf = "0.12"
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
+[lints]
+workspace = true
