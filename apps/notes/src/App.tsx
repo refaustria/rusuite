@@ -4,6 +4,7 @@ import { FOCUS_RING, RibbonIcon, useCompact } from "@rusuite/ui-shared";
 import type { NotesController } from "./controller";
 import type { TabLock } from "./tablock";
 import { TabLockOverlay } from "./ui/TabLockOverlay";
+import { BusyCard, ImportResultDialog } from "./ui/ImportExport";
 import { NotesShortcuts } from "./ShortcutLayer";
 import { DialogHost } from "./ui/dialogs";
 import { useNotes } from "./ui/hooks";
@@ -82,6 +83,8 @@ export default function App({ ctl, lock }: { ctl: NotesController; lock?: TabLoc
         </div>
         <StatusBar ctl={ctl} editor={editor} />
         <Toast ctl={ctl} />
+        <BusyCard ctl={ctl} />
+        <ImportResultDialog ctl={ctl} />
         <NotesShortcuts ctl={ctl} />
         {lock && <TabLockOverlay ctl={ctl} lock={lock} />}
       </main>

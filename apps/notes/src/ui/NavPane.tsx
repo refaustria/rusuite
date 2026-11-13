@@ -1,7 +1,8 @@
 // The navigation pane (OneNote-like): the notebook switcher, the sections as a coloured vertical list with
 // section groups, the page list of the current section with sub-page indentation, and the recycle bin entry.
 // Drag & drop reorders sections and pages, moves pages between sections (a section tab is a drop target) and
-// changes a page's level by the pointer's horizontal position.
+// changes a page's level by the pointer's horizontal position. Files dropped on the pane are imported (OneNote,
+// Markdown, HTML, Word; P11-N6b).
 
 import { useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { ContextMenu, FOCUS_RING, formatCombo, RibbonIcon, type ContextMenuItem } from "@rusuite/ui-shared";
@@ -13,6 +14,8 @@ import { useDialog } from "./dialogs";
 import { useNotes } from "./hooks";
 import { NotesIcon } from "./icons";
 import { SearchBox } from "./SearchBox";
+import { importFileList } from "./ImportExport";
+import { importKindOf } from "../convert/formats";
 
 /** What is being dragged (HTML5 drag data cannot be read during dragover). */
 let dragging: { kind: "page" | "section" | "group"; id: string; notebook: string } | null = null;
@@ -36,8 +39,34 @@ export function NavPane({ ctl, onNavigate, width, onResize }: { ctl: NotesContro
   const notebooks = useNotes(ctl, (s) => s.notebooks);
   const view = useNotes(ctl, (s) => s.view);
   const current = notebooks.find((n) => n.summary.id === notebook) ?? null;
+  const [fileOver, setFileOver] = useState(false);
+  const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
   return (
-    <nav aria-label={t("notes.nav.label")} data-testid="nav-pane" className="relative flex min-h-0 shrink-0 flex-col border-r border-ui-border bg-ui-panel text-sm" style={width ? { width } : undefined}>
+    <nav
+      aria-label={t("notes.nav.label")}
+      data-testid="nav-pane"
+      data-file-over={fileOver || undefined}
+      className={`relative flex min-h-0 shrink-0 flex-col border-r border-ui-border bg-ui-panel text-sm ${fileOver ? "outline outline-2 -outline-offset-2 outline-[var(--notes-accent)]" : ""}`}
+      style={width ? { width } : undefined}
+      onDragOver={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setFileOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileOver(false);
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        setFileOver(false);
+        const files = Array.from(e.dataTransfer.files);
+        const ok = files.filter((f) => importKindOf(f.name));
+        if (ok.length < files.length) ctl.notify(t("notes.import.unsupportedDropped", { count: files.length - ok.length }));
+        void importFileList(ctl, ok);
+      }}
+    >
       <SearchBox ctl={ctl} onActive={setSearching} onNavigate={onNavigate} />
       {!searching && <NotebookSwitcher ctl={ctl} openMenu={setMenu} />}
       {searching ? (
@@ -236,6 +265,7 @@ function SectionList({ ctl, tree, notebook, openMenu, onNavigate }: { ctl: Notes
         ...(n.kind === "section" ? [{ id: "color", label: t("notes.colorDots"), onSelect: () => open({ kind: "color", title: t("notes.section.color"), value: n.color, onPick: (c) => void ctl.setColor(n.id, c) }) }] : []),
         ...(n.kind === "group" ? [{ id: "newSection", label: t("notes.section.new"), onSelect: () => newSection(n.id) }] : []),
         { id: "newPage", label: t("notes.page.new"), onSelect: () => void ctl.createPage({ section: n.id }), disabled: n.kind !== "section" },
+        ...(n.kind === "section" ? [{ id: "export", label: t("notes.export.sectionDots"), onSelect: () => open({ kind: "export", scope: "section", node: n.id }) }] : []),
         { separator: true },
         {
           id: "delete",
@@ -401,6 +431,7 @@ function PageList({ ctl, tree, notebook, openMenu, onNavigate }: { ctl: NotesCon
             if (link) void navigator.clipboard?.writeText(link).catch(() => undefined);
           },
         },
+        { id: "export", label: t("notes.export.pageDots"), onSelect: () => open({ kind: "export", scope: "page", node: n.id }) },
         { separator: true },
         { id: "delete", label: t("notes.delete"), shortcut: "Delete", onSelect: () => void ctl.deleteNode(n.id) },
       ],

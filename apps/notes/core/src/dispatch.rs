@@ -9,11 +9,14 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::effects::LoadWarning;
-use crate::host::convert::{FileImported, PageFormat};
+use crate::host::convert::FileImported;
+#[cfg(feature = "convert")]
+use crate::host::convert::PageFormat;
 use crate::host::{
     HistoryEntry, ImportResult, NotebookSummary, NotesHost, OpenedPage, PageRef, TaskEntry,
     TaskFilter, VersionPreview,
 };
+use crate::plan::{ExportSource, ImportContextData};
 use crate::search::SearchHit;
 use notes_convert::{ConvertWarning, ExportFormat};
 
@@ -290,6 +293,19 @@ pub enum Request {
         section: String,
         format: ExportFormat,
     },
+    /// What the converter module needs for a page import or a paste into `notebook` → `importContext` (P11-N6b).
+    ImportContext {
+        notebook: String,
+    },
+    /// A page for the converter module's exporters → `exportSource`.
+    PageExportSource {
+        doc_id: String,
+    },
+    /// A section's pages (or a page with its sub-pages) for the exporters → `exportSource`.
+    SectionExportSource {
+        notebook: String,
+        section: String,
+    },
 }
 
 /// A successful reply.
@@ -377,6 +393,12 @@ pub enum ResponseBody {
         #[ts(type = "unknown")]
         content: serde_json::Value,
         warnings: Vec<ConvertWarning>,
+    },
+    ImportContext {
+        context: ImportContextData,
+    },
+    ExportSource {
+        source: ExportSource,
     },
     /// Binary `import_backup`.
     BackupImported {
@@ -591,14 +613,35 @@ fn handle(host: &mut NotesHost, req: Request) -> Result<ResponseBody, crate::Cor
             host.compact(&doc_id)?;
             B::Done
         }
+        #[cfg(feature = "convert")]
         R::PasteHtml { notebook, html } => {
             let (content, warnings) = host.paste_html(&notebook, &html)?;
             B::Pasted { content, warnings }
         }
+        #[cfg(feature = "convert")]
         req @ (R::ImportOneNote { .. }
         | R::ImportMarkdown { .. }
         | R::ImportHtml { .. }
         | R::ImportDocx { .. }) => import(host, req, None)?,
+        #[cfg(not(feature = "convert"))]
+        R::PasteHtml { .. }
+        | R::ImportOneNote { .. }
+        | R::ImportMarkdown { .. }
+        | R::ImportHtml { .. }
+        | R::ImportDocx { .. } => {
+            return Err(crate::CoreError::BadRequest(
+                "the converters are in the convert module: use apply_import".into(),
+            ))
+        }
+        R::ImportContext { notebook } => B::ImportContext {
+            context: host.import_context(&notebook)?,
+        },
+        R::PageExportSource { doc_id } => B::ExportSource {
+            source: host.page_export_source(&doc_id)?,
+        },
+        R::SectionExportSource { notebook, section } => B::ExportSource {
+            source: host.section_export_source(&notebook, &section)?,
+        },
         R::ExportPage { .. } | R::ExportSection { .. } => {
             return Err(crate::CoreError::BadRequest(
                 "exports return bytes: use the binary export function".into(),
@@ -608,6 +651,7 @@ fn handle(host: &mut NotesHost, req: Request) -> Result<ResponseBody, crate::Cor
 }
 
 /// Runs an import request; `bytes` from the binary `import_file` (Markdown/HTML may carry their text instead).
+#[cfg(feature = "convert")]
 fn import(
     host: &mut NotesHost,
     req: Request,
@@ -747,8 +791,57 @@ pub mod binary {
         }))
     }
 
+    /// `apply_import(request, frame)`: an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request
+    /// (JSON, may carry `"now"`; its target fields are used) with the frame the converter module made from the file
+    /// (`crate::plan`: the plan JSON and the blobs) → `fileImported`.
+    pub fn apply_import(host: &mut NotesHost, request_json: &str, frame: &[u8]) -> String {
+        use super::Request as R;
+        let req = match serde_json::from_str::<super::Request>(request_json) {
+            Ok(r) => r,
+            Err(e) => return reply(Err(crate::CoreError::BadRequest(e.to_string()))),
+        };
+        set_clock(host, request_json);
+        let target = match &req {
+            R::ImportOneNote {
+                notebook,
+                parent,
+                id,
+                ..
+            } => crate::host::convert::ImportTarget {
+                notebook: notebook.as_deref(),
+                parent: parent.as_deref(),
+                id: id.as_deref(),
+            },
+            R::ImportMarkdown {
+                notebook, parent, ..
+            }
+            | R::ImportHtml {
+                notebook, parent, ..
+            }
+            | R::ImportDocx {
+                notebook, parent, ..
+            } => crate::host::convert::ImportTarget {
+                notebook: Some(notebook),
+                parent: Some(parent),
+                id: None,
+            },
+            _ => {
+                return reply(Err(crate::CoreError::BadRequest(
+                    "apply_import takes an import request".into(),
+                )))
+            }
+        };
+        let r = crate::plan::decode_frame(frame).and_then(|(json, blobs)| {
+            let plan: crate::plan::ImportPlan = serde_json::from_str(json)
+                .map_err(|e| crate::CoreError::BadRequest(format!("import plan: {e}")))?;
+            host.apply_import(&target, plan, blobs)
+        });
+        reply(r.map(|result| ResponseBody::FileImported { result }))
+    }
+
     /// `import_file(request, bytes)`: an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request
     /// (JSON, may carry `"now"`) with the file's bytes → `fileImported`.
+    #[cfg(feature = "convert")]
     pub fn import_file(host: &mut NotesHost, request_json: &str, bytes: &[u8]) -> String {
         let req = match serde_json::from_str::<super::Request>(request_json) {
             Ok(r) => r,
@@ -760,6 +853,7 @@ pub mod binary {
 
     /// `export(request, blobs)`: an `exportPage` / `exportSection` request (JSON) and the bytes of the blobs the
     /// content uses (`{len:u32 LE, bytes}*`, as for `export_backup`) → the file's bytes, or the JSON error reply.
+    #[cfg(feature = "convert")]
     pub fn export(
         host: &mut NotesHost,
         request_json: &str,

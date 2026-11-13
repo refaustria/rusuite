@@ -12,7 +12,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "=0.2.129"
-notes-core = { path = "../core" }
+# Without the converters (P11-N6b): they are in the lazily loaded `app-notes-convert-wasm` (../src-wasm-convert).
+notes-core = { path = "../core", default-features = false }
 
 [dev-dependencies]
 serde_json = { workspace = true }

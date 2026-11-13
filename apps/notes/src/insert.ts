@@ -1,9 +1,11 @@
 // Inserting pictures and files (Insert › Picture / File, paste, drop): each file becomes a blob of the open
 // notebook (`storeBlob`: the core's Blob effect); pictures an `image` block (downscaled above 4096 px – the
 // downscaled copy is stored), everything else – and pictures the browser cannot decode – an `attachment` card.
+// Rich paste (HTML from Word or web pages, P11-N6b) goes through the core's sanitiser in the converter module.
 
 import type { Editor } from "@tiptap/core";
-import { NodeSelection } from "@tiptap/pm/state";
+import { Fragment, Slice } from "@tiptap/pm/model";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { formatSize, MAX_BLOB_BYTES, prepareImage, PX_TO_PT, sniffImage } from "./blobs";
 import type { NotesController } from "./controller";
 import { t } from "./i18n";
@@ -121,4 +123,39 @@ export function pickFiles(accept: string, multiple = true): Promise<File[]> {
     }, { once: true });
     input.click();
   });
+}
+
+/** Clipboard HTML that the converters should clean up: not ProseMirror's own (a copy inside the app keeps its
+ * exact structure through ProseMirror's paste). */
+export function isForeignHtml(html: string): boolean {
+  return html.trim() !== "" && !/data-pm-slice/.test(html);
+}
+
+/** Pastes HTML from another app: the sanitised content replaces the selection the paste started on (headings,
+ * lists, tables, links, `data:` images; remote images become links). Falls back to `text` when the converters
+ * cannot load or the result does not fit the schema. */
+export async function pasteRichHtml(ctl: NotesController, editor: Editor, html: string, text: string): Promise<void> {
+  const before = editor.state.doc;
+  const { from, to } = editor.state.selection;
+  const r = await ctl.pasteHtml(html);
+  if (editor.isDestroyed) return;
+  const unchanged = editor.state.doc.eq(before);
+  const range = unchanged ? { from, to } : { from: editor.state.selection.from, to: editor.state.selection.to };
+  const content = r?.content.content ?? [];
+  let slice: Slice | null = null;
+  try {
+    if (content.length > 0) slice = Slice.maxOpen(Fragment.fromJSON(editor.schema, content));
+  } catch (e) {
+    console.warn("Rusuite Notes: pasted content does not fit the page", e);
+  }
+  const view = editor.view;
+  if (slice) {
+    // As ProseMirror's own paste: replace the selection, the cursor after the inserted content.
+    const tr = view.state.tr;
+    if (unchanged) tr.setSelection(TextSelection.between(tr.doc.resolve(range.from), tr.doc.resolve(range.to)));
+    view.dispatch(tr.replaceSelection(slice).setMeta("paste", true).setMeta("uiEvent", "paste").scrollIntoView());
+  } else if (text) {
+    view.dispatch(view.state.tr.insertText(text, range.from, range.to).setMeta("paste", true).setMeta("uiEvent", "paste").scrollIntoView());
+  }
+  view.focus();
 }

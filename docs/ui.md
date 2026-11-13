@@ -2220,3 +2220,41 @@ items in pt; list order = z-order), `"ink"` strokes (1/10 pt, pressure 0–255),
 - Tests: `apps/notes/src/*.test.ts` (blobs, render/diff, tab lock, print packing, controller: tasks, tags, purge,
   blobs; mirror: Q5 with a second peer), e2e `notes-rich.spec.ts`, `notes-perf.spec.ts` (500 pages / 200 pictures
   / 50 edits per page: open page and search times).
+
+### Notes import and export (P11-N6b)
+
+- **File › Import…** (also: drop the files onto the navigation pane): **OneNote** (`.onepkg` → a new notebook,
+  `.one` → a new section of the open notebook), **Markdown** (`.md`, several at once), **Web page** (`.html` /
+  `.htm`) and **Word** (`.docx`) – each of these becomes a page of the current section. A progress card shows the
+  file being read; then the result: counts (notebooks, sections, pages, pictures, attached files), the converters'
+  notes per file (what was dropped or approximated, translated where the shared catalog has the code) and **Open
+  imported notebook / section / page**.
+- **File › Export…** and the page / section right-click menus (**Export page…**, **Export section…**): this page or
+  this section as **Markdown** (a page `.md` with pictures as `data:` URIs; a section a `.zip` of `NN Title.md` and
+  `assets/`), **Web page** (`.html`, one file), **Word** (`.docx`; a section is one document, each page starting
+  on a new page) or **PDF** (the print path). The file is downloaded.
+- **Rich paste**: HTML pasted from Word or a web page goes through the core's sanitiser – headings, lists, tables,
+  links, colours and pictures from `data:` URIs are kept; scripts, styles, forms and unsafe links are dropped;
+  pictures on other servers become links and are **never fetched** (privacy). Plain-text paste and copies inside
+  Notes stay ProseMirror's own paste.
+- **The converters load on first use**: they are a second wasm module (`app-notes-convert-wasm`, about 1.4 MB
+  gzipped) fetched from the same site with a dynamic `import()` the first time an import, an export or a rich
+  paste needs them ("Loading the converters…"); opening Notes never loads them. Without network access to the site
+  they cannot load and the import says so.
+
+#### Importing from OneNote
+
+1. In **OneNote for Windows (desktop)**: open the notebook, then **File › Export › Notebook › OneNote Package
+   (\*.onepkg) › Export** and save the file. (A single section: **File › Export › Section › OneNote 2010–2016
+   Section (\*.one)**.) Packages are written by the Windows desktop app; a notebook kept on OneDrive opens there
+   first (it syncs).
+2. In Rusuite Notes: **File › Import… › OneNote** and pick the `.onepkg` (or drop it onto the navigation pane). The
+   notebook appears as a new notebook stored in this browser; nothing is uploaded.
+3. **Kept**: section groups, sections and their colours, pages and sub-pages with their created/modified times,
+   text in reading order with headings, quotes, code, lists, tables, bold/italic/underline/strike, text colour and
+   highlight, links (links between the imported pages become page links), built-in and custom tags (to-do state),
+   pictures, attached files and ink (a page with ink, or with text boxes side by side, becomes a canvas page).
+   **Lost or approximated**: fonts and font sizes, the indentation of plain paragraphs, list number formats
+   (roman/letters become 1, 2, 3), equations (their text is kept), handwriting inside text (placed at the page
+   origin), `onenote:` links to pages outside the package (text). Details: `docs/onenote-subset.md` and
+   `docs/notes-format.md` §7.3; the result dialog lists every note for the file.

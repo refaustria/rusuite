@@ -9,15 +9,19 @@ repository.workspace = true
 publish = false
 
 [features]
+default = ["convert"]
 # `FolderStore`: the desktop notebook folder (std::fs; never built for wasm).
 fs = []
+# The converters (OneNote/Markdown/HTML/.docx) in this build: `plan::convert` and the one-step import/export
+# commands. The web app's main module builds without it (P11-N6b: converters in `app-notes-convert-wasm`).
+convert = ["dep:fmt-onenote"]
 
 [dependencies]
 app-common = { path = "../../../crates/app-common" }
 model-notes = { path = "../../../crates/model-notes", features = ["ts"] }
 # Import/export (OneNote, Markdown, HTML, .docx) – P11-N6a.
 notes-convert = { path = "../../../crates/notes-convert", features = ["ts"] }
-fmt-onenote = { path = "../../../crates/fmt-onenote" }
+fmt-onenote = { path = "../../../crates/fmt-onenote", optional = true }
 loro = "=1.17.1"
 serde.workspace = true
 serde_json.workspace = true

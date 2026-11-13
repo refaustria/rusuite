@@ -1,20 +1,26 @@
-//! Import and export (P11-N6a): applies `notes-convert` results to open notebooks – new notebooks, sections and
-//! pages, blobs as persist effects – and exports pages and sections.
+//! Import and export (P11-N6a, split in P11-N6b): applies [`ImportPlan`]s to open notebooks – new notebooks,
+//! sections and pages, custom tags, blobs as persist effects – and describes pages/sections for the exporters
+//! ([`ExportSource`]). The converters themselves run in `crate::plan::convert` (feature `convert`); the
+//! one-step commands at the end combine both halves.
+#[cfg(feature = "convert")]
 use std::collections::HashMap;
+use std::collections::{BTreeMap, HashSet};
 
 use loro::LoroDoc;
 use model_notes::{NewPage, NodeKind, NotebookDoc, PageDoc, TagKind, TreeNode};
-use notes_convert::onenote::{self, NotebookItem, OneNoteContext, OneSection};
-use notes_convert::{
-    docx, html, markdown, take_title, title_from_file_name, Blob, BlobSource, ConvertWarning,
-    Converted, ExportContext, ExportFormat, ExportPage, ImportContext, PageContent, TagCatalog,
-};
+use notes_convert::ConvertWarning;
+#[cfg(feature = "convert")]
+use notes_convert::ExportFormat;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use ts_rs::TS;
 
 use super::{own, random_u64, NotebookSummary, NotesHost, Persist, Slot};
-use crate::effects::PersistEffect;
+use crate::effects::{is_safe_id, PersistEffect};
+use crate::plan::{
+    blob_refs, rewrite_tags, ExportSource, ExportSourcePage, ImportContextData, ImportPlan,
+    PlanItem, PlanPage,
+};
 use crate::CoreError;
 
 /// What an import created.
@@ -39,53 +45,58 @@ pub enum PageFormat {
     Docx,
 }
 
-/// A page planned for an import: its tree node, doc id and content source.
+/// Where an import goes: `notebook` (unused for a new notebook from a package), `parent` (the section or page of
+/// a page import; the group of a section import), `id` (the new notebook's id).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ImportTarget<'a> {
+    pub notebook: Option<&'a str>,
+    pub parent: Option<&'a str>,
+    pub id: Option<&'a str>,
+}
+
+/// A planned page: its tree node, doc id and content.
 struct Planned<'a> {
     node: String,
     doc: String,
-    page: &'a fmt_onenote::OnePage,
-}
-
-fn hex(c: fmt_onenote::Rgb) -> String {
-    format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b)
+    page: &'a PlanPage,
 }
 
 fn new_doc_id() -> String {
     format!("pg-{:016x}", random_u64())
 }
 
-fn onenote_error(e: fmt_onenote::OneNoteError) -> CoreError {
-    CoreError::Format(e.to_string())
-}
-
-fn convert_error(e: notes_convert::ConvertError) -> CoreError {
-    CoreError::Format(e.to_string())
+/// A plan's doc id when it is usable (safe, not taken), else a new one.
+fn doc_id_for(p: &PlanPage, taken: &HashSet<String>) -> String {
+    match &p.doc_id {
+        Some(id) if is_safe_id(id) && !taken.contains(id) => id.clone(),
+        _ => new_doc_id(),
+    }
 }
 
 /// Creates a section and its pages (sub-pages under the page before them with a lower level).
 fn build_section<'a>(
     d: &NotebookDoc,
     parent: Option<&str>,
-    s: &'a OneSection,
+    (name, color, pages): (&str, Option<&str>, &'a [PlanPage]),
     now: i64,
+    taken: &mut HashSet<String>,
     out: &mut Vec<Planned<'a>>,
 ) -> Result<String, model_notes::NotesError> {
-    let id = d.create_section(parent, None, s.name.trim(), now)?;
-    if let Some(c) = s.color {
-        d.set_color(&id, Some(&hex(c)), now)?;
+    let id = d.create_section(parent, None, name.trim(), now)?;
+    if let Some(c) = color {
+        d.set_color(&id, Some(c), now)?;
     }
     let mut stack: Vec<(u8, String)> = Vec::new();
-    for p in &s.pages {
+    for p in pages {
         while stack.last().is_some_and(|(l, _)| *l >= p.level) {
             stack.pop();
         }
         let parent = stack.last().map_or(id.as_str(), |(_, n)| n.as_str());
-        let doc = new_doc_id();
+        let doc = doc_id_for(p, taken);
+        taken.insert(doc.clone());
         let created = d.create_page_with_doc(parent, None, p.title.trim(), &doc, now)?;
         if let Some(c) = p.created {
-            let c = c.saturating_mul(1000);
-            let m = p.modified.map_or(c, |m| m.saturating_mul(1000));
-            d.set_times(&created.node, c, m)?;
+            d.set_times(&created.node, c, p.modified.unwrap_or(c))?;
         }
         stack.push((p.level, created.node.clone()));
         out.push(Planned {
@@ -100,17 +111,25 @@ fn build_section<'a>(
 fn build_items<'a>(
     d: &NotebookDoc,
     parent: Option<&str>,
-    items: &'a [NotebookItem],
+    items: &'a [PlanItem],
     now: i64,
+    taken: &mut HashSet<String>,
     out: &mut Vec<Planned<'a>>,
     top: &mut Vec<String>,
 ) -> Result<(), model_notes::NotesError> {
     for item in items {
         match item {
-            NotebookItem::Section(s) => top.push(build_section(d, parent, s, now, out)?),
-            NotebookItem::Group { name, items } => {
+            PlanItem::Section { name, color, pages } => top.push(build_section(
+                d,
+                parent,
+                (name, color.as_deref(), pages),
+                now,
+                taken,
+                out,
+            )?),
+            PlanItem::Group { name, items } => {
                 let id = d.create_group(parent, None, name.trim(), now)?;
-                build_items(d, Some(&id), items, now, out, &mut Vec::new())?;
+                build_items(d, Some(&id), items, now, taken, out, &mut Vec::new())?;
                 top.push(id);
             }
         }
@@ -118,59 +137,45 @@ fn build_items<'a>(
     Ok(())
 }
 
-fn all_pages(items: &[NotebookItem]) -> Vec<&fmt_onenote::OnePage> {
-    let mut out = Vec::new();
-    for i in items {
-        match i {
-            NotebookItem::Section(s) => out.extend(&s.pages),
-            NotebookItem::Group { items, .. } => out.extend(all_pages(items)),
-        }
-    }
-    out
-}
-
-/// Blob bytes given by the shell for an export.
-struct Blobs<'a>(&'a HashMap<String, Vec<u8>>);
-
-impl BlobSource for Blobs<'_> {
-    fn blob(&self, id: &str) -> Option<&[u8]> {
-        self.0.get(id).map(Vec::as_slice)
-    }
-}
-
 impl NotesHost {
-    fn queue_blobs(&mut self, notebook: &str, blobs: Vec<Blob>) {
-        for b in blobs {
+    fn queue_blobs(&mut self, notebook: &str, blobs: Vec<Vec<u8>>) {
+        for bytes in blobs {
+            let id = crate::blob_id(&bytes);
             let dup = self.effects.iter().any(
-                |e| matches!(e, PersistEffect::Blob { sha256, notebook: n, .. } if *sha256 == b.id && n == notebook),
+                |e| matches!(e, PersistEffect::Blob { sha256, notebook: n, .. } if *sha256 == id && n == notebook),
             );
             if !dup {
                 self.effects.push(PersistEffect::Blob {
                     notebook: notebook.into(),
-                    sha256: b.id,
-                    bytes: b.bytes,
+                    sha256: id,
+                    bytes,
                 });
             }
         }
     }
 
-    /// Page title (lowercase) → page doc id of the visible pages of `notebook`.
-    fn title_index(&self, notebook: &str) -> Result<HashMap<String, String>, CoreError> {
-        let mut m = HashMap::new();
-        for (_, doc, title, deleted) in self.nb(notebook)?.doc.pages() {
+    /// What importers need from `notebook`: lower-case page title → page doc id of its visible pages (first page
+    /// wins) and its tags.
+    pub fn import_context(&self, notebook: &str) -> Result<ImportContextData, CoreError> {
+        let nb = self.nb(notebook)?;
+        let mut titles = BTreeMap::new();
+        for (_, doc, title, deleted) in nb.doc.pages() {
             if !deleted {
-                m.entry(title.trim().to_lowercase()).or_insert(doc);
+                titles.entry(title.trim().to_lowercase()).or_insert(doc);
             }
         }
-        Ok(m)
+        Ok(ImportContextData {
+            titles,
+            tags: nb.doc.tags(),
+        })
     }
 
-    /// Creates the page document of a planned/created page and fills it.
+    /// Creates the page document of a planned page and fills it.
     fn fill_page(
         &mut self,
         notebook: &str,
         doc: &str,
-        content: &PageContent,
+        content: &PlanPage,
     ) -> Result<(), CoreError> {
         let now = self.now;
         let ld = LoroDoc::new();
@@ -209,177 +214,109 @@ impl NotesHost {
         Ok(())
     }
 
-    /// Imports a OneNote file: a notebook package (`.onepkg`, a CAB archive) becomes a new notebook (`id` or a
-    /// random one); a section file (`.one`) becomes a new section of `notebook` (at the root, or in group
-    /// `parent`).
-    pub fn import_onenote(
+    /// Applies an import plan (from the converters, `crate::plan`) with the bytes of the blobs its pages use.
+    /// A plan with a `notebook` creates a new notebook (`target.id` or a random id); `items` become sections and
+    /// groups of the target notebook (at the root, or in group `target.parent`; one undo step); a `page` becomes a
+    /// new page under `target.parent` (a section or a page).
+    pub fn apply_import(
         &mut self,
-        file_name: &str,
-        bytes: &[u8],
-        notebook: Option<&str>,
-        parent: Option<&str>,
-        id: Option<&str>,
+        target: &ImportTarget<'_>,
+        mut plan: ImportPlan,
+        blobs: Vec<Vec<u8>>,
     ) -> Result<FileImported, CoreError> {
-        let mut warnings: Vec<ConvertWarning> = Vec::new();
-        let (target, items) = if bytes.starts_with(b"MSCF") {
-            let r = onenote::read_package(bytes, file_name).map_err(onenote_error)?;
-            warnings.extend(r.warnings.into_iter().map(Into::into));
-            let summary = self.create_notebook(&r.value.name, id)?;
-            if let Some(c) = r.value.color {
-                self.set_notebook_color(&summary.id, Some(&hex(c)))?;
-            }
-            (summary.id, r.value.items)
-        } else {
-            let notebook = notebook.ok_or_else(|| {
-                CoreError::BadRequest("a OneNote section (.one) needs a target notebook".into())
-            })?;
-            self.nb(notebook)?;
-            let r = onenote::read_section(bytes, file_name).map_err(onenote_error)?;
-            warnings.extend(r.warnings.into_iter().map(Into::into));
-            (notebook.to_string(), vec![NotebookItem::Section(r.value)])
-        };
-        let pages = all_pages(&items);
-        let custom = onenote::custom_tags(pages.iter().copied());
-        let (planned, top, tag_ids) = self.edit(&target, |d, now| {
-            let mut tag_ids = HashMap::new();
-            for (label, todo) in &custom {
-                let existing = d.tags().into_iter().find(|t| {
-                    matches!(t.kind, TagKind::Custom | TagKind::CustomToDo) && t.label == *label
-                });
-                let id = match existing {
-                    Some(t) => t.id,
-                    None => {
-                        let kind = if *todo {
-                            TagKind::CustomToDo
-                        } else {
-                            TagKind::Custom
-                        };
-                        d.add_tag(label, None, None, kind)?
-                    }
-                };
-                tag_ids.insert(label.clone(), id);
-            }
-            let mut planned = Vec::new();
-            let mut top = Vec::new();
-            build_items(d, parent, &items, now, &mut planned, &mut top)?;
-            Ok((planned, top, tag_ids))
-        })?;
-        // Links between imported pages: by title, first page wins.
-        let mut titles: HashMap<String, String> = HashMap::new();
-        for p in &planned {
-            titles
-                .entry(p.page.title.trim().to_lowercase())
-                .or_insert_with(|| p.doc.clone());
-        }
-        let resolve = |t: &str| titles.get(&t.trim().to_lowercase()).cloned();
-        let ctx = OneNoteContext {
-            custom_tags: tag_ids,
-            resolve_page: Some(&resolve),
-        };
-        let mut created = Vec::new();
-        for p in &planned {
-            let Converted {
-                value,
-                blobs,
-                warnings: w,
-            } = onenote::page(p.page, &ctx);
-            self.fill_page(&target, &p.doc, &value)?;
-            self.queue_blobs(&target, blobs);
-            warnings.extend(w);
-            created.push(NewPage {
-                node: p.node.clone(),
-                doc_id: p.doc.clone(),
-            });
-        }
-        self.reindex_notebook(&target);
-        Ok(FileImported {
-            notebook: self.summary(&target)?,
-            tree: self.tree(&target)?,
-            nodes: top,
-            pages: created,
-            warnings: merge_warnings(warnings),
-        })
-    }
-
-    fn import_context_parts(
-        &self,
-        notebook: &str,
-    ) -> Result<(HashMap<String, String>, TagCatalog), CoreError> {
-        Ok((
-            self.title_index(notebook)?,
-            TagCatalog::new(self.nb(notebook)?.doc.tags()),
-        ))
-    }
-
-    /// Imports a Markdown, HTML or `.docx` file as a new page under `parent` (a section or a page). The title is
-    /// the leading level-1 heading (removed from the content), else the HTML `<title>`, else the file name.
-    pub fn import_page(
-        &mut self,
-        format: PageFormat,
-        file_name: &str,
-        bytes: &[u8],
-        notebook: &str,
-        parent: &str,
-    ) -> Result<FileImported, CoreError> {
-        let (titles, tags) = self.import_context_parts(notebook)?;
-        let resolve = |t: &str| titles.get(&t.trim().to_lowercase()).cloned();
-        let ctx = ImportContext {
-            resolve_page: Some(&resolve),
-            tags,
-        };
-        let mut fallback = title_from_file_name(file_name);
-        let r = match format {
-            PageFormat::Markdown => markdown::import_bytes(bytes, &ctx).map_err(convert_error)?,
-            PageFormat::Html => {
-                let (r, title) = html::import_bytes(bytes, &ctx).map_err(convert_error)?;
-                if let Some(t) = title {
-                    fallback = t;
+        let notebook = match &plan.notebook {
+            Some(nb) => {
+                let summary = self.create_notebook(&nb.name, target.id)?;
+                if let Some(c) = &nb.color {
+                    self.set_notebook_color(&summary.id, Some(c))?;
                 }
-                r
+                summary.id
             }
-            PageFormat::Docx => docx::import(bytes, &ctx).map_err(convert_error)?,
+            None => {
+                let nb = target.notebook.ok_or_else(|| {
+                    CoreError::BadRequest("this import needs a target notebook".into())
+                })?;
+                self.nb(nb)?;
+                nb.to_string()
+            }
         };
-        let Converted {
-            value: mut blocks,
-            blobs,
-            warnings,
-        } = r;
-        let title = take_title(&mut blocks, &fallback);
-        let page = self.create_page(notebook, parent, None, &title)?;
-        let now = self.now;
-        self.load_page(notebook, &page.doc_id)?
-            .import_blocks(&blocks, now)?;
-        self.after_page_change(notebook, &page.doc_id)?;
-        self.queue_blobs(notebook, blobs);
-        self.reindex_notebook(notebook);
+        let mut nodes = Vec::new();
+        let mut created = Vec::new();
+        if let Some(page) = plan.page.take() {
+            let parent = target.parent.ok_or_else(|| {
+                CoreError::BadRequest("a page import needs a parent section or page".into())
+            })?;
+            let new = self.create_page(&notebook, parent, None, &page.title)?;
+            let now = self.now;
+            self.load_page(&notebook, &new.doc_id)?
+                .import_blocks(&page.blocks, now)?;
+            self.after_page_change(&notebook, &new.doc_id)?;
+            nodes.push(new.node.clone());
+            created.push(new);
+        }
+        if !plan.items.is_empty() {
+            let tags = std::mem::take(&mut plan.tags);
+            let mut taken: HashSet<String> = self
+                .notebooks
+                .values()
+                .flat_map(|nb| nb.doc.pages())
+                .map(|(_, doc, _, _)| doc)
+                .collect();
+            let parent = if plan.notebook.is_some() {
+                None
+            } else {
+                target.parent
+            };
+            let items = std::mem::take(&mut plan.items);
+            let (planned, top, tag_ids) = self.edit(&notebook, |d, now| {
+                let mut tag_ids = BTreeMap::new();
+                for t in &tags {
+                    let existing = d.tags().into_iter().find(|x| {
+                        matches!(x.kind, TagKind::Custom | TagKind::CustomToDo)
+                            && x.label == t.label
+                    });
+                    let id = match existing {
+                        Some(x) => x.id,
+                        None => {
+                            let kind = if t.todo {
+                                TagKind::CustomToDo
+                            } else {
+                                TagKind::Custom
+                            };
+                            d.add_tag(&t.label, None, None, kind)?
+                        }
+                    };
+                    tag_ids.insert(t.placeholder.clone(), id);
+                }
+                let mut planned = Vec::new();
+                let mut top = Vec::new();
+                build_items(d, parent, &items, now, &mut taken, &mut planned, &mut top)?;
+                let planned: Vec<(String, String, PlanPage)> = planned
+                    .into_iter()
+                    .map(|p| (p.node, p.doc, p.page.clone()))
+                    .collect();
+                Ok((planned, top, tag_ids))
+            })?;
+            for (node, doc, mut page) in planned {
+                rewrite_tags(&mut page.blocks, &tag_ids);
+                self.fill_page(&notebook, &doc, &page)?;
+                created.push(NewPage { node, doc_id: doc });
+            }
+            nodes.extend(top);
+        }
+        self.queue_blobs(&notebook, blobs);
+        self.reindex_notebook(&notebook);
         Ok(FileImported {
-            notebook: self.summary(notebook)?,
-            tree: self.tree(notebook)?,
-            nodes: vec![page.node.clone()],
-            pages: vec![page],
-            warnings,
+            notebook: self.summary(&notebook)?,
+            tree: self.tree(&notebook)?,
+            nodes,
+            pages: created,
+            warnings: plan.warnings,
         })
-    }
-
-    /// The editor's paste path: sanitised HTML → a ProseMirror `doc` (images stored as blobs of `notebook`).
-    pub fn paste_html(
-        &mut self,
-        notebook: &str,
-        html_text: &str,
-    ) -> Result<(Value, Vec<ConvertWarning>), CoreError> {
-        let (titles, tags) = self.import_context_parts(notebook)?;
-        let resolve = |t: &str| titles.get(&t.trim().to_lowercase()).cloned();
-        let ctx = ImportContext {
-            resolve_page: Some(&resolve),
-            tags,
-        };
-        let r = html::import(html_text, &ctx);
-        self.queue_blobs(notebook, r.blobs);
-        Ok((json!({ "type": "doc", "content": r.value }), r.warnings))
     }
 
     /// Page doc id → tree title across open notebooks.
-    fn page_titles(&self) -> HashMap<String, String> {
+    fn page_titles(&self) -> BTreeMap<String, String> {
         self.notebooks
             .values()
             .flat_map(|nb| nb.doc.pages())
@@ -387,42 +324,29 @@ impl NotesHost {
             .collect()
     }
 
-    fn export_pages(
+    fn export_source(
         &self,
         notebook: &str,
-        pages: &[ExportPage],
-        section_title: &str,
-        format: ExportFormat,
         section: bool,
-        blobs: &HashMap<String, Vec<u8>>,
-    ) -> Result<Vec<u8>, CoreError> {
-        let titles = self.page_titles();
-        let title_of = |id: &str| titles.get(id).cloned();
-        let ctx = ExportContext {
-            page_title: Some(&title_of),
-            tags: TagCatalog::new(self.nb(notebook)?.doc.tags()),
-        };
-        let src = Blobs(blobs);
-        Ok(match (format, section) {
-            (ExportFormat::Md, false) => markdown::export_page(&pages[0], &src, &ctx).into_bytes(),
-            (ExportFormat::Md, true) => {
-                markdown::export_section(pages, &src, &ctx).map_err(convert_error)?
-            }
-            (ExportFormat::Html, false) => html::export_page(&pages[0], &src, &ctx).into_bytes(),
-            (ExportFormat::Html, true) => {
-                html::export_section(section_title, pages, &src, &ctx).into_bytes()
-            }
-            (ExportFormat::Docx, _) => docx::export(pages, &src, &ctx).map_err(convert_error)?,
+        title: String,
+        pages: Vec<ExportSourcePage>,
+    ) -> Result<ExportSource, CoreError> {
+        let mut blobs = Vec::new();
+        for p in &pages {
+            blob_refs(&p.doc, &mut blobs);
+        }
+        Ok(ExportSource {
+            section,
+            title,
+            pages,
+            titles: self.page_titles(),
+            tags: self.nb(notebook)?.doc.tags(),
+            blobs,
         })
     }
 
-    /// One page as Markdown, HTML or `.docx` bytes; `blobs` holds the bytes of the images/attachments it uses.
-    pub fn export_page(
-        &mut self,
-        doc: &str,
-        format: ExportFormat,
-        blobs: &HashMap<String, Vec<u8>>,
-    ) -> Result<Vec<u8>, CoreError> {
+    /// One page for the exporters (its tree title and content).
+    pub fn page_export_source(&mut self, doc: &str) -> Result<ExportSource, CoreError> {
         let notebook = self
             .notebook_of(doc)
             .filter(|n| n != doc)
@@ -434,22 +358,22 @@ impl NotesHost {
             .and_then(|n| self.nb(&notebook).ok()?.doc.get_node(&n).ok())
             .map(|n| n.title);
         let page = self.load_page(&notebook, doc)?;
-        let p = ExportPage {
-            title: tree_title.unwrap_or_else(|| page.title()),
+        let title = tree_title.unwrap_or_else(|| page.title());
+        let p = ExportSourcePage {
+            title: title.clone(),
             doc: page.to_pm_json(),
             level: 0,
         };
-        self.export_pages(&notebook, &[p], "", format, false, blobs)
+        self.export_source(&notebook, false, title, vec![p])
     }
 
-    /// A section's pages (sub-pages included, in tree order): Markdown zip, one HTML file or one `.docx`.
-    pub fn export_section(
+    /// A section's pages (sub-pages included, in tree order) for the exporters. A page node works too: the page
+    /// and its sub-pages.
+    pub fn section_export_source(
         &mut self,
         notebook: &str,
         section: &str,
-        format: ExportFormat,
-        blobs: &HashMap<String, Vec<u8>>,
-    ) -> Result<Vec<u8>, CoreError> {
+    ) -> Result<ExportSource, CoreError> {
         let node = self.nb(notebook)?.doc.get_node(section)?;
         if node.kind == NodeKind::Group {
             return Err(CoreError::BadRequest(format!(
@@ -474,30 +398,116 @@ impl NotesHost {
         let mut pages = Vec::new();
         for (doc, title, level) in list {
             let pm = self.load_page(notebook, &doc)?.to_pm_json();
-            pages.push(ExportPage {
+            pages.push(ExportSourcePage {
                 title,
                 doc: pm,
                 level,
             });
         }
         if pages.is_empty() {
-            pages.push(ExportPage {
+            pages.push(ExportSourcePage {
                 title: node.title.clone(),
                 doc: json!({ "type": "doc", "content": [] }),
                 level: 0,
             });
         }
-        self.export_pages(notebook, &pages, &node.title, format, true, blobs)
+        self.export_source(notebook, true, node.title.clone(), pages)
     }
 }
 
-fn merge_warnings(ws: Vec<ConvertWarning>) -> Vec<ConvertWarning> {
-    let mut out: Vec<ConvertWarning> = Vec::new();
-    for w in ws {
-        match out.iter_mut().find(|o| o.text == w.text) {
-            Some(o) => o.count += w.count,
-            None => out.push(w),
+/// The one-step commands (the converters in this process: Tauri, tests).
+#[cfg(feature = "convert")]
+impl NotesHost {
+    /// Imports a OneNote file: a notebook package (`.onepkg`, a CAB archive) becomes a new notebook (`id` or a
+    /// random one); a section file (`.one`) becomes a new section of `notebook` (at the root, or in group
+    /// `parent`).
+    pub fn import_onenote(
+        &mut self,
+        file_name: &str,
+        bytes: &[u8],
+        notebook: Option<&str>,
+        parent: Option<&str>,
+        id: Option<&str>,
+    ) -> Result<FileImported, CoreError> {
+        if !bytes.starts_with(b"MSCF") {
+            let nb = notebook.ok_or_else(|| {
+                CoreError::BadRequest("a OneNote section (.one) needs a target notebook".into())
+            })?;
+            self.nb(nb)?;
         }
+        let (plan, blobs) = crate::plan::convert::build_import(
+            crate::plan::ImportKind::OneNote,
+            file_name,
+            bytes,
+            &ImportContextData::default(),
+            random_u64(),
+        )?;
+        let target = ImportTarget {
+            notebook,
+            parent,
+            id,
+        };
+        self.apply_import(&target, plan, blobs.into_iter().map(|b| b.bytes).collect())
     }
-    out
+
+    /// Imports a Markdown, HTML or `.docx` file as a new page under `parent` (a section or a page). The title is
+    /// the leading level-1 heading (removed from the content), else the HTML `<title>`, else the file name.
+    pub fn import_page(
+        &mut self,
+        format: PageFormat,
+        file_name: &str,
+        bytes: &[u8],
+        notebook: &str,
+        parent: &str,
+    ) -> Result<FileImported, CoreError> {
+        use crate::plan::ImportKind as K;
+        let ctx = self.import_context(notebook)?;
+        let kind = match format {
+            PageFormat::Markdown => K::Markdown,
+            PageFormat::Html => K::Html,
+            PageFormat::Docx => K::Docx,
+        };
+        let (plan, blobs) = crate::plan::convert::build_import(kind, file_name, bytes, &ctx, 0)?;
+        let target = ImportTarget {
+            notebook: Some(notebook),
+            parent: Some(parent),
+            id: None,
+        };
+        self.apply_import(&target, plan, blobs.into_iter().map(|b| b.bytes).collect())
+    }
+
+    /// The editor's paste path: sanitised HTML → a ProseMirror `doc` (images stored as blobs of `notebook`).
+    pub fn paste_html(
+        &mut self,
+        notebook: &str,
+        html_text: &str,
+    ) -> Result<(serde_json::Value, Vec<ConvertWarning>), CoreError> {
+        let ctx = self.import_context(notebook)?;
+        let (doc, warnings, blobs) = crate::plan::convert::paste_html(html_text, &ctx);
+        self.queue_blobs(notebook, blobs.into_iter().map(|b| b.bytes).collect());
+        Ok((doc, warnings))
+    }
+
+    /// One page as Markdown, HTML or `.docx` bytes; `blobs` holds the bytes of the images/attachments it uses.
+    pub fn export_page(
+        &mut self,
+        doc: &str,
+        format: ExportFormat,
+        blobs: &HashMap<String, Vec<u8>>,
+    ) -> Result<Vec<u8>, CoreError> {
+        let src = self.page_export_source(doc)?;
+        crate::plan::convert::run_export(&src, format, blobs)
+    }
+
+    /// A section's pages (sub-pages included, in tree order): Markdown zip, one HTML file or one `.docx`.
+    pub fn export_section(
+        &mut self,
+        notebook: &str,
+        section: &str,
+        format: ExportFormat,
+        blobs: &HashMap<String, Vec<u8>>,
+    ) -> Result<Vec<u8>, CoreError> {
+        let src = self.section_export_source(notebook, section)?;
+        crate::plan::convert::run_export(&src, format, blobs)
+    }
 }

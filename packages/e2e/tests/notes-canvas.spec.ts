@@ -325,13 +325,22 @@ test.describe("Notes canvas pages and ink (P11-N4)", () => {
     const errors = trackErrors(page);
     await openNotes(page);
     const b64 = fs.readFileSync(testdata("onenote/handwriting_recognition.one")).toString("base64");
-    // The import UI comes with P11-N6b: call the core's importOneNote directly.
+    // Through the converter module (P11-N6b) and the core's apply_import, without the import UI.
     const pages = await page.evaluate(async (b64) => {
-      type Ctl = { getState(): { notebook: string }; backend: { m: { import_file(r: string, b: Uint8Array): string } }; pump(): Promise<void>; refreshNotebook(id: string): Promise<void> };
+      type Ctl = {
+        getState(): { notebook: string };
+        backend: {
+          converter: { importFile(r: object, b: Uint8Array): Promise<Uint8Array> };
+          applyImport(r: object, frame: Uint8Array): Promise<{ ok?: { pages: { docId: string }[] }; err?: { message: string } }>;
+        };
+        pump(): Promise<void>;
+        refreshNotebook(id: string): Promise<void>;
+      };
       const ctl = (window as unknown as { __rusuiteNotes: Ctl }).__rusuiteNotes;
       const nb = ctl.getState().notebook;
       const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-      const r = JSON.parse(ctl.backend.m.import_file(JSON.stringify({ type: "importOneNote", fileName: "handwriting_recognition.one", notebook: nb, now: Date.now() }), bin)) as { ok?: { pages: { docId: string }[] }; err?: { message: string } };
+      const frame = await ctl.backend.converter.importFile({ kind: "oneNote", fileName: "handwriting_recognition.one", seed: 7 }, bin);
+      const r = await ctl.backend.applyImport({ type: "importOneNote", fileName: "handwriting_recognition.one", notebook: nb, now: Date.now() }, frame);
       if (!r.ok) throw new Error(r.err?.message);
       await ctl.pump();
       await ctl.refreshNotebook(nb);
