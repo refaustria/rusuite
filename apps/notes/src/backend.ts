@@ -3,6 +3,7 @@
 // same calls over IPC. JSON commands go through `dispatch`, bytes through the binary calls (docs/notes-format.md §5).
 
 import { base64ToBytes, bytesToBase64, WasmBackend, type BackendCapabilities, type PdfPaper, type ReportHost } from "@rusuite/ui-shared";
+import { LazyConverter, type ConvertLoader } from "./convert/loader";
 import { decodeEffects, frameRecords, type PersistEffect } from "./effects";
 import type { Request } from "./generated/Request";
 import type { Response } from "./generated/Response";
@@ -49,6 +50,10 @@ export interface NotesBackend extends ReportHost {
   blobId(bytes: Uint8Array): Promise<string>;
   /** Stores an image / attachment of `notebook` (a Blob persist effect) → its id (SHA-256 hex). */
   putBlob(notebook: string, bytes: Uint8Array): Promise<string>;
+  /** Applies an import plan frame of the converters to its target (an `import*` request) → `fileImported`. */
+  applyImport(request: NotesRequest, frame: Uint8Array): Promise<Response>;
+  /** The converters (P11-N6b; web: a second wasm module loaded on first use). */
+  readonly converter: LazyConverter;
   /** Print (ui-shared's print pipeline): the system print dialog for the mounted print root. */
   print(paper?: PdfPaper): Promise<void>;
   /** Export PDF without a dialog where the shell renders PDFs (`capabilities.pdf`). */
@@ -75,13 +80,14 @@ export interface NotesWasmModule {
   import_backup(bytes: Uint8Array): string;
   blob_id(bytes: Uint8Array): string;
   put_blob(notebook: string, bytes: Uint8Array): string;
+  apply_import(request: string, plan: Uint8Array): string;
 }
 
 export const BACKUP_EXT = ".rnotes";
 const BACKUP_MIME = "application/zip";
 
 /** Thrown JSON error replies of the binary calls → `CoreError`. */
-function rethrow(e: unknown): never {
+export function rethrow(e: unknown): never {
   if (typeof e === "string") {
     try {
       const r = JSON.parse(e) as Response;
@@ -98,8 +104,13 @@ function rethrow(e: unknown): never {
 export class WebNotesBackend implements NotesBackend {
   readonly kind = "wasm" as const;
   private readonly files: WasmBackend;
+  readonly converter: LazyConverter;
 
-  constructor(private readonly m: NotesWasmModule) {
+  constructor(
+    private readonly m: NotesWasmModule,
+    loadConverter: ConvertLoader = () => Promise.reject(new Error("no converter module")),
+  ) {
+    this.converter = new LazyConverter(loadConverter);
     this.files = new WasmBackend(m, { accept: `${BACKUP_EXT},${BACKUP_MIME}`, mime: BACKUP_MIME, storage: null, connectors: false, ai: false });
   }
 
@@ -154,6 +165,9 @@ export class WebNotesBackend implements NotesBackend {
     } catch (e) {
       rethrow(e);
     }
+  }
+  async applyImport(request: NotesRequest, frame: Uint8Array): Promise<Response> {
+    return JSON.parse(this.m.apply_import(JSON.stringify(request), frame)) as Response;
   }
   get capabilities(): BackendCapabilities {
     return this.files.capabilities;

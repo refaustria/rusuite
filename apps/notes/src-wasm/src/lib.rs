@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 //! Rusuite Notes WebAssembly shell (ADR 0005 §2): one [`NotesHost`] per page behind [`dispatch`], plus binary
 //! functions for Loro updates, stored documents, persist effects and backups (no base64 on the hot path). No
-//! document logic lives here. Byte layouts: `docs/notes-format.md`.
+//! document logic lives here. The converters are not in this module (P11-N6b): `app-notes-convert-wasm` turns files
+//! into import plans that [`apply_import`] applies, and exports the `pageExportSource` / `sectionExportSource`
+//! replies of [`dispatch`]. Byte layouts: `docs/notes-format.md`.
 
 use std::cell::RefCell;
 
@@ -90,20 +92,13 @@ pub fn import_backup(bytes: &[u8]) -> String {
     with(|h| binary::import_backup(h, bytes))
 }
 
-/// Imports a file: `request` is an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request (JSON,
-/// may carry `"now"`), `bytes` the file → JSON `fileImported` (blobs are queued as persist effects).
+/// Applies an import: `request` is an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request
+/// (JSON, may carry `"now"`; its target fields count), `plan` the frame `app-notes-convert-wasm`'s `import_file` made
+/// from the file → JSON `fileImported` (blobs are queued as persist effects).
 #[wasm_bindgen]
 #[must_use]
-pub fn import_file(request: &str, bytes: &[u8]) -> String {
-    with(|h| binary::import_file(h, request, bytes))
-}
-
-/// Exports a page or section: `request` is an `exportPage` / `exportSection` request (JSON), `blobs` the
-/// `{ len:u32 LE, bytes }*` of the images/attachments it uses → the file's bytes (`.md`, `.zip`, `.html` or
-/// `.docx`). Throws the JSON error reply.
-#[wasm_bindgen]
-pub fn export(request: &str, blobs: &[u8]) -> Result<Vec<u8>, String> {
-    with(|h| binary::export(h, request, blobs))
+pub fn apply_import(request: &str, plan: &[u8]) -> String {
+    with(|h| binary::apply_import(h, request, plan))
 }
 
 /// Stores an image / attachment of `notebook` (queued as a Blob persist effect) → its id (SHA-256 hex). Throws the
@@ -169,25 +164,18 @@ mod tests {
         let loaded: Value = serde_json::from_str(&load_doc("nb-x", "nb-x", &[], &[1, 2])).unwrap();
         assert_eq!(loaded["ok"]["warnings"][0]["code"], "truncated_log");
 
-        // Import a Markdown file through the binary path, export it again.
+        // Apply an import plan (as the convert module makes them), then describe the page for an export.
+        let plan = r#"{"page":{"title":"Title","blocks":[{"type":"paragraph","content":[{"type":"text","text":"Hello"}]}]}}"#;
+        let frame = notes_core::plan::encode_frame(plan, [b"img".as_slice()]);
         let req = format!(
             r#"{{"type":"importMarkdown","fileName":"a.md","notebook":"nb-w","parent":"{s}"}}"#
         );
-        let r: Value =
-            serde_json::from_str(&import_file(&req, b"# Title\n\nHello *world*\n")).unwrap();
+        let r: Value = serde_json::from_str(&apply_import(&req, &frame)).unwrap();
         assert_eq!(r["ok"]["type"], "fileImported");
         let doc = r["ok"]["pages"][0]["docId"].as_str().unwrap().to_string();
-        let md = export(
-            &format!(r#"{{"type":"exportPage","docId":"{doc}","format":"md"}}"#),
-            &[],
-        )
-        .unwrap();
-        assert_eq!(String::from_utf8(md).unwrap(), "# Title\n\nHello *world*\n");
-        let err = export(
-            r#"{"type":"exportPage","docId":"nope","format":"html"}"#,
-            &[],
-        )
-        .unwrap_err();
-        assert!(err.contains("unknown_doc"), "{err}");
+        let src = call(&format!(r#"{{"type":"pageExportSource","docId":"{doc}"}}"#));
+        assert_eq!(src["ok"]["source"]["title"], "Title");
+        let r: Value = serde_json::from_str(&apply_import(&req, &frame[..3])).unwrap();
+        assert_eq!(r["err"]["code"], "bad_request");
     }
 }

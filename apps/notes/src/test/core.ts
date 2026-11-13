@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NotesWasmModule } from "../backend";
+import type { ConvertWasmModule } from "../convert/loader";
 
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src-wasm/pkg");
 const wasm = path.join(pkg, "app_notes_wasm_bg.wasm");
@@ -16,5 +17,17 @@ export const coreAvailable = fs.existsSync(wasm);
 export async function loadCore(): Promise<NotesWasmModule> {
   const mod = (await import(/* @vite-ignore */ path.join(pkg, "app_notes_wasm.js"))) as NotesWasmModule & { initSync: (o: { module: Uint8Array }) => void };
   mod.initSync({ module: fs.readFileSync(wasm) });
+  return mod;
+}
+
+const convertPkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src-wasm-convert/pkg");
+const convertWasm = path.join(convertPkg, "app_notes_convert_wasm_bg.wasm");
+
+export const convertAvailable = coreAvailable && fs.existsSync(convertWasm);
+
+/** The converter module (`src-wasm-convert/pkg`, P11-N6b). */
+export async function loadConvert(): Promise<ConvertWasmModule> {
+  const mod = (await import(/* @vite-ignore */ path.join(convertPkg, "app_notes_convert_wasm.js"))) as ConvertWasmModule & { initSync: (o: { module: Uint8Array }) => void };
+  mod.initSync({ module: fs.readFileSync(convertWasm) });
   return mod;
 }

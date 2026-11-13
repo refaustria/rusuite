@@ -14,6 +14,8 @@ test.describe("Notes performance (P11-N3)", () => {
       type Ctl = {
         backend: {
           dispatch(r: object): Promise<{ ok?: Record<string, unknown>; err?: { message: string } }>;
+          converter: { importFile(r: object, b: Uint8Array): Promise<Uint8Array> };
+          applyImport(r: object, frame: Uint8Array): Promise<{ ok?: Record<string, unknown>; err?: { message: string } }>;
           exportUpdates(doc: string, vv: Uint8Array): Promise<Uint8Array>;
           importUpdates(doc: string, b: Uint8Array): Promise<{ err?: { message: string } }>;
           takePersistEffects(): Promise<unknown[]>;
@@ -54,7 +56,11 @@ test.describe("Notes performance (P11-N3)", () => {
             g.fillRect(0, 0, 16, 16);
             md += `\n![pic ${n}](${canvas.toDataURL("image/png")})\n`;
           }
-          const r = (await call({ type: "importMarkdown", fileName: `p${n}.md`, notebook: nb, parent: section, text: md })) as { pages: { node: string; docId: string }[] };
+          // Markdown through the converter module (P11-N6b) and the core's apply_import.
+          const frame = await be.converter.importFile({ kind: "markdown", fileName: `p${n}.md` }, new TextEncoder().encode(md));
+          const applied = await be.applyImport({ type: "importMarkdown", fileName: `p${n}.md`, notebook: nb, parent: section, now: Date.now() }, frame);
+          if (applied.err) throw new Error(applied.err.message);
+          const r = applied.ok as { pages: { node: string; docId: string }[] };
           const pg = r.pages[0]!;
           pages.push({ docId: pg.docId, node: pg.node, marker: `marker${n}` });
           // 50 changes of history (2 minutes apart: separate history groups).

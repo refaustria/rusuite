@@ -8,7 +8,13 @@ import { EditorState } from "@tiptap/pm/state";
 import { createNodeFromLoroObj, updateLoroToPmState, type LoroDocType } from "loro-prosemirror";
 import { CoreError, unwrap, type Body, type NotesBackend, type NotesRequest } from "./backend";
 import { LoroList, LoroMap } from "loro-crdt";
-import { BlobUrls } from "./blobs";
+import { BlobUrls, sniffImage } from "./blobs";
+import { decodeFrame, frameJson } from "./convert/loader";
+import { exportFileName, importKindOf, isOneNotePackage } from "./convert/formats";
+import { frameRecords } from "./effects";
+import type { ConvertWarning } from "./generated/ConvertWarning";
+import type { ExportFormat } from "./generated/ExportFormat";
+import type { ImportPlan } from "./generated/ImportPlan";
 import type { DeletedNode } from "./generated/DeletedNode";
 import type { HistoryEntry } from "./generated/HistoryEntry";
 import type { PageRef } from "./generated/PageRef";
@@ -67,6 +73,26 @@ export interface OpenNotebook {
 
 export type StorageStatus = "persisted" | "denied" | "unknown";
 
+/** The result dialog of File › Import (P11-N6b). */
+export interface ImportSummary {
+  /** Per file: its warnings, or why it was not imported. */
+  files: { name: string; warnings: ConvertWarning[]; error?: string }[];
+  notebooks: number;
+  sections: number;
+  pages: number;
+  images: number;
+  attachments: number;
+  /** What "Open" shows: the first imported page (and whether a new notebook / a section was created). */
+  open: { notebook: string; page: string | null; kind: "notebook" | "section" | "page" } | null;
+}
+
+/** A long command in progress (import, export, loading the converters): `done` of `total` steps. */
+export interface BusyState {
+  label: string;
+  done: number;
+  total: number;
+}
+
 export interface NotesState {
   phase: "loading" | "ready" | "failed";
   known: KnownNotebook[];
@@ -103,6 +129,8 @@ export interface NotesState {
   error: string | null;
   canUndo: boolean;
   canRedo: boolean;
+  busy: BusyState | null;
+  importResult: ImportSummary | null;
 }
 
 /** What the open page's editor does for the controller (registered by the page view). */
@@ -131,7 +159,13 @@ export const RECYCLE_BIN_MS = 60 * 24 * 3600 * 1000;
 type Kind = ResponseBody["type"];
 
 /** Requests a read-only tab may still make (another tab took over writing). */
-const READ_ONLY_OK = new Set<string>(["listNotebooks", "getTree", "recycleBin", "tags", "search", "tasks", "backlinks", "referencedBlobs", "history", "checkoutPreview", "openPage", "closePage"]);
+const READ_ONLY_OK = new Set<string>(["listNotebooks", "getTree", "recycleBin", "tags", "search", "tasks", "backlinks", "referencedBlobs", "history", "checkoutPreview", "openPage", "closePage", "importContext", "pageExportSource", "sectionExportSource"]);
+
+/** Lets the browser paint (a progress step) before a long synchronous wasm call. */
+const paint = () => new Promise<void>((r) => setTimeout(r, 16));
+
+/** A random seed below 2^53 for the page doc ids of an import. */
+const randomSeed = () => Math.floor(Math.random() * 2 ** 53);
 
 export class NotesController {
   private state: NotesState = {
@@ -160,6 +194,8 @@ export class NotesController {
     error: null,
     canUndo: false,
     canRedo: false,
+    busy: null,
+    importResult: null,
   };
   private listeners = new Set<() => void>();
   readonly persister: Persister;
@@ -185,6 +221,13 @@ export class NotesController {
   ) {
     this.persister = persister ?? new Persister(store);
     this.blobs = new BlobUrls((nb, sha) => this.store.getBlob(nb, sha));
+    const conv = backend.converter as { onLoading?: (loading: boolean) => void } | undefined;
+    let before: BusyState | null = null;
+    if (conv)
+      conv.onLoading = (loading) => {
+        if (loading) before = this.state.busy;
+        this.set({ busy: loading ? { label: t("notes.convert.loading"), done: before?.done ?? 0, total: before?.total ?? 0 } : before });
+      };
   }
 
   // ---- store --------------------------------------------------------------------------------------------
@@ -1076,6 +1119,153 @@ export class NotesController {
       }
       return this.readContent(docId);
     }).then((r) => r ?? { type: "doc", content: [] });
+  }
+
+  // ---- import and export (P11-N6b) ----------------------------------------------------------------------
+
+  private busy(label: string, done = 0, total = 0): void {
+    this.set({ busy: { label, done, total } });
+  }
+
+  /** File › Import, drag & drop on the navigation pane: OneNote (`.onepkg` → a new notebook, `.one` → a new section
+   * of the current notebook), Markdown, HTML and Word files (→ pages of the current section); then the result. */
+  importFiles(files: readonly { name: string; bytes: Uint8Array }[]): Promise<void> {
+    return this.run(async () => {
+      const sum: ImportSummary = { files: [], notebooks: 0, sections: 0, pages: 0, images: 0, attachments: 0, open: null };
+      try {
+        for (const [i, f] of files.entries()) {
+          this.busy(t("notes.import.busy", { name: f.name }), i, files.length);
+          await paint();
+          try {
+            const r = await this.importOne(f);
+            sum.notebooks += r.notebook ? 1 : 0;
+            sum.sections += r.plan.stats.sections;
+            sum.pages += r.plan.stats.pages;
+            sum.images += r.plan.stats.images;
+            sum.attachments += r.plan.stats.attachments;
+            sum.files.push({ name: f.name, warnings: r.warnings });
+            sum.open ??= r.open;
+          } catch (e) {
+            console.warn("Rusuite Notes: import", f.name, e);
+            sum.files.push({ name: f.name, warnings: [], error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+      } finally {
+        this.set({ busy: null });
+      }
+      this.set({ importResult: sum });
+    });
+  }
+
+  private async importOne(f: { name: string; bytes: Uint8Array }): Promise<{ plan: ImportPlan; warnings: ConvertWarning[]; notebook: boolean; open: ImportSummary["open"] }> {
+    if (this.state.readOnly) throw new Error(t("notes.lock.readOnly"));
+    const kind = importKindOf(f.name);
+    if (!kind) throw new Error(t("notes.import.unsupported"));
+    const pkg = kind === "oneNote" && isOneNotePackage(f.bytes);
+    const nb = this.state.notebook;
+    if (!pkg && !nb) throw new Error(t("notes.error.noNotebook"));
+    let parent: string | undefined;
+    if (kind !== "oneNote") {
+      parent = (this.state.section && findNode(this.tree(nb), this.state.section)?.kind === "section" ? this.state.section : null) ?? allSections(this.tree(nb))[0]?.id;
+      if (!parent) throw new Error(t("notes.error.noSection"));
+    }
+    const context = kind === "oneNote" ? undefined : ((await this.call({ type: "importContext", notebook: nb! })) as Body<"importContext">).context;
+    const frame = await this.backend.converter.importFile({ kind, fileName: f.name, seed: randomSeed(), ...(context ? { context } : {}) }, f.bytes);
+    const plan = JSON.parse(frameJson(frame)) as ImportPlan;
+    const request: NotesRequest =
+      kind === "oneNote"
+        ? { type: "importOneNote", fileName: f.name, ...(pkg ? {} : { notebook: nb! }) }
+        : kind === "markdown"
+          ? { type: "importMarkdown", fileName: f.name, notebook: nb!, parent: parent! }
+          : kind === "html"
+            ? { type: "importHtml", fileName: f.name, notebook: nb!, parent: parent! }
+            : { type: "importDocx", fileName: f.name, notebook: nb!, parent: parent! };
+    await paint();
+    const body = unwrap(await this.backend.applyImport({ ...request, now: this.now() }, frame)) as Body<"fileImported">;
+    await this.pump();
+    await this.persister.flush();
+    const id = body.notebook.id;
+    if (pkg) {
+      await this.addKnown(id, body.notebook.info.name, body.notebook.info.color ?? null);
+    } else {
+      this.treeOps.push({ notebook: id, at: this.now() });
+      this.treeRedo = [];
+      this.undoneKinds = [];
+    }
+    await this.refreshNotebook(id);
+    await this.loadTags(id);
+    return {
+      plan,
+      warnings: body.warnings,
+      notebook: pkg,
+      open: { notebook: id, page: body.pages[0]?.node ?? null, kind: pkg ? "notebook" : kind === "oneNote" ? "section" : "page" },
+    };
+  }
+
+  /** The result dialog's "Open": the first imported page. */
+  openImported(): Promise<void> {
+    const open = this.state.importResult?.open;
+    this.set({ importResult: null });
+    if (!open) return Promise.resolve();
+    return this.run(() => this.selectIn(open.notebook, null, open.page));
+  }
+
+  dismissImportResult(): void {
+    this.set({ importResult: null });
+  }
+
+  /** File › Export: a page (`page`: its tree node) or a section (`section`: a section node, or a page with its
+   * sub-pages) as Markdown (a section: a zip), HTML or Word – a download. PDF goes through the print path. */
+  exportTo(format: ExportFormat, scope: { page?: string; section?: string }): Promise<void> {
+    return this.run(async () => {
+      const nb = this.state.notebook;
+      if (!nb) throw new Error(t("notes.error.noNotebook"));
+      const tree = this.tree(nb);
+      this.busy(t("notes.export.busy"));
+      try {
+        await this.state.mirror?.settle();
+        await this.pump();
+        await this.persister.flush();
+        let body: Body<"exportSource">;
+        if (scope.section) {
+          body = (await this.call({ type: "sectionExportSource", notebook: nb, section: scope.section })) as Body<"exportSource">;
+        } else {
+          const doc = findNode(tree, scope.page ?? this.state.page)?.pageDoc;
+          if (!doc) throw new Error(t("notes.print.noPage"));
+          body = (await this.call({ type: "pageExportSource", docId: doc })) as Body<"exportSource">;
+        }
+        const source = body.source;
+        const blobs: Uint8Array[] = [];
+        for (const id of source.blobs) {
+          const b = await this.store.getBlob(nb, id);
+          if (b) blobs.push(b);
+        }
+        await paint();
+        const bytes = await this.backend.converter.exportFile(format, source, frameRecords(blobs));
+        const name = exportFileName(source.title, format, source.section, t("notes.untitled"));
+        await this.backend.saveFile(name, bytes);
+      } finally {
+        this.set({ busy: null });
+      }
+    });
+  }
+
+  /** Rich paste: HTML from Word or a web page through the core's sanitiser → editor content (a ProseMirror `doc`);
+   * its `data:` images become blobs of the notebook, remote images links (never fetched). `null`: not possible. */
+  pasteHtml(html: string): Promise<{ content: { type: "doc"; content?: unknown[] }; warnings: ConvertWarning[] } | null> {
+    return this.run(async () => {
+      const nb = this.state.notebook;
+      if (!nb) return null;
+      const context = ((await this.call({ type: "importContext", notebook: nb })) as Body<"importContext">).context;
+      const frame = await this.backend.converter.pasteHtml(html, context);
+      const { json, blobs } = decodeFrame(frame);
+      for (const b of blobs) {
+        const sha = await this.backend.putBlob(nb, b);
+        this.blobs.remember(nb, sha, b, sniffImage(b) ?? undefined);
+      }
+      await this.pump();
+      return JSON.parse(json) as { content: { type: "doc"; content?: unknown[] }; warnings: ConvertWarning[] };
+    }).then((r) => r ?? null);
   }
 
   // ---- single tab ----------------------------------------------------------------------------------------

@@ -13,7 +13,7 @@ import { LoroBinding, editorRedo, editorUndo } from "../editor/binding";
 import { applyLink, selectedImage, setCheckedAt, setImageAttrs } from "../editor/commands";
 import { flashPath, posOfPath, refreshTags } from "../editor/decorations";
 import { tableCommand, type TableCommand } from "../editor/tables";
-import { insertFiles, insertSize } from "../insert";
+import { insertFiles, insertSize, isForeignHtml, pasteRichHtml } from "../insert";
 import { useEditorEnv } from "./editorEnv";
 import { attachmentAction } from "./editorEnv";
 import { FindBar } from "./FindBar";
@@ -155,11 +155,19 @@ function PageEditor({ ctl, mirror, opened, onEditor }: { ctl: NotesController; m
       editable: !readOnly,
       editorProps: {
         attributes: { class: "notes-content", "data-testid": "page-editor", "aria-label": t("notes.page.body"), spellcheck: "true" },
-        handlePaste: (_view, event) => {
+        handlePaste: (view, event) => {
           const files = Array.from(event.clipboardData?.files ?? []);
-          if (files.length === 0 || !editorRef.current) return false;
+          if (!editorRef.current) return false;
+          if (files.length > 0) {
+            event.preventDefault();
+            void insertFiles(ctl, editorRef.current, files);
+            return true;
+          }
+          // Rich paste from other apps through the core's sanitiser; plain text and in-app copies stay ProseMirror's.
+          const html = event.clipboardData?.getData("text/html") ?? "";
+          if (!isForeignHtml(html) || view.state.selection.$from.parent.type.spec.code) return false;
           event.preventDefault();
-          void insertFiles(ctl, editorRef.current, files);
+          void pasteRichHtml(ctl, editorRef.current, html, event.clipboardData?.getData("text/plain") ?? "");
           return true;
         },
         handleDrop: (view, event, _slice, moved) => {

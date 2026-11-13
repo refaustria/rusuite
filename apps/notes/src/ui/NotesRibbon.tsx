@@ -407,6 +407,8 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
         exportDisabled: !opened,
         reportHost: ctl.backend,
         commands: [
+          { id: "import", label: t("notes.import.menu"), icon: "open", onSelect: () => open({ kind: "import" }) },
+          { id: "exportAs", label: t("notes.export.menu"), icon: "saveAs", disabled: !notebook, onSelect: () => open({ kind: "export", scope: "page" }) },
           { id: "downloadBackup", label: t("notes.backup.download"), icon: "save", disabled: !notebook, onSelect: () => void ctl.downloadBackup() },
           { id: "openBackup", label: t("notes.backup.openDots"), icon: "open", onSelect: () => void ctl.openBackupFile() },
           { id: "about", label: t("notes.about.menu"), icon: "sparkle", footer: true, onSelect: () => open({ kind: "about" }) },

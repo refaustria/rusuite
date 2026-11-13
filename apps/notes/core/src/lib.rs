@@ -12,6 +12,8 @@
 //!   binary functions instead (never base64 on the hot path).
 //! * In-memory [`SearchIndex`], tasks, backlinks, history (change groups, preview, restore), compaction and the
 //!   `.rnotes` backup archive.
+//! * Import/export through [`plan`]: the converters (feature `convert`, default) are pure and can run in another
+//!   module (the web app's lazily loaded `app-notes-convert-wasm`); the host applies their plans.
 //!
 //! ```
 //! use notes_core::{dispatch_with, NotesHost};
@@ -26,6 +28,7 @@ mod backup;
 mod dispatch;
 mod effects;
 mod host;
+pub mod plan;
 pub mod search;
 #[cfg(feature = "fs")]
 mod store;
@@ -36,7 +39,7 @@ pub use effects::{
     blob_id, decode_effects, encode_effects, is_safe_id, log_record, split_blobs, split_log,
     LoadWarning, PersistEffect,
 };
-pub use host::convert::{FileImported, PageFormat};
+pub use host::convert::{FileImported, ImportTarget, PageFormat};
 pub use host::{
     HistoryEntry, ImportResult, NotebookSummary, NotesHost, OpenedPage, PageRef, TaskEntry,
     TaskFilter, VersionPreview, COMPACT_AFTER_APPENDS, MIRROR_MERGE_INTERVAL_SECS,

@@ -6,6 +6,7 @@ import type { NotesController } from "../controller";
 import { allPages, allSections, SECTION_COLORS } from "../tree";
 import { useT } from "../i18n";
 import { useNotes } from "./hooks";
+import { ExportDialog, ImportDialog } from "./ImportExport";
 import { CustomizeTagsDialog } from "./TagsDialog";
 
 export type DialogSpec =
@@ -17,7 +18,9 @@ export type DialogSpec =
   | { kind: "moveTo"; node: string; notebook: string }
   | { kind: "about" }
   | { kind: "customizeTags" }
-  | { kind: "options" };
+  | { kind: "options" }
+  | { kind: "import" }
+  | { kind: "export"; scope: "page" | "section"; node?: string };
 
 const DialogContext = createContext<(d: DialogSpec | null) => void>(() => undefined);
 
@@ -55,6 +58,8 @@ export function DialogHost({ ctl, children }: { ctl: NotesController; children: 
       {spec?.kind === "about" && <AboutDialog onClose={close} />}
       {spec?.kind === "customizeTags" && <CustomizeTagsDialog ctl={ctl} onClose={close} />}
       {spec?.kind === "options" && <OptionsDialog ctl={ctl} onClose={close} />}
+      {spec?.kind === "import" && <ImportDialog ctl={ctl} onClose={close} />}
+      {spec?.kind === "export" && <ExportDialog ctl={ctl} scope={spec.scope} node={spec.node} onClose={close} />}
     </DialogContext.Provider>
   );
 }

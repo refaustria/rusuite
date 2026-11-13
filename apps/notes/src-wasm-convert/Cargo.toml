@@ -1,0 +1,23 @@
+[package]
+name = "app-notes-convert-wasm"
+description = "Rusuite Notes converters as a separate, lazily loaded WebAssembly module (P11-N6b)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.129"
+# Only `notes_core::plan::convert` is used (pure: the converters of notes-convert, no documents).
+notes-core = { path = "../core" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

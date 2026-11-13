@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build:wasm": "wasm-pack build src-wasm --target web --release --out-dir pkg",
+    "build:wasm": "wasm-pack build src-wasm --target web --release --out-dir pkg && wasm-pack build src-wasm-convert --target web --release --out-dir pkg",
     "build:web": "pnpm build:wasm && vite build --mode web",
     "dev:web": "pnpm build:wasm && vite --mode web"
   },

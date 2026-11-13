@@ -62,9 +62,10 @@ function docName(ctl: NotesController): string {
   return pdfFileName(name || t("notes.untitled"));
 }
 
-/** File › Export PDF… with the current print settings. */
-export async function exportNotesPdf(ctl: NotesController): Promise<void> {
+/** File › Export PDF… with the current print settings (`what`: this page or its section instead of the setting). */
+export async function exportNotesPdf(ctl: NotesController, what?: NotesPrintOptions["what"]): Promise<void> {
   try {
+    if (what) current = { ...current, what };
     const doc = applyPageRange(await build(ctl, current), current.range);
     await exportPdfOrPrint(doc, docName(ctl), ctl.backend);
   } catch (e) {
