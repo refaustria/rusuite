@@ -62,6 +62,17 @@ sudo apt-get install -y libayatana-appindicator3-dev librsvg2-dev libssl-dev pat
 ```
 (`xvfb` was already present here.) The Tauri CLI comes from the npm package `@tauri-apps/cli` (prebuilt binary, no `cargo install`). Build with `pnpm --filter calc tauri build --no-bundle`; smoke test with `timeout 15 xvfb-run -a target/release/app-calc` (expect exit 124, no panic). Icons were generated from a 1024x1024 ImageMagick PNG via `pnpm --filter calc tauri icon`; only desktop icons are committed.
 
+## Notes desktop (P11-N7)
+
+`pnpm --filter notes tauri build --no-bundle` builds `target/release/app-notes`; its `beforeBuildCommand` is
+`pnpm build:desktop` (wasm-pack for `src-wasm` – the sync crypto –, then `vite build --mode desktop`), so the
+`wasm32-unknown-unknown` target must be installed. `pnpm --filter notes tauri dev` runs it against `vite --mode desktop`
+on port 1424. Start check: `scripts/desktop-smoke.sh --start-only notes`. Run it with a scratch `HOME` (and
+`XDG_*_HOME`) to keep its notebooks (`~/Documents/Rusuite Notes`), recent list and fallback key file out of your own.
+Device keys use the Secret Service via `keyring` (same `libdbus-1` as the cloud connectors); without a keychain they
+fall back to `device-keys.hex` in the app-data folder. `REPORT_RELAY_URL` at build time also sets the CSP's report
+origin. The logo PNG and the icons: see "Logo exports" (`notes`).
+
 ## Desktop smoke test (P7-7)
 `scripts/desktop-smoke.sh` drives the release binaries through WebDriver:
 ```

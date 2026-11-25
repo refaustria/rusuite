@@ -125,5 +125,11 @@
   "portal.soon.link": "What's coming soon",
   "portal.dl.mobile.title": "Phones and tablets",
   "portal.dl.mobile.text": "Rusuite Calc, Write and Show for Android and iOS – free, without an account; your documents stay on your device.",
-  "portal.dl.mobile.soon": "coming soon"
+  "portal.dl.mobile.soon": "coming soon",
+  "portal.notes.kind": "Notebooks",
+  "portal.notes.logo": "Rusuite Notes logo",
+  "portal.notes.open": "Open Notes in browser",
+  "portal.notes.text": "Notebooks with sections and pages, checklists, tables and pictures – share a notebook end-to-end encrypted.",
+  "portal.privacy.h.notes": "Rusuite Notes: shared notebooks",
+  "portal.privacy.notes": "Notebooks stay on your device (in the browser's storage, in the desktop app as folders on your computer) until you share one. A shared notebook syncs through our relay at rusuit.es; it is end-to-end encrypted, so the server cannot read it. The relay keeps only the encrypted notebook, so that members who were offline can catch up, and deletes it after a year without activity. Unshared notebooks cause no traffic at all."
 }

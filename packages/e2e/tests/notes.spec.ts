@@ -296,6 +296,27 @@ test.describe("Notes (P11-N2)", () => {
     });
   });
 
+  test("P11-N7: the desktop-only entries stay hidden on the web (folders, Join with link, Sharing options, AI)", async ({ page }) => {
+    const errors = trackErrors(page);
+    await openNotes(page);
+    await expect(page.getByRole("tab", { name: "Home", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("button", { name: "Assistant" })).toHaveCount(0);
+    await expect(page.getByTestId("ai-pane")).toHaveCount(0);
+    await page.getByRole("tab", { name: "File", exact: true }).click();
+    const backstage = page.getByTestId("backstage");
+    await expect(backstage).toContainText("Download backup");
+    for (const entry of ["Join with link…", "Open notebook folder…", "New notebook in folder…", "Notebook folders", "Import from browser backup"]) {
+      await expect(backstage).not.toContainText(entry);
+    }
+    await expect(page.getByTestId("recent-folders")).toHaveCount(0);
+    await backstage.getByRole("button", { name: "Options…" }).click();
+    await expect(page.getByTestId("options-dialog")).toBeVisible();
+    await expect(page.getByTestId("options-storage")).toContainText("browser");
+    await expect(page.getByTestId("options-sharing")).toHaveCount(0);
+    await expect(page.getByTestId("relay-url")).toHaveCount(0);
+    errors.expectNone();
+  });
+
   test("View: navigation pane toggle, page width, dark mode", async ({ page }) => {
     const errors = trackErrors(page);
     await openNotes(page);

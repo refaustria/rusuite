@@ -11,10 +11,15 @@
     "typecheck": "tsc --noEmit",
     "build:wasm": "wasm-pack build src-wasm --target web --release --out-dir pkg && wasm-pack build src-wasm-convert --target web --release --out-dir pkg",
     "build:web": "pnpm build:wasm && vite build --mode web",
-    "dev:web": "pnpm build:wasm && vite --mode web"
+    "dev:web": "pnpm build:wasm && vite --mode web",
+    "tauri": "tauri",
+    "build:wasm:sync": "wasm-pack build src-wasm --target web --release --out-dir pkg",
+    "dev:desktop": "pnpm build:wasm:sync && vite --mode desktop",
+    "build:desktop": "pnpm build:wasm:sync && tsc --noEmit && vite build --mode desktop"
   },
   "dependencies": {
     "@rusuite/ui-shared": "workspace:*",
+    "@tauri-apps/api": "2.12.0",
     "@tiptap/core": "3.31.3",
     "@tiptap/extension-link": "3.31.3",
     "@tiptap/extension-list": "3.31.3",
@@ -29,6 +34,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",
+    "@tauri-apps/cli": "2.12.0",
     "@testing-library/react": "16.3.3",
     "@types/react": "18.3.31",
     "@types/react-dom": "18.3.7",

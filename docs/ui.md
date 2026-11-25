@@ -1822,6 +1822,7 @@ tone for the glyph and white for its one "active" element.
 | `calc.svg` | `#1E7A46` / `#2DA866` | 2×2 cells, the selected cell white |
 | `write.svg` | `#1F4E9A` / `#3B7DD8` | three text lines, the short heading line white |
 | `show.svg` | `#C2410C` / `#F0763A` | 16:9 slide on a stand, white play triangle |
+| `notes.svg` | `#7719AA` / `#B06AE0` | notebook with a white spine and two section tabs, the upper tab white (P11-N7) |
 | `rusuite.svg` | `#1E293B` | three slanted bars in the three light tones |
 
 `<name>-mono.svg` replaces the light tone with white at 55 % opacity (one hue plus white); they are the favicons (inlined as
@@ -2285,3 +2286,34 @@ items in pt; list order = z-order), `"ink"` strokes (1/10 pt, pressure 0–255),
   late selection restore is dropped – it was computed from pre-import offsets and scrambled concurrent typing.
 - Tests: `apps/notes/src/sync/engine.test.ts` (state machine), `app-notes-wasm` `sync` tests (crypto flows), e2e
   `notes-sharing.spec.ts` (needs a relay: `NOTES_RELAY_DIR`, serve.mjs `NOTES_RELAY_PORT`).
+
+### Notes desktop (P11-N7)
+
+`apps/notes/src-tauri` (package `app-notes`, "Rusuite Notes", `dev.rusuite.notes`) runs `notes-core` and
+`notes-convert` natively; the frontend is the web app built with `vite --mode desktop` (`pnpm build:desktop`). The sync
+crypto (`SyncCrypto`, synchronous) still comes from the wasm module `src-wasm/pkg`; the converter module is not shipped.
+`src/tauri/backend.ts` is the adapter (`TauriNotesBackend`, `TauriNotesStore`, `TauriDesktop`); `src/tauri/shell.ts`
+exposes it to the UI – `desktopShell()` is `null` on the web, which hides every entry below there.
+
+- **Notebooks are folders.** Each notebook is a folder holding `notebook.json`, its documents (snapshot + append log)
+  and its files; plain **New notebook** creates `~/Documents/Rusuite Notes/<name>`, **File › New notebook in folder…**
+  asks for the place first (native folder dialog), **File › Open notebook folder…** opens a folder with
+  `notebook.json`. The backstage lists **Notebook folders** (the shell's recent list, newest first). A truncated log
+  tail (crash while writing) is dropped on load and reported as a load warning. **Remove local data** forgets the
+  folders and the settings but leaves the folders on disk.
+- **Backups:** **Save backup…** (native save dialog) and **Import from browser backup (.rnotes)…** move notebooks between
+  the web app and the desktop. PDF export goes through the print dialog (*Save as PDF*).
+- **Sharing:** **File › Options › Sharing**: the relay URL (default `https://rusuit.es`; WebSocket
+  `wss://rusuit.es/api/notes/ws`), https only unless *Allow an unencrypted connection (http) to a server on my local
+  network* is ticked and the host is on the local network (`localhost`, `*.local`, `*.lan`, a private address …); **Save and restart** (the window's Content Security
+  Policy allows exactly that relay origin, so a change needs a restart). Invite and page links point to
+  `<relay>/notes/`. Without deep links, **File › Join with link…** takes a pasted invite link (or the bare invite code)
+  and starts the usual join flow. Device keys live in the OS keychain (`keyring`); without one they go to
+  `device-keys.hex` in the app-data folder and the Sharing options show a warning.
+- **AI assistant** (desktop only, off until enabled in *Options › AI*): the Home tab's **AI** group opens the shared
+  assistant pane next to the page with *Summarise page*, *Rewrite selection*, *Extract tasks* (inserted as a checklist)
+  and *Ask about this page* (`src/ai/notesAi.ts`). Results are ordinary editor edits (one undo step, synced like
+  typing). The CSP allows the two built-in cloud providers and a local server on this computer only.
+- Tests: `cargo test -p app-notes` (folders, crash tail, backup import, CSP, relay validation),
+  `src/tauri/backend.test.ts` (adapter with a fake `invoke`), e2e `notes.spec.ts` (the entries are hidden on the web),
+  `--smoke` start check in `scripts/desktop-smoke.sh`.

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Rusuite Notes",
+  "version": "3.1415.0",
+  "identifier": "dev.rusuite.notes",
+  "build": {
+    "beforeDevCommand": "pnpm dev:desktop",
+    "devUrl": "http://localhost:1424",
+    "beforeBuildCommand": "pnpm build:desktop",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "windows": { "wix": { "version": "3.14.15.0" } },
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

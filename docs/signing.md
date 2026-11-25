@@ -20,6 +20,11 @@ gets a "signed" line instead of the Gatekeeper/SmartScreen steps, the "not signe
 unsigned, and with GPG the page links the `.asc` files, `SHA256SUMS(.asc)` and the public key. Without `signing.json`
 (all releases up to 3.141) the page is the unsigned one.
 
+Rusuite Notes (from P11-N7) is a fourth app in the `release` matrix and is signed the same way (Azure description
+"Rusuite Notes"); `signing.json` therefore expects 8 macOS legs and 4 Windows legs (`LEGS` in
+`scripts/signing/manifest.mjs`) – an OS whose Notes legs are unsigned counts as unsigned. The Downloads page leaves
+Notes out until its launch (docs/release.md, "Rusuite Notes launch").
+
 ## Secrets
 
 Repository secrets of `refaustria/rusuite` (Settings › Secrets and variables › Actions, or `gh secret set`).

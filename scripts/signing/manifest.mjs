@@ -13,8 +13,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Build legs per OS in release.yml: 3 apps × (macos-latest, macos-15-intel) and 3 apps × windows-latest. */
-export const LEGS = { macos: 6, windows: 3 };
+/** The apps release.yml builds (its `release` matrix; Notes since P11-N7). */
+export const APPS = ["calc", "write", "show", "notes"];
+/** Build legs per OS in release.yml: apps × (macos-latest, macos-15-intel) and apps × windows-latest. */
+export const LEGS = { macos: APPS.length * 2, windows: APPS.length };
 
 export function buildManifest(records, { fingerprint = "", linuxResult = "skipped", legs = LEGS } = {}) {
   const of = (os) => records.filter((r) => r && r.os === os && r.signed === true);

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sets the release version everywhere (P8-41): the Cargo workspace version (and any member with its own literal
-# version), Cargo.lock, the three tauri.conf.json files (`version` + the MSI-safe `bundle.windows.wix.version`) and the
+# version), Cargo.lock, every apps/*/src-tauri/tauri.conf.json (Calc, Write, Show, Notes) (`version` + the MSI-safe `bundle.windows.wix.version`) and the
 # shipped package.json files; then runs scripts/check-versions.sh. Only the version lines change (no reformatting).
 # Usage: scripts/set-version.sh <version>     e.g. scripts/set-version.sh 0.1.0-rc.1
 set -euo pipefail

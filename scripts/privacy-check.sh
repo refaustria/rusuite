@@ -14,7 +14,8 @@ PATTERN='fetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|navigator\.shar
 # provider the user configured, only when an AI action runs or Settings › AI › Test is pressed (P8-37); the
 # "Report a problem" client posts to the site's own relay (/api/report) only when the user submits the dialog (P8-43);
 # Rusuite Notes opens one WebSocket to its own origin's relay (/api/notes/ws) per notebook the user shared or joined –
-# end-to-end encrypted, never for unshared notebooks (ADR 0010, P11-N5b).
+# end-to-end encrypted, never for unshared notebooks (ADR 0010, P11-N5b); the desktop app (P11-N7) to the relay of
+# File › Options › Sharing (default rusuit.es), the only relay origin its window's CSP allows.
 ALLOW='^(apps/portal/version\.js|apps/portal/i18n\.js|packages/ui-shared/src/connectors/webdav-fetch\.ts|packages/ui-shared/src/ai/providers/http\.ts|packages/ui-shared/src/report/client\.ts|apps/notes/src/sync/socket\.ts):'
 
 fail=0

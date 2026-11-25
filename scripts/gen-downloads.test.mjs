@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { classify, loadCatalog, loadStoreLinks, publicName, render, renderNone, signingOf } from "./gen-downloads.mjs";
-import { buildManifest } from "./signing/manifest.mjs";
+import { buildManifest, LEGS } from "./signing/manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -48,6 +48,7 @@ test("classify maps tauri-action's bundle names and skips updater archives", () 
   assert.equal(classify("Rusuite.Calc_aarch64.app.tar.gz"), null);
   assert.equal(classify("Rusuite.Calc_0.1.0_amd64.AppImage.sig"), null);
   assert.equal(classify("NOTICE"), null);
+  assert.deepEqual(classify("Rusuite.Notes_3.1415.0_x64-setup.exe"), { app: "notes", os: "windows", kind: "nsis" });
   assert.equal(NAMES.filter((n) => classify(n)).length, 21);
 });
 
@@ -266,11 +267,11 @@ test("the generator CLI accepts --release with signing.json (and keeps --in)", a
 // P10-R1: signing.json as the real manifest job writes it (scripts/signing/manifest.mjs) drives the page.
 test("signingOf reads the real manifest.mjs output: every combination of signed OSes", () => {
   const rec = (os, n, extra = {}) => Array.from({ length: n }, () => ({ os, signed: true, ...extra }));
-  const all = [...rec("macos", 6, { notarized: true }), ...rec("windows", 3, { method: "azure" })];
+  const all = [...rec("macos", LEGS.macos, { notarized: true }), ...rec("windows", LEGS.windows, { method: "azure" })];
   const full = JSON.parse(JSON.stringify(buildManifest(all, { fingerprint: FPR, linuxResult: "success" })));
   assert.deepEqual(signingOf(full), { macos: true, windows: true, linux: true, fingerprint: "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567", sha256sums: true });
   // 3.1415 as it may ship: macOS + Linux signed, Windows still unsigned (Azure pending).
-  const partial = JSON.parse(JSON.stringify(buildManifest(rec("macos", 6, { notarized: true }), { fingerprint: FPR, linuxResult: "success" })));
+  const partial = JSON.parse(JSON.stringify(buildManifest(rec("macos", LEGS.macos, { notarized: true }), { fingerprint: FPR, linuxResult: "success" })));
   assert.deepEqual(signingOf(partial), { macos: true, windows: false, linux: true, fingerprint: "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567", sha256sums: true });
   const html = render({ ...signedFixture({ macos: true, linux: true }), signing: partial });
   assert.match(html, /data-unsigned="windows"/);
@@ -348,4 +349,17 @@ test("the generator CLI reads --links and renders the 3.1415 page with the mobil
   assert.match(withLinks, /data-version="3\.1415"/);
   assert.match(withLinks, /dev\.rusuite\.calc/);
   assert.match(mobileOf(run()), /data-soon="true"/); // default: the committed (empty) links.json
+});
+
+test("P11-N7: Rusuite Notes is classified but hidden until its launch – no row, no file, no checksum, no xattr line", () => {
+  const assets = [
+    { name: "Rusuite.Calc_3.1415.0_amd64.deb", size: 1e6, url: "https://example.org/c.deb", digest: "sha256:" + "a".repeat(64) },
+    { name: "Rusuite.Notes_3.1415.0_amd64.deb", size: 1e6, url: "https://example.org/n.deb", digest: "sha256:" + "b".repeat(64) },
+    { name: "Rusuite.Notes_3.1415.0_aarch64.dmg", size: 1e6, url: "https://example.org/n.dmg", digest: "sha256:" + "c".repeat(64) },
+  ];
+  const html = render({ tagName: "v3.1415.0", publishedAt: "2026-12-01T00:00:00Z", assets });
+  assert.match(html, /Rusuite\.Calc_3\.1415\.0_amd64\.deb/);
+  assert.doesNotMatch(html, /Notes/);
+  assert.doesNotMatch(html, /"b{64}"|b{64}/);
+  assert.doesNotMatch(renderNone(), /Notes/);
 });

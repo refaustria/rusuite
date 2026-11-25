@@ -19,8 +19,12 @@ export default defineConfig(({ mode }) => ({
   // build would load it with a synchronous XMLHttpRequest. Tests run on Node and keep the `nodejs` build.
   resolve: mode === "test" ? undefined : { alias: [{ find: /^loro-crdt$/, replacement: "loro-crdt/web" }] },
   ...(mode === "web" ? { base: "/notes/", build: { outDir: "dist-web", target: "es2022", rollupOptions: { output: { manualChunks } } } } : {}),
+  // The desktop shell (P11-N7) converts natively: the converter module is never loaded there (and not built).
+  ...(mode === "desktop"
+    ? { build: { outDir: "dist", target: "es2022", rollupOptions: { external: [/src-wasm-convert\/pkg\//], output: { manualChunks } } } }
+    : {}),
   optimizeDeps: { exclude: ["loro-crdt"] },
-  envPrefix: ["VITE_"],
+  envPrefix: mode === "desktop" ? ["VITE_", "TAURI_", "REPORT_RELAY_"] : ["VITE_"],
   server: {
     port: 1424,
     strictPort: true,

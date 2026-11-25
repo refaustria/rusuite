@@ -4,11 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildManifest, readRecords } from "./manifest.mjs";
+import { buildManifest, LEGS, readRecords } from "./manifest.mjs";
 
 const FPR = "0123456789ABCDEF0123456789ABCDEF01234567";
-const mac = (notarized = true) => Array.from({ length: 6 }, () => ({ os: "macos", signed: true, notarized }));
-const win = (method = "pfx") => Array.from({ length: 3 }, () => ({ os: "windows", signed: true, method }));
+const mac = (notarized = true) => Array.from({ length: LEGS.macos }, () => ({ os: "macos", signed: true, notarized }));
+const win = (method = "pfx") => Array.from({ length: LEGS.windows }, () => ({ os: "windows", signed: true, method }));
 
 test("no records, no sign-linux: everything unsigned (the 3.141 state)", () => {
   assert.deepEqual(buildManifest([]), {
@@ -50,4 +50,11 @@ test("records are read from the downloaded artifacts", () => {
   assert.equal(recs.length, 2);
   assert.deepEqual(recs.filter(Boolean), [win()[0]]);
   assert.deepEqual(readRecords(path.join(dir, "missing")), []);
+});
+
+test("P11-N7: Notes adds its legs – a release with Calc, Write and Show signed but Notes not is unsigned", () => {
+  assert.deepEqual(LEGS, { macos: 8, windows: 4 });
+  const three = [...mac().slice(2), ...win().slice(1)];
+  assert.deepEqual(buildManifest(three).macos, { signed: false, notarized: false });
+  assert.deepEqual(buildManifest(three).windows, { signed: false, method: null });
 });

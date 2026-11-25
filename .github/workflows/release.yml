@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [calc, write, show]
+        app: [calc, write, show, notes]
         platform: [ubuntu-22.04, windows-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.platform }}
     permissions:
@@ -63,6 +63,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || matrix.platform == 'macos-15-intel' && 'x86_64-apple-darwin' || '' }}
+      # Notes' desktop frontend still loads the sync crypto as wasm (`pnpm build:desktop` runs wasm-pack, P11-N7).
+      - name: wasm target (Notes)
+        if: matrix.app == 'notes'
+        run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.app }}-${{ matrix.platform }}
@@ -303,7 +307,7 @@ jobs:
           pattern: smoke-bin-*-${{ matrix.platform }}
           path: smoke-bin
           merge-multiple: true
-      - name: Start Calc, Write and Show with --smoke
+      - name: Start Calc, Write, Show and Notes with --smoke
         shell: bash
         run: |
           chmod +x smoke-bin/* || true

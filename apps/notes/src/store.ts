@@ -33,6 +33,8 @@ export interface NotesStore {
   setMeta(key: string, value: unknown): Promise<void>;
   /** Everything this app stored in the browser (ADR 0009 rule 4). */
   clearAll(): Promise<void>;
+  /** What the last loads found and skipped (desktop: a torn log tail after a crash), since the last call. */
+  takeWarnings?(): import("./generated/LoadWarning").LoadWarning[];
 }
 
 function promised<T>(req: IDBRequest<T>): Promise<T> {

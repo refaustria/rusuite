@@ -125,7 +125,8 @@ The `smoke` job then starts every built binary on its OS with `--smoke`.
 `app-<name> --smoke` (apps/*/src-tauri/src/smoke.rs) opens the normal window; once the page has loaded, a script waits for
 the UI to render and makes a real IPC round trip (`ping`, then `dispatch` with `documentState`); the binary checks the
 reply, that the native window title names the app and that `ping` reports the version from `tauri.conf.json`, prints
-`ok <ping> | <title>` and exits 0 (1 on a failed check, 2 after 120 s). The job runs
+`ok <ping> | <title>` and exits 0 (1 on a failed check, 2 after 120 s). Notes (P11-N7) dispatches `listNotebooks`
+instead of `documentState` and has the start check only (no WebDriver scenarios). The job runs
 `scripts/desktop-smoke.sh --start-only` on the binaries the build jobs kept as artifacts (`smoke-bin-<app>-<runner>`,
 3 days), under xvfb on Linux. The same check runs locally as the first step of `scripts/desktop-smoke.sh`.
 
@@ -154,6 +155,18 @@ also the committed `apps/portal/downloads.html`). Preview locally:
 `DOWNLOADS_TAG=v3.141.0 scripts/gen-downloads.sh --out /tmp/downloads.html` (the lead line then reads "Rusuite 3.141 for
 Windows, macOS and Linux") (drafts work for the PM's token, but
 their download links work only for repository members).
+
+## Rusuite Notes launch (P11-N7 → P11-R1)
+From P11-N7 every release builds, signs and smoke-tests **Rusuite Notes** as a fourth desktop app (matrix `app:
+notes`; assets `Rusuite.Notes_*`; it counts in `signing.json`: 8 macOS and 4 Windows legs, `scripts/signing/manifest.mjs`).
+Until the public launch it stays out of sight:
+- **Portal tile:** `apps/portal/index.html` has the Notes card with the `hidden` attribute (`data-testid="portal-notes"`).
+- **Downloads page:** `scripts/gen-downloads.mjs` lists Notes with `hidden: true` – its files and checksums are left
+  out of the page. Notes has no phone app (`mobile: false`; `mobile.yml` builds Calc, Write and Show only).
+
+The switch at the launch (P11-R1), in one commit: remove `hidden` from the portal card, remove `hidden: true` from the
+`notes` entry in `gen-downloads.mjs`, update the e2e expectations (`portal.spec.ts`: four cards;
+`gen-downloads.test.mjs`: the hidden-Notes test), then redeploy (`scripts/deploy-web.sh`).
 
 ## 6. Mobile stores (from 3.1415, P10-M8)
 The same tag also starts **`mobile-release.yml`**: signed Android App Bundles → Google Play **internal** track and

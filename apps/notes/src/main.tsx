@@ -1,16 +1,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { I18nProvider } from "@rusuite/ui-shared";
+import { Assistant, I18nProvider, isTauri, TauriAiStore } from "@rusuite/ui-shared";
 import App from "./App";
-import { WebNotesBackend, type NotesWasmModule } from "./backend";
+import { WebNotesBackend, type NotesBackend, type NotesWasmModule } from "./backend";
 import type { ConvertWasmModule } from "./convert/loader";
 import { NotesController } from "./controller";
 import { initLoro } from "./loro";
-import { IdbNotesStore, MemoryNotesStore } from "./store";
+import { IdbNotesStore, MemoryNotesStore, type NotesStore } from "./store";
 import { TabLock } from "./tablock";
 import { wasmCrypto, type SyncWasmModule } from "./sync/crypto";
 import { SyncManager } from "./sync/manager";
-import { relaySocket } from "./sync/socket";
+import { relaySocket, relaySocketTo } from "./sync/socket";
+import type { SocketFactory } from "./sync/engine";
+import { setDesktopShell } from "./tauri/shell";
 import "./i18n";
 import "./styles.css";
 
@@ -30,13 +32,47 @@ async function loadConverter(): Promise<ConvertWasmModule> {
   return mod as ConvertWasmModule;
 }
 
+/**
+ * The desktop shell (P11-N7): the native core and converters over IPC, notebooks as folders, the configured relay.
+ * The sharing crypto stays the wasm module's (its calls are synchronous).
+ */
+async function desktopParts(): Promise<{ backend: NotesBackend; store: NotesStore; socket: SocketFactory; onReady: (ctl: NotesController) => void }> {
+  const { TauriDesktop, TauriNotesBackend, TauriNotesStore } = await import("./tauri/backend");
+  const backend = new TauriNotesBackend();
+  await backend.reset();
+  const api = new TauriDesktop();
+  const relay = await api.relay();
+  setDesktopShell({ api, relay, ai: new Assistant({ store: new TauriAiStore() }) });
+  return {
+    backend,
+    store: new TauriNotesStore(),
+    socket: relaySocketTo(relay.wsUrl),
+    onReady: (ctl) => {
+      ctl.desktop = { linkBase: relay.webBase, touch: async (id, name) => void (await api.touch(id, name)) };
+      // Closing the window: the shell holds it until the writes are flushed (at most 5 s).
+      void api.onCloseRequested(() => {
+        void (async () => {
+          try {
+            await ctl.idle();
+            if (ctl.sync) await Promise.all([...ctl.sync.engines.values()].map((e) => e.persistNow()));
+          } finally {
+            await api.closeNow();
+          }
+        })();
+      });
+    },
+  };
+}
+
 async function boot() {
   const [wasm] = await Promise.all([loadWasm(), initLoro()]);
-  const backend = new WebNotesBackend(wasm, loadConverter);
-  const store = IdbNotesStore.available() ? new IdbNotesStore() : new MemoryNotesStore();
+  const desktop = isTauri() ? await desktopParts() : null;
+  const backend = desktop?.backend ?? new WebNotesBackend(wasm, loadConverter);
+  const store = desktop?.store ?? (IdbNotesStore.available() ? new IdbNotesStore() : new MemoryNotesStore());
   const ctl = new NotesController(backend, store);
+  desktop?.onReady(ctl);
   // Sharing (P11-N5b): engines (and their connection) exist only for shared notebooks.
-  const sync = new SyncManager(wasmCrypto(wasm), store, ctl.syncHost(), relaySocket);
+  const sync = new SyncManager(wasmCrypto(wasm), store, ctl.syncHost(), desktop?.socket ?? relaySocket);
   ctl.attachSync(sync);
   window.addEventListener("online", () => sync.setOnline(true));
   window.addEventListener("offline", () => sync.setOnline(false));
