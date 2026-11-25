@@ -1,0 +1,32 @@
+# Owner-only stats for https://rusuit.es/stats/ (deploy/README.md "Traffic and download stats").
+[Unit]
+Description=Rusuite traffic and download stats
+Documentation=file:///usr/local/lib/rusuite-stats/rusuite-stats.sh
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=rusuite-stats
+Group=rusuite-stats
+# adm may read the 0640 www-data:adm nginx logs.
+SupplementaryGroups=adm
+ExecStart=/usr/local/lib/rusuite-stats/rusuite-stats.sh
+Nice=10
+StateDirectory=rusuite-stats
+ProtectSystem=strict
+ReadWritePaths=/var/www/rusuite-stats
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+# Network only for the GitHub releases API (downloads.py).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0022

@@ -27,3 +27,36 @@ From a checkout of `main`: `scripts/deploy-web.sh` (builds, rsyncs `apps/{calc,w
 
 ## Logs
 `/var/log/nginx/resuite.access.log` and `/var/log/nginx/resuite.error.log`.
+
+## Traffic and download stats
+Owner-only pages at `https://rusuit.es/stats/` (basic auth), rebuilt hourly by `rusuite-stats.timer`
+(`deploy/stats/rusuite-stats.sh`, user `rusuite-stats`, group `adm` reads the nginx logs):
+- `usage.html` (`usage.py`): people per day (new / returning), which apps they open (Calc, Write, Show, Notes,
+  portal, downloads page), countries, devices, referring sites, a per-IP table. A person is an IP with a browser
+  user agent that ran our JavaScript (`/version.json` or an app's `/assets/*.js`); bots, scanners and the IPs in
+  `/etc/rusuite-stats/exclude-ips` (one per line, `#` comments) are left out. IPs, not people: shared or
+  changing addresses skew it.
+- `downloads.html` (`downloads.py`): GitHub release download counters per app, platform, release and file.
+  GitHub only keeps totals, so each run stores the day's totals in `/var/lib/rusuite-stats/downloads.jsonl` and
+  the page shows the daily increase from that history.
+- `rusuit.es.html`: GoAccess report of every request (crawlers included).
+
+The traffic pages cover the 14 days of rotated logs (`/var/log/nginx/resuite.access.log*`); countries come from
+the DaisyChess DB-IP database on the same host (`/var/lib/daisychess-stats/dbip-country-lite.mmdb`), offline.
+Privacy: the pages only aggregate the web log the privacy page already mentions; nothing is sent anywhere.
+
+```bash
+sudo apt install goaccess apache2-utils python3-maxminddb
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin --groups adm rusuite-stats
+sudo install -d -o rusuite-stats -g www-data -m 0750 /var/www/rusuite-stats
+sudo install -D -m 0755 -t /usr/local/lib/rusuite-stats deploy/stats/rusuite-stats.sh deploy/stats/usage.py deploy/stats/downloads.py
+sudo install -m 0644 deploy/stats/rusuite-stats.service deploy/stats/rusuite-stats.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now rusuite-stats.timer
+sudo systemctl start rusuite-stats.service          # first build now; check: journalctl -u rusuite-stats
+sudo htpasswd -c /etc/nginx/rusuite-stats.htpasswd <user>   # password prompted, never on a command line
+sudo chown root:www-data /etc/nginx/rusuite-stats.htpasswd && sudo chmod 0640 /etc/nginx/rusuite-stats.htpasswd
+sudo install -m 0644 deploy/nginx/stats.conf /etc/nginx/snippets/rusuite-stats.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+Manual run: `STATE_DIR=/tmp/s deploy/stats/rusuite-stats.sh /var/log/nginx /tmp/stats-out`.
+Tests: `python3 -m unittest discover -s deploy/stats`.
