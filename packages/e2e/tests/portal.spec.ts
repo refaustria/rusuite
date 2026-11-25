@@ -18,7 +18,11 @@ test.describe("Portal", () => {
       await expect(link).toHaveAttribute("href", `/${app.toLowerCase()}/`);
       await expect(page.getByRole("img", { name: `Rusuite ${app} logo` })).toBeVisible();
     }
-    const logos = await page.locator("img").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).naturalWidth));
+    // P11-N7: the Notes tile is in the page but hidden until the launch (P11-R1, docs/release.md).
+    await expect(page.getByTestId("portal-notes")).toBeHidden();
+    await expect(page.getByRole("link", { name: "Open Notes in browser" })).toHaveCount(0);
+    await expect(page.locator(".card:visible")).toHaveCount(3);
+    const logos = await page.locator("img:visible").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).naturalWidth));
     expect(logos.every((w) => w > 0)).toBe(true);
     await expect(page.getByTestId("version")).toHaveText(/^Rusuite \d+\.\d+(\.\d+)?(-\S+)? · Build \S+ · \d{4}-\d{2}-\d{2}$/);
     errors.expectNone();

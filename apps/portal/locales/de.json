@@ -125,5 +125,11 @@
   "portal.soon.link": "Was demnächst kommt",
   "portal.dl.mobile.title": "Smartphones und Tablets",
   "portal.dl.mobile.text": "Rusuite Calc, Write und Show für Android und iOS – kostenlos, ohne Konto; deine Dokumente bleiben auf deinem Gerät.",
-  "portal.dl.mobile.soon": "demnächst"
+  "portal.dl.mobile.soon": "demnächst",
+  "portal.notes.kind": "Notizbücher",
+  "portal.notes.logo": "Rusuite-Notes-Logo",
+  "portal.notes.open": "Notes im Browser öffnen",
+  "portal.notes.text": "Notizbücher mit Abschnitten und Seiten, Checklisten, Tabellen und Bildern – teile ein Notizbuch Ende-zu-Ende-verschlüsselt.",
+  "portal.privacy.h.notes": "Rusuite Notes: geteilte Notizbücher",
+  "portal.privacy.notes": "Notizbücher bleiben auf deinem Gerät (im Speicher des Browsers, in der Desktop-App als Ordner auf deinem Computer), bis du eines teilst. Ein geteiltes Notizbuch wird über unser Relay auf rusuit.es synchronisiert; es ist Ende-zu-Ende-verschlüsselt, der Server kann es also nicht lesen. Das Relay hält nur das verschlüsselte Notizbuch bereit, damit Mitglieder, die offline waren, aufholen können, und löscht es nach einem Jahr ohne Aktivität. Nicht geteilte Notizbücher verursachen überhaupt keinen Datenverkehr."
 }

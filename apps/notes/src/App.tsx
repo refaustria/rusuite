@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/core";
-import { FOCUS_RING, RibbonIcon, useCompact } from "@rusuite/ui-shared";
+import { AiOverlay, AssistantPane, FOCUS_RING, RibbonIcon, useCompact } from "@rusuite/ui-shared";
+import { notesAiAdapter } from "./ai/notesAi";
+import { desktopShell } from "./tauri/shell";
 import type { NotesController } from "./controller";
 import type { TabLock } from "./tablock";
 import { TabLockOverlay } from "./ui/TabLockOverlay";
@@ -66,6 +68,9 @@ export default function App({ ctl, lock }: { ctl: NotesController; lock?: TabLoc
   useEffect(() => {
     void ctl.backend.setTitle(`${title || t("notes.untitled")} – Rusuite Notes`).catch(() => undefined);
   }, [ctl, title, t]);
+  // The AI assistant (desktop only): its panel works on the open page's editor.
+  const ai = desktopShell()?.ai ?? null;
+  const aiAdapter = useMemo(() => (ai && editor && !editor.isDestroyed ? notesAiAdapter(editor, ctl) : null), [ai, editor, ctl]);
   const navButton = compact ? (
     <button
       type="button"
@@ -95,7 +100,9 @@ export default function App({ ctl, lock }: { ctl: NotesController; lock?: TabLoc
             </div>
           )}
           <PageArea ctl={ctl} onEditor={onEditor} />
+          {ai && aiAdapter && <AssistantPane ai={ai} adapter={aiAdapter} />}
         </div>
+        {ai && <AiOverlay ai={ai} />}
         <StatusBar ctl={ctl} editor={editor} />
         <Toast ctl={ctl} />
         <BusyCard ctl={ctl} />

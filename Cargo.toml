@@ -27,6 +27,7 @@ members = [
     "apps/notes/core",
     "apps/notes/src-wasm",
     "apps/notes/src-wasm-convert",
+    "apps/notes/src-tauri",
     "services/report-relay",
     "crates/notes-sync",
     "services/notes-relay",

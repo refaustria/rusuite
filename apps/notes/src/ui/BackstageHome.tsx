@@ -1,12 +1,53 @@
 // File › Home of Notes: the notebooks stored in this browser (Open), the recently opened pages, and where the
 // notes are kept with "Remove local data from this browser" (ADR 0009 rule 4).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FOCUS_RING, getLocale, RibbonIcon } from "@rusuite/ui-shared";
 import type { NotesController } from "../controller";
 import { useT } from "../i18n";
 import { useDialog } from "./dialogs";
 import { useNotes } from "./hooks";
+import { desktopShell } from "../tauri/shell";
+import type { RecentFolder } from "../tauri/backend";
+
+/** Desktop (P11-N7): the recently opened notebook folders (the shell's recent list). */
+function RecentFolders({ ctl }: { ctl: NotesController }) {
+  const t = useT();
+  const shell = desktopShell()!;
+  const [folders, setFolders] = useState<RecentFolder[] | null>(null);
+  useEffect(() => {
+    void shell.api.recent().then(setFolders, () => setFolders([]));
+  }, [shell]);
+  return (
+    <section aria-label={t("notes.desktop.folders")}>
+      <h2 className="mb-2 text-lg font-semibold">{t("notes.desktop.folders")}</h2>
+      {folders?.length === 0 && <p className="text-sm text-ui-muted">{t("notes.desktop.noFolders")}</p>}
+      <ul data-testid="recent-folders">
+        {(folders ?? []).map((f) => (
+          <li key={f.path}>
+            <button
+              type="button"
+              className={ROW}
+              onClick={() => {
+                leave();
+                void shell.api.openRecent(f.path).then(
+                  (o) => ctl.openFolderNotebook(o.id, o.name),
+                  (e: unknown) => ctl.fail(e),
+                );
+              }}
+            >
+              <RibbonIcon name="folder" />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{f.name}</span>
+                <span className="truncate text-xs text-ui-muted">{f.path}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 const ROW = `flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm hover:bg-ui-hover ${FOCUS_RING}`;
 
@@ -52,6 +93,7 @@ export function BackstageHome({ ctl }: { ctl: NotesController }) {
           ))}
         </ul>
       </section>
+      {desktopShell() && <RecentFolders ctl={ctl} />}
       <section aria-label={t("notes.backstage.recent")}>
         <h2 className="mb-2 text-lg font-semibold">{t("notes.backstage.recent")}</h2>
         {recent.length === 0 && <p className="text-sm text-ui-muted">{t("notes.backstage.noRecent")}</p>}
@@ -80,7 +122,7 @@ export function BackstageHome({ ctl }: { ctl: NotesController }) {
       <section aria-label={t("privacy.title")} className="border-t border-ui-border pt-4" data-testid="privacy">
         <h2 className="mb-2 text-lg font-semibold">{t("privacy.title")}</h2>
         <p className="mb-3 text-sm" data-testid="privacy-text">
-          {t("notes.privacy.text")}
+          {t(desktopShell() ? "notes.desktop.privacyText" : "notes.privacy.text")}
         </p>
         <p className="mb-3 text-sm text-ui-muted">{t("privacy.report")}</p>
         <div className="flex items-center gap-3">
@@ -92,7 +134,7 @@ export function BackstageHome({ ctl }: { ctl: NotesController }) {
               open({
                 kind: "confirm",
                 title: t("notes.privacy.remove"),
-                message: t("notes.privacy.removeConfirm"),
+                message: t(desktopShell() ? "notes.desktop.removeConfirm" : "notes.privacy.removeConfirm"),
                 confirm: t("notes.privacy.removeConfirmButton"),
                 onConfirm: () =>
                   void ctl.clearLocalData().then(() => {

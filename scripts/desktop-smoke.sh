@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Smoke test of the desktop shells' release binaries (P7-7, P8-41).
 #
-#   pnpm --filter calc tauri build --no-bundle   # and write, show
-#   scripts/desktop-smoke.sh [--start-only] [calc|write|show ...]
+#   pnpm --filter calc tauri build --no-bundle   # and write, show, notes
+#   scripts/desktop-smoke.sh [--start-only] [calc|write|show|notes ...]
 #
 # 1. Start check (every platform, no WebDriver): `app-<name> --smoke` opens
 #    the window, the page makes a ping + dispatch IPC round trip, the binary
@@ -13,7 +13,8 @@
 # 2. Linux only: real-window tests driven through tauri-driver +
 #    WebKitWebDriver (scripts/desktop-smoke.mjs; setup in docs/setup.md,
 #    details in docs/testing.md): close guard, and Open → edit → Save →
-#    reopen of a testdata file.
+#    reopen of a testdata file. Notes (P11-N7) has the start check only;
+#    without `--start-only` it is skipped in step 2.
 #
 # SMOKE_BIN_DIR (default target/release) and SMOKE_PORT (default 4444)
 # override the binaries and the driver port.
@@ -28,11 +29,11 @@ apps=()
 for arg in "$@"; do
   case "$arg" in
     --start-only) start_only=1 ;;
-    calc | write | show) apps+=("$arg") ;;
-    *) echo "usage: $0 [--start-only] [calc|write|show ...]" >&2; exit 2 ;;
+    calc | write | show | notes) apps+=("$arg") ;;
+    *) echo "usage: $0 [--start-only] [calc|write|show|notes ...]" >&2; exit 2 ;;
   esac
 done
-[ ${#apps[@]} -gt 0 ] || apps=(calc write show)
+[ ${#apps[@]} -gt 0 ] || apps=(calc write show notes)
 
 exe=""
 case "$(uname -s)" in
@@ -77,7 +78,7 @@ fi
 # --- 1. start check --------------------------------------------------------------
 failed=0
 for app in "${apps[@]}"; do
-  case "$app" in calc) title="Rusuite Calc" ;; write) title="Rusuite Write" ;; show) title="Rusuite Show" ;; esac
+  case "$app" in calc) title="Rusuite Calc" ;; write) title="Rusuite Write" ;; show) title="Rusuite Show" ;; notes) title="Rusuite Notes" ;; esac
   version=$(node -p "require(process.argv[1]).version" "$ROOT/apps/$app/src-tauri/tauri.conf.json")
   out="$SMOKE_WORK/start-$app.txt"
   t0=$(date +%s)
@@ -99,13 +100,20 @@ if [ "$start_only" = 1 ]; then
 fi
 
 # --- 2. WebDriver tests (Linux) ---------------------------------------------------------
+# Notes has no WebDriver scenarios (yet): only the documents apps go on.
+driven=()
+for app in "${apps[@]}"; do [ "$app" = notes ] || driven+=("$app"); done
+if [ ${#driven[@]} -eq 0 ]; then
+  [ "$failed" = 0 ] && echo "all passed"
+  exit "$((failed > 0))"
+fi
 # shellcheck disable=SC2016 # expanded by the inner shell
 "${xvfb[@]}" ${dbus[@]+"${dbus[@]}"} bash -c '
   tauri-driver --port "$SMOKE_PORT" >"$SMOKE_WORK/driver.log" 2>&1 &
   driver=$!
   trap "kill $driver 2>/dev/null || true" EXIT
   node "$0" "$@"
-' "$ROOT/scripts/desktop-smoke.mjs" "${apps[@]}" || {
+' "$ROOT/scripts/desktop-smoke.mjs" "${driven[@]}" || {
   status=$?
   echo "--- tauri-driver log (tail)" >&2
   tail -n 30 "$SMOKE_WORK/driver.log" >&2 || true

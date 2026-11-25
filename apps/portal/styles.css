@@ -10,6 +10,7 @@
   --calc: #1e7a46;
   --write: #1f4e9a;
   --show: #c2410c;
+  --notes: #7719aa;
   --calc-2: #2da866;
   --write-2: #3b7dd8;
   --show-2: #f0763a;
@@ -77,6 +78,9 @@ h1 { margin: 0; font-size: clamp(2.25rem, 7vw, 3.25rem); font-weight: 700; lette
 }
 .card[data-app="write"] { --accent: var(--write); }
 .card[data-app="show"] { --accent: var(--show); }
+.card[data-app="notes"] { --accent: var(--notes); }
+/* P11-N7: `display: flex` above beats the UA [hidden] rule; the Notes card stays hidden until P11-R1. */
+.card[hidden] { display: none; }
 .card img { width: 72px; height: 72px; }
 .card h3 { margin: 18px 0 0; font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.02em; }
 .card h3 span { display: block; margin-top: 4px; font-size: 0.875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
@@ -150,6 +154,7 @@ footer .note strong { color: var(--text); }
 .dl-app[data-app="calc"] { --accent: var(--calc); }
 .dl-app[data-app="write"] { --accent: var(--write); }
 .dl-app[data-app="show"] { --accent: var(--show); }
+.dl-app[data-app="notes"] { --accent: var(--notes); }
 .dl-name { display: flex; flex-direction: column; line-height: 1.3; }
 .dl-name span { color: var(--muted); font-size: 0.85rem; }
 .dl-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

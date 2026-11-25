@@ -147,6 +147,14 @@ export interface NotesState {
   shareNotice: Record<string, "removed" | "stopped">;
 }
 
+/** The desktop shell's part (P11-N7, `src/tauri/`); `null` on the web. */
+export interface DesktopHost {
+  /** Where invite and page links point (the relay's web app, e.g. `https://rusuit.es/notes/`). */
+  linkBase: string;
+  /** A notebook has (or just got) its folder: the shell records it in its recent list. */
+  touch(id: string, name: string): Promise<void>;
+}
+
 /** What the open page's editor does for the controller (registered by the page view). */
 export interface PageEditorHooks {
   /** Ticks / unticks the to-do at `path` (child indices from the doc); false when there is none. */
@@ -245,6 +253,8 @@ export class NotesController {
   pagePresence: unknown = null;
   /** Sharing (P11-N5b); `null` until `attachSync` (tests without a relay). */
   sync: SyncManager | null = null;
+  /** The desktop shell (notebook folders, link base); `null` on the web. */
+  desktop: DesktopHost | null = null;
   /** The device id the core uses without sharing keys (`web-…`; its history entries are this device's). */
   private legacyDevice: string | null = null;
 
@@ -407,6 +417,8 @@ export class NotesController {
 
   /** `navigator.storage.persist()`; denied → the backup hint. */
   private async requestPersistence(): Promise<void> {
+    // Desktop: notebooks are folders on disk; nothing can evict them.
+    if (this.desktop) return this.set({ storage: "persisted" });
     const s = typeof navigator === "undefined" ? undefined : navigator.storage;
     if (!s?.persist) return this.set({ storage: "denied" });
     try {
@@ -420,6 +432,7 @@ export class NotesController {
   /** Loads a stored notebook into the core. `null` when nothing of it is stored. */
   private async loadFromStore(id: string, warnings: LoadWarning[]): Promise<OpenNotebook | null> {
     const docs = await this.store.loadNotebook(id);
+    warnings.push(...(this.store.takeWarnings?.() ?? []));
     if (!docs.some((d) => d.doc === id)) return null;
     for (const d of docs) {
       const r = unwrap(await this.backend.loadDoc(id, d.doc, d.snapshot, d.log)) as Body<"loaded">;
@@ -487,6 +500,11 @@ export class NotesController {
   private async addKnown(id: string, name: string, color: string | null): Promise<void> {
     const rest = this.state.known.filter((k) => k.id !== id);
     await this.saveKnown([...rest, { id, name, color, open: true, lastOpened: this.now() }]);
+    if (this.desktop) {
+      // The folder exists once the notebook's first writes landed.
+      await this.persister.flush();
+      await this.desktop.touch(id, name).catch(() => undefined);
+    }
   }
 
   /** Re-reads a notebook's summary and tree from the core. */
@@ -691,6 +709,12 @@ export class NotesController {
         else this.set({ notebook: null, section: null, page: null });
       }
     });
+  }
+
+  /** Desktop: a notebook folder the shell opened (File › Open notebook folder…, the recent folders). */
+  async openFolderNotebook(id: string, name: string): Promise<void> {
+    if (!this.state.known.some((k) => k.id === id)) await this.run(() => this.addKnown(id, name, null));
+    await this.openKnown(id);
   }
 
   /** Opens a notebook stored in this browser (File › Open). */
@@ -1418,11 +1442,17 @@ export class NotesController {
     void this.store.setMeta(META_SETTINGS, settings).catch((e) => this.fail(e));
   }
 
+  /** This app's URL (desktop: the relay's web app – the shell has no URL of its own). */
+  private linkBase(): string {
+    if (this.desktop) return this.desktop.linkBase;
+    return typeof location === "undefined" ? "" : `${location.origin}${location.pathname}`;
+  }
+
   /** The link that opens a page (`#page=<page doc id>` on this app's URL). */
   pageLink(node: string): string | null {
     const n = findNode(this.tree(), node);
     if (!n?.pageDoc) return null;
-    const base = typeof location === "undefined" ? "" : `${location.origin}${location.pathname}`;
+    const base = this.linkBase();
     return `${base}#page=${n.pageDoc}`;
   }
 
@@ -1604,7 +1634,7 @@ export class NotesController {
     if (!e) return null;
     try {
       const inv = e.invite(role);
-      const base = typeof location === "undefined" ? "" : `${location.origin}${location.pathname}`;
+      const base = this.linkBase();
       const name = this.state.profile?.name ?? "";
       return `${base}#i=${inv.fragment}${name ? `&n=${encodeURIComponent(name)}` : ""}`;
     } catch (err) {

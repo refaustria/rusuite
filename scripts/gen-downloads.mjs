@@ -38,7 +38,7 @@ export function loadStoreLinks(file = path.join(ROOT, "docs/store/links.json")) 
     raw = {};
   }
   const url = (v) => (typeof v === "string" && /^https:\/\/[^\s"'<>]+$/.test(v.trim()) ? v.trim() : "");
-  return Object.fromEntries(APPS.map((a) => [a.id, { play: url(raw?.[a.id]?.play), appstore: url(raw?.[a.id]?.appstore) }]));
+  return Object.fromEntries(APPS.filter((a) => a.mobile !== false).map((a) => [a.id, { play: url(raw?.[a.id]?.play), appstore: url(raw?.[a.id]?.appstore) }]));
 }
 
 export const RELEASES_URL = "https://github.com/refaustria/rusuite/releases";
@@ -47,7 +47,13 @@ const APPS = [
   { id: "calc", name: "Rusuite Calc", kind: "portal.calc.kind" },
   { id: "write", name: "Rusuite Write", kind: "portal.write.kind" },
   { id: "show", name: "Rusuite Show", kind: "portal.show.kind" },
+  // Rusuite Notes (P11-N7): desktop only (no phone app yet); `hidden` until the public launch (P11-R1) – its release
+  // files are built and signed but not listed. Remove `hidden` to show it (docs/release.md, "Rusuite Notes launch").
+  { id: "notes", name: "Rusuite Notes", kind: "portal.notes.kind", hidden: true, mobile: false },
 ];
+
+/** The apps the page lists (`hidden` ones are left out, files and checksums included). */
+const SHOWN = APPS.filter((a) => !a.hidden);
 
 /** Per OS the package kinds in display order; the first is the main button. */
 export const OSES = [
@@ -103,7 +109,7 @@ export const OSES = [
 
 /** The app, OS and package kind of a release asset, or null (updater archives, signatures, other files). */
 export function classify(assetName) {
-  const app = /^Rusuite[ ._-](Calc|Write|Show)[_-]/i.exec(assetName)?.[1]?.toLowerCase();
+  const app = /^Rusuite[ ._-](Calc|Write|Show|Notes)[_-]/i.exec(assetName)?.[1]?.toLowerCase();
   if (!app) return null;
   for (const os of OSES) {
     const kind = os.kinds.find((k) => k.test.test(assetName));
@@ -152,7 +158,7 @@ function stepsHtml(cat, os) {
     const terminal = st.terminal
       ? `
           <p class="term-intro" ${i18n(cat, st.terminal)}</p>
-          <ul class="term">${APPS.map((app) => {
+          <ul class="term">${SHOWN.map((app) => {
             const cmd = `xattr -dr com.apple.quarantine "/Applications/${app.name}.app"`;
             return `
             <li><code>${esc(cmd)}</code><button type="button" class="copy" data-copy="${esc(cmd)}" data-i18n-aria-label="portal.dl.copy.aria" aria-label="${esc(cat["portal.dl.copy.aria"])}" ${i18n(cat, "portal.dl.copy")}</button></li>`;
@@ -277,7 +283,7 @@ const STORES = [
 
 /** "Phones and tablets" (P10-R1): per app a Google Play and an App Store button, or "coming soon" where there is no link. */
 function mobileSection(cat, links) {
-  const rows = APPS.map((app) => {
+  const rows = SHOWN.filter((a) => a.mobile !== false).map((app) => {
     const buttons = STORES.map((store, i) => {
       const href = links?.[app.id]?.[store.id] ?? "";
       return href
@@ -310,7 +316,7 @@ export function render(release, cat = loadCatalog(), { links = loadStoreLinks() 
   const tag = String(release.tagName ?? "");
   const version = publicName(tag);
   const date = String(release.publishedAt ?? "").slice(0, 10);
-  const assets = (release.assets ?? []).map((a) => ({ ...a, info: classify(a.name) })).filter((a) => a.info);
+  const assets = (release.assets ?? []).map((a) => ({ ...a, info: classify(a.name) })).filter((a) => a.info && SHOWN.some((x) => x.id === a.info.app));
   const find = (app, os, kind) => assets.find((a) => a.info.app === app && a.info.os === os && a.info.kind === kind);
   const prerelease = Boolean(release.isPrerelease) || tag.includes("-");
   const signing = signingOf(release.signing);
@@ -318,7 +324,7 @@ export function render(release, cat = loadCatalog(), { links = loadStoreLinks() 
   const unsigned = OSES.filter((os) => !signing[os.id]);
 
   const sections = OSES.map((os) => {
-    const rows = APPS.map((app) => {
+    const rows = SHOWN.map((app) => {
       const buttons = os.kinds
         .map((kind, i) => {
           const a = find(app.id, os.id, kind.id);

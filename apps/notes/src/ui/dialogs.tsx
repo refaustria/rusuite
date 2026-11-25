@@ -1,6 +1,6 @@
 // The app's dialogs: one at a time, opened through `DialogHost`'s `open(...)`.
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { BTN, Dialog, FOCUS_RING, PromptDialog, publicVersion, RUSUITE_VERSION } from "@rusuite/ui-shared";
 import type { NotesController } from "../controller";
 import { allPages, allSections, SECTION_COLORS } from "../tree";
@@ -9,6 +9,8 @@ import { useNotes } from "./hooks";
 import { ExportDialog, ImportDialog } from "./ImportExport";
 import { CustomizeTagsDialog } from "./TagsDialog";
 import { ShareDialog } from "./Share";
+import { desktopShell } from "../tauri/shell";
+import { parseInviteHash } from "../sync/manager";
 
 export type DialogSpec =
   | { kind: "prompt"; title: string; label: string; initial?: string; confirm?: string; onSubmit: (value: string) => void }
@@ -22,7 +24,8 @@ export type DialogSpec =
   | { kind: "options" }
   | { kind: "import" }
   | { kind: "export"; scope: "page" | "section"; node?: string }
-  | { kind: "share" };
+  | { kind: "share" }
+  | { kind: "joinLink" };
 
 const DialogContext = createContext<(d: DialogSpec | null) => void>(() => undefined);
 
@@ -63,6 +66,7 @@ export function DialogHost({ ctl, children }: { ctl: NotesController; children: 
       {spec?.kind === "import" && <ImportDialog ctl={ctl} onClose={close} />}
       {spec?.kind === "export" && <ExportDialog ctl={ctl} scope={spec.scope} node={spec.node} onClose={close} />}
       {spec?.kind === "share" && <ShareDialog ctl={ctl} onClose={close} />}
+      {spec?.kind === "joinLink" && <JoinLinkDialog onClose={close} />}
     </DialogContext.Provider>
   );
 }
@@ -285,8 +289,9 @@ function OptionsDialog({ ctl, onClose }: { ctl: NotesController; onClose: () => 
           </select>
         </label>
         <p className="text-ui-muted" data-testid="options-storage">
-          {t(storage === "persisted" ? "notes.options.persisted" : "notes.options.notPersisted")}
+          {desktopShell() ? t("notes.desktop.storage") : t(storage === "persisted" ? "notes.options.persisted" : "notes.options.notPersisted")}
         </p>
+        {desktopShell() && <SharingOptions />}
         <div className="flex justify-end">
           <button type="button" className={BTN} onClick={onClose}>
             {t("notes.close")}
@@ -294,5 +299,120 @@ function OptionsDialog({ ctl, onClose }: { ctl: NotesController; onClose: () => 
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/** The invite part of a pasted link (`…#i=…`, or the bare fragment) → the hash to join, or `null`. */
+export function inviteHashOf(text: string): string | null {
+  const v = text.trim();
+  const at = v.indexOf("#");
+  const hash = at >= 0 ? v.slice(at) : `#i=${v}`;
+  return parseInviteHash(hash) ? hash : null;
+}
+
+/** Desktop: File › Join with link… – the shell opens no links itself, so the user pastes the invite. */
+function JoinLinkDialog({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  const [text, setText] = useState("");
+  const hash = inviteHashOf(text);
+  const submit = () => {
+    if (!hash) return;
+    onClose();
+    // The join flow of an opened invite link (Share.tsx `JoinOverlay`: the name first, then the join).
+    location.hash = hash;
+  };
+  return (
+    <Dialog open title={t("notes.desktop.joinTitle")} onClose={onClose}>
+      <form
+        className="flex w-96 flex-col gap-3 text-sm"
+        data-testid="join-link-dialog"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <label className="flex flex-col gap-1">
+          {t("notes.desktop.joinLabel")}
+          <input autoFocus className={`h-8 rounded border border-ui-border bg-ui-bg px-2 ${FOCUS_RING}`} value={text} onChange={(e) => setText(e.target.value)} data-testid="join-link-input" />
+        </label>
+        {text.trim() !== "" && !hash && <p className="text-red-600">{t("notes.desktop.joinInvalid")}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={BTN} onClick={onClose}>
+            {t("notes.cancel")}
+          </button>
+          <button type="submit" className={BTN} disabled={!hash}>
+            {t("notes.desktop.join")}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Desktop: File › Options › Sharing – the relay (https; http only on the local network when allowed). */
+function SharingOptions() {
+  const t = useT();
+  const shell = desktopShell()!;
+  const [url, setUrl] = useState(shell.relay.url);
+  const [allowHttp, setAllowHttp] = useState(shell.relay.allowHttp);
+  const [error, setError] = useState<string | null>(null);
+  const [inFile, setInFile] = useState(false);
+  useEffect(() => {
+    void shell.api.keysInFile().then(setInFile, () => undefined);
+  }, [shell]);
+  const changed = url.trim() !== shell.relay.url || allowHttp !== shell.relay.allowHttp;
+  const save = async () => {
+    try {
+      await shell.api.setRelay(url.trim(), allowHttp);
+      await shell.api.restart();
+    } catch (e) {
+      setError(t("notes.desktop.relayInvalid", { message: e instanceof Error ? e.message : String(e) }));
+    }
+  };
+  return (
+    <fieldset className="flex flex-col gap-2 border-t border-ui-border pt-3" data-testid="options-sharing">
+      <legend className="font-semibold">{t("notes.desktop.sharing")}</legend>
+      <label className="flex flex-col gap-1">
+        {t("notes.desktop.relayUrl")}
+        <input
+          className={`h-8 rounded border border-ui-border bg-ui-bg px-2 ${FOCUS_RING}`}
+          value={url}
+          spellCheck={false}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            setError(null);
+          }}
+          data-testid="relay-url"
+        />
+      </label>
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={allowHttp} onChange={(e) => setAllowHttp(e.target.checked)} data-testid="relay-allow-http" />
+        {t("notes.desktop.allowHttp")}
+      </label>
+      <p className="text-ui-muted">{t("notes.desktop.relayHint", { url: shell.relay.defaultUrl })}</p>
+      {error && <p className="text-red-600" role="alert">{error}</p>}
+      {inFile && (
+        <p className="text-amber-700" role="status" data-testid="keys-in-file">
+          {t("notes.desktop.keysInFile")}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        {url.trim() !== shell.relay.defaultUrl && (
+          <button
+            type="button"
+            className={BTN}
+            onClick={() => {
+              setUrl(shell.relay.defaultUrl);
+              setAllowHttp(false);
+            }}
+          >
+            {t("notes.desktop.relayDefault")}
+          </button>
+        )}
+        <button type="button" className={BTN} disabled={!changed || !url.trim()} onClick={() => void save()} data-testid="relay-save">
+          {t("notes.desktop.relaySave")}
+        </button>
+      </div>
+    </fieldset>
   );
 }

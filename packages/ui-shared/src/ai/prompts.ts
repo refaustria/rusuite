@@ -5,7 +5,7 @@
 import type { AiMessage, AiTool } from "./types";
 import { localeInfo, type Locale } from "../i18n/locales";
 
-export type AiApp = "write" | "calc" | "show";
+export type AiApp = "write" | "calc" | "show" | "notes";
 
 /** The context an app hands to an action (built when the user runs it). */
 export interface DocContext {
@@ -45,7 +45,7 @@ export function truncate(text: string, max: number): { text: string; truncated: 
   return { text: text.slice(0, end), truncated: true };
 }
 
-const APP_NAME: Record<AiApp, string> = { write: "Rusuite Write (a word processor)", calc: "Rusuite Calc (a spreadsheet)", show: "Rusuite Show (a presentation editor)" };
+const APP_NAME: Record<AiApp, string> = { write: "Rusuite Write (a word processor)", calc: "Rusuite Calc (a spreadsheet)", show: "Rusuite Show (a presentation editor)", notes: "Rusuite Notes (a note-taking app)" };
 
 /** XML-ish escaping of the closing tag only (the content is the user's text and stays as written). */
 export const block = (tag: string, text: string, attrs = "") => `<${tag}${attrs}>\n${text.replace(new RegExp(`</${tag}>`, "gi"), `<\\/${tag}>`)}\n</${tag}>`;

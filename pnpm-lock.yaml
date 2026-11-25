@@ -223,6 +223,9 @@ importers:
       '@rusuite/ui-shared':
         specifier: workspace:*
         version: link:../../packages/ui-shared
+      '@tauri-apps/api':
+        specifier: 2.12.0
+        version: 2.12.0
       '@tiptap/core':
         specifier: 3.31.3
         version: 3.31.3(@tiptap/pm@3.31.3)
@@ -260,6 +263,9 @@ importers:
       '@tailwindcss/vite':
         specifier: 4.3.3
         version: 4.3.3(vite@6.4.3(@types/node@22.10.2)(jiti@2.7.0)(lightningcss@1.32.0))
+      '@tauri-apps/cli':
+        specifier: 2.12.0
+        version: 2.12.0
       '@testing-library/react':
         specifier: 16.3.3
         version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

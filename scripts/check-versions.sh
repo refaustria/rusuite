@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks that every version string of the release is the same (P8-41): the Cargo workspace version
 # ([workspace.package]), each workspace member (`version.workspace = true` or the same literal, and its Cargo.lock
-# entry), the three tauri.conf.json files (`version` and the MSI-safe `bundle.windows.wix.version` derived from it)
+# entry), every apps/*/src-tauri/tauri.conf.json (Calc, Write, Show, Notes) (`version` and the MSI-safe `bundle.windows.wix.version` derived from it)
 # and the shipped package.json files (apps/*, packages/* except the e2e test harness).
 # Usage: scripts/check-versions.sh [expected-version]   (e.g. `${GITHUB_REF_NAME#v}` in the release workflow)
 # Members are read from the root Cargo.toml (globs expanded), so new crates are covered without changes here.

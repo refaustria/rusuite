@@ -4,8 +4,8 @@
 import type { ReactNode } from "react";
 import type { Editor } from "@tiptap/core";
 import {
-  ColorPicker, CONTEXT_COLORS, cssColor, OFFICE_THEME, ParagraphStyleSelect, Ribbon, RibbonButton, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack,
-  RibbonTableSizePicker, type Color, type RibbonMenuItem, type RibbonTab,
+  aiRibbonGroup, ColorPicker, CONTEXT_COLORS, cssColor, OFFICE_THEME, ParagraphStyleSelect, Ribbon, RibbonButton, RibbonMenuButton, RibbonRow, RibbonSplitButton, RibbonStack,
+  RibbonTableSizePicker, type BackstageCommand, type Color, type RibbonMenuItem, type RibbonTab,
 } from "@rusuite/ui-shared";
 import { Icon } from "@rusuite/ui-shared";
 import type { NotesController } from "../controller";
@@ -25,6 +25,7 @@ import { useEditorTick, useNotes } from "./hooks";
 import { NotesIcon } from "./icons";
 import { linkDialog, pageLinkDialog } from "./PageView";
 import { useDrawTab } from "../canvas";
+import { desktopShell } from "../tauri/shell";
 
 export const NOTES_ACCENT = "#7719AA";
 
@@ -47,6 +48,7 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
   });
   const off = !editor || editor.isDestroyed;
   const e = editor!;
+  const shell = desktopShell();
   const active = (name: string, attrs?: Record<string, unknown>) => !off && e.isActive(name, attrs);
   const run = (fn: (ed: Editor) => unknown) => () => {
     if (!off) fn(e);
@@ -176,6 +178,8 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
           </>
         ),
       },
+      // The AI assistant: desktop only (the web build has none, ADR 0009).
+      ...(shell?.ai ? [aiRibbonGroup(shell.ai)] : []),
     ],
   };
 
@@ -409,6 +413,30 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
 
   const newNotebook = () =>
     open({ kind: "prompt", title: t("notes.notebook.new"), label: t("notes.notebook.name"), initial: t("notes.notebook.defaultName"), confirm: t("notes.create"), onSubmit: (v) => void ctl.createNotebook(v) });
+  // Desktop (P11-N7): notebooks are folders – a new one in a picked folder, an existing folder, an invite link.
+  const desktopCommands: BackstageCommand[] = shell
+    ? [
+        {
+          id: "newInFolder",
+          label: t("notes.desktop.newInFolder"),
+          icon: "new",
+          onSelect: () => void shell.api.pickLocation().then((picked) => picked && newNotebook(), (err: unknown) => ctl.fail(err)),
+        },
+        {
+          id: "openFolder",
+          label: t("notes.desktop.openFolder"),
+          icon: "folder",
+          onSelect: () =>
+            void shell.api.openFolder().then(
+              (f) => f && ctl.openFolderNotebook(f.id, f.name),
+              (err: unknown) => ctl.fail(err),
+            ),
+        },
+        { id: "joinLink", label: t("notes.desktop.joinLink"), icon: "plus", onSelect: () => open({ kind: "joinLink" }) },
+      ]
+    : [];
+  const options = () => open({ kind: "options" });
+  const ai = shell?.ai ?? null;
 
   return (
     <Ribbon
@@ -421,7 +449,13 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
       backstage={{
         onNew: newNotebook,
         onCloseDocument: notebook ? () => void ctl.closeNotebook(notebook) : undefined,
-        onOptions: () => open({ kind: "options" }),
+        // With the assistant (desktop), File › Options… is the shared dialog with Notes' options as its General page.
+        onOptions: ai
+          ? () => {
+              ai.moreOptions = options;
+              ai.openSettings();
+            }
+          : options,
         print: <NotesPrintPage ctl={ctl} />,
         onExportPdf: () => void exportNotesPdf(ctl),
         exportDisabled: !opened,
@@ -429,8 +463,9 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
         commands: [
           { id: "import", label: t("notes.import.menu"), icon: "open", onSelect: () => open({ kind: "import" }) },
           { id: "exportAs", label: t("notes.export.menu"), icon: "saveAs", disabled: !notebook, onSelect: () => open({ kind: "export", scope: "page" }) },
-          { id: "downloadBackup", label: t("notes.backup.download"), icon: "save", disabled: !notebook, onSelect: () => void ctl.downloadBackup() },
-          { id: "openBackup", label: t("notes.backup.openDots"), icon: "open", onSelect: () => void ctl.openBackupFile() },
+          ...desktopCommands,
+          { id: "downloadBackup", label: t(shell ? "notes.desktop.saveBackup" : "notes.backup.download"), icon: "save", disabled: !notebook, onSelect: () => void ctl.downloadBackup() },
+          { id: "openBackup", label: t(shell ? "notes.desktop.importBackup" : "notes.backup.openDots"), icon: "open", onSelect: () => void ctl.openBackupFile() },
           { id: "about", label: t("notes.about.menu"), icon: "sparkle", footer: true, onSelect: () => open({ kind: "about" }) },
         ],
         info: <BackstageHome ctl={ctl} />,
