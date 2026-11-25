@@ -39,5 +39,5 @@ Claude-Session: https://claude.ai/code/session_01YGiiEDN1zSPaDE4h1jA1hU
 - Task ids `P11-N<n>` (Notes), `P11-O<n>` (OneNote import), `P11-L<n>`, `P11-X<n>`, `P11-R<n>`. e2e ports: Notes 511n, relay/sharing 512n, import/export 513n, languages/polish 514n. Plan: `docs/plan-3.14159.md`; spec: `docs/superpowers/specs/2026-11-12-notes-design.md` (read it first).
 - Commit trailer for this cycle (replaces the one above):
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_019QH3dMDpgbh6DfgJE9ox7s
+Claude-Session: https://claude.ai/code/session_019QH3dMPHhggHeeqwvvABcU
 - Disk is tight (~25 GB free): when done, delete your worktree's `target/` except what the PM needs to verify is reproducible (`cargo clean` in the worktree after your final test run is fine).
