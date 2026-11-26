@@ -922,5 +922,6 @@
   "reader.pptx.picture.imageMissing": "parte de imagen {part} inexistente; imagen descartada",
   "reader.pptx.tableStyle.diagonal": "bordes diagonales del estilo de tabla descartados",
   "reader.pptx.tableStyle.threeD": "efectos 3D del estilo de tabla descartados",
-  "reader.pptx.tableStyle.partDropped": "parte del estilo de tabla {part} descartada"
+  "reader.pptx.tableStyle.partDropped": "parte del estilo de tabla {part} descartada",
+  "ai.settings.keyFile": "Este ordenador no tiene llavero del sistema: la clave se guarda en un archivo de la carpeta de datos de la app, sin cifrar: cualquiera que pueda leer tus archivos puede leerla. Nunca se envía a nadie más que al proveedor."
 }

@@ -913,5 +913,6 @@
   "reader.pptx.picture.imageMissing": "afbeeldingsonderdeel {part} ontbreekt; afbeelding genegeerd",
   "reader.pptx.tableStyle.diagonal": "diagonale randen van tabelstijl genegeerd",
   "reader.pptx.tableStyle.threeD": "3D-effecten van tabelstijl genegeerd",
-  "reader.pptx.tableStyle.partDropped": "tabelstijlonderdeel {part} genegeerd"
+  "reader.pptx.tableStyle.partDropped": "tabelstijlonderdeel {part} genegeerd",
+  "ai.settings.keyFile": "Deze computer heeft geen sleutelhanger van het systeem: de sleutel staat in een bestand in de gegevensmap van de app – onversleuteld: iedereen die je bestanden kan lezen, kan hem lezen. Wordt alleen naar de aanbieder gestuurd."
 }

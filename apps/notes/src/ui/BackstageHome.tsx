@@ -133,7 +133,7 @@ export function BackstageHome({ ctl }: { ctl: NotesController }) {
             onClick={() =>
               open({
                 kind: "confirm",
-                title: t("notes.privacy.remove"),
+                title: t(desktopShell() ? "notes.desktop.remove" : "notes.privacy.remove"),
                 message: t(desktopShell() ? "notes.desktop.removeConfirm" : "notes.privacy.removeConfirm"),
                 confirm: t("notes.privacy.removeConfirmButton"),
                 onConfirm: () =>
@@ -144,8 +144,35 @@ export function BackstageHome({ ctl }: { ctl: NotesController }) {
               })
             }
           >
-            {t("notes.privacy.remove")}
+            {t(desktopShell() ? "notes.desktop.remove" : "notes.privacy.remove")}
           </button>
+          {desktopShell() && (
+            <button
+              type="button"
+              data-testid="privacy-remove-folders"
+              className={`rounded border border-ui-border px-3 py-1.5 text-sm hover:bg-ui-hover ${FOCUS_RING}`}
+              onClick={() => {
+                const shell = desktopShell();
+                if (!shell) return;
+                void shell.api.folders().then((paths) =>
+                  open({
+                    kind: "confirm",
+                    title: t("notes.desktop.removeFolders"),
+                    message: t(paths.length ? "notes.desktop.removeFoldersConfirm" : "notes.desktop.removeConfirm"),
+                    details: paths,
+                    confirm: t(paths.length ? "notes.desktop.removeFoldersButton" : "notes.privacy.removeConfirmButton"),
+                    onConfirm: () =>
+                      void ctl.clearLocalData({ deleteFolders: paths.length > 0 }).then(() => {
+                        setRemoved(true);
+                        leave();
+                      }),
+                  }),
+                );
+              }}
+            >
+              {t("notes.desktop.removeFolders")}
+            </button>
+          )}
           {removed && (
             <span role="status" className="text-sm text-ui-muted" data-testid="privacy-removed">
               {t("notes.privacy.removed")}

@@ -129,6 +129,9 @@ export interface AiStore {
   setKey(provider: AiProviderKind, key: string): Promise<void>;
   /** Deleting a missing key is not an error. */
   deleteKey(provider: AiProviderKind): Promise<void>;
+  /** Desktop without a usable OS keyring: the shell kept the key in a file of its app data folder (Settings › AI
+   *  warns, like the web's unencrypted storage). Missing: never. */
+  keyInFile?(): Promise<boolean>;
 }
 
 export const AI_SETTINGS_KEY = "rusuite.ai.settings";
@@ -180,8 +183,21 @@ type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 export class TauriAiStore extends LocalSettings implements AiStore {
   readonly kind = "desktop" as const;
 
-  constructor(private readonly inv: Invoke = invoke) {
+  /** `keyInfo`: the shell's command that reports `{ inFile }` (a shell with a file fallback for the key). */
+  constructor(
+    private readonly inv: Invoke = invoke,
+    private readonly options: { keyInfo?: string } = {},
+  ) {
     super();
+  }
+
+  async keyInFile(): Promise<boolean> {
+    if (!this.options.keyInfo) return false;
+    try {
+      return (await this.inv<{ inFile: boolean }>(this.options.keyInfo)).inFile === true;
+    } catch {
+      return false;
+    }
   }
 
   getKey(provider: AiProviderKind): Promise<string | null> {

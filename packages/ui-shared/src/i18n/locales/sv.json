@@ -913,5 +913,6 @@
   "reader.pptx.picture.imageMissing": "bilddelen {part} saknas; bilden ignorerades",
   "reader.pptx.tableStyle.diagonal": "diagonala kantlinjer i tabellformat ignorerades",
   "reader.pptx.tableStyle.threeD": "3D-effekter i tabellformat ignorerades",
-  "reader.pptx.tableStyle.partDropped": "tabellformatdelen {part} ignorerades"
+  "reader.pptx.tableStyle.partDropped": "tabellformatdelen {part} ignorerades",
+  "ai.settings.keyFile": "Den här datorn har ingen systemnyckelring: nyckeln sparas i en fil i appens datamapp – okrypterad: alla som kan läsa dina filer kan läsa den. Skickas aldrig någon annanstans än till leverantören."
 }

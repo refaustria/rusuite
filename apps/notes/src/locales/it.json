@@ -541,5 +541,10 @@
   "notes.welcome.title": "Benvenuto in Rusuite Notes",
   "notes.zoomIn": "Ingrandisci",
   "notes.zoomOut": "Riduci",
-  "notes.import.cancelled": "Annullato: i file rimanenti non sono stati importati."
+  "notes.import.cancelled": "Annullato: i file rimanenti non sono stati importati.",
+  "notes.desktop.remove": "Rimuovi i dati locali",
+  "notes.desktop.removeFolders": "Elimina anche le cartelle dei blocchi appunti…",
+  "notes.desktop.removeFoldersConfirm": "Notes dimentica tutti i blocchi appunti, le sue impostazioni e le tue chiavi di condivisione, ed elimina definitivamente queste cartelle con tutte le pagine e le immagini. Le copie che altri condividono con te restano a loro. Non si può annullare.",
+  "notes.desktop.removeFoldersButton": "Elimina definitivamente",
+  "notes.desktop.aiRestart": "Riavvia Notes perché l’assistente possa raggiungere il tuo endpoint IA."
 }

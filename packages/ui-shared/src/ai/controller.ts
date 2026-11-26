@@ -218,6 +218,11 @@ export class Assistant {
     return this.store.kind;
   }
 
+  /** Whether the shell keeps the key in a file (no OS keyring; `AiStore.keyInFile`). */
+  keyInFile(): Promise<boolean> {
+    return this.store.keyInFile?.() ?? Promise.resolve(false);
+  }
+
   getState = (): AssistantState => this.state;
 
   subscribe = (fn: () => void): (() => void) => {

@@ -1450,15 +1450,16 @@ export class NotesController {
     }
   }
 
-  /** ADR 0009 rule 4: removes every notebook and setting of this app from this browser (the open ones close). */
-  clearLocalData(): Promise<void> {
+  /** ADR 0009 rule 4: removes every notebook and setting of this app from this browser (the open ones close).
+   *  Desktop: `deleteFolders` deletes the notebook folders too (after the user confirmed the listed paths). */
+  clearLocalData(opts?: { deleteFolders?: boolean }): Promise<void> {
     return this.run(async () => {
       this.set(await this.closePageState());
       for (const nb of this.state.notebooks) await this.call({ type: "closeNotebook", id: nb.summary.id });
       await this.backend.takePersistEffects();
       await this.persister.flush();
       this.persister.discard();
-      await this.store.clearAll();
+      await this.store.clearAll(opts);
       this.blobs.clear();
       this.treeOps = [];
       this.treeRedo = [];

@@ -940,5 +940,6 @@
   "reader.pptx.picture.imageMissing": "il-parti tal-immaġni {part} nieqsa; l-istampa tneħħiet",
   "reader.pptx.tableStyle.diagonal": "il-bordi dijagonali tal-istil tat-tabella tneħħew",
   "reader.pptx.tableStyle.threeD": "l-effetti 3D tal-istil tat-tabella tneħħew",
-  "reader.pptx.tableStyle.partDropped": "il-parti tal-istil tat-tabella {part} tneħħiet"
+  "reader.pptx.tableStyle.partDropped": "il-parti tal-istil tat-tabella {part} tneħħiet",
+  "ai.settings.keyFile": "Dan il-kompjuter m’għandux keyring tas-sistema: iċ-ċavetta tinħażen f’fajl fil-fowlder tad-data tal-app – mhux kriptata: kull min jista’ jaqra l-fajls tiegħek jista’ jaqraha. Qatt ma tintbagħat x’imkien ħlief lill-fornitur."
 }

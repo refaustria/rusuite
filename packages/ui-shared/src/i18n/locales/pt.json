@@ -922,5 +922,6 @@
   "reader.pptx.picture.imageMissing": "parte da imagem {part} em falta; imagem ignorada",
   "reader.pptx.tableStyle.diagonal": "limites diagonais do estilo de tabela ignorados",
   "reader.pptx.tableStyle.threeD": "efeitos 3D do estilo de tabela ignorados",
-  "reader.pptx.tableStyle.partDropped": "parte do estilo de tabela {part} ignorada"
+  "reader.pptx.tableStyle.partDropped": "parte do estilo de tabela {part} ignorada",
+  "ai.settings.keyFile": "Este computador não tem porta-chaves do sistema: a chave fica num ficheiro da pasta de dados da app, sem encriptação: quem conseguir ler os teus ficheiros pode lê-la. Nunca é enviada a ninguém além do fornecedor."
 }

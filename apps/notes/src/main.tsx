@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Assistant, I18nProvider, isTauri, TauriAiStore } from "@rusuite/ui-shared";
+import { Assistant, I18nProvider, isTauri, providerOrigin, TauriAiStore } from "@rusuite/ui-shared";
 import App from "./App";
 import { WebNotesBackend, type NotesBackend, type NotesWasmModule } from "./backend";
 import type { ConvertWasmModule } from "./convert/loader";
@@ -14,7 +14,7 @@ import { SyncManager } from "./sync/manager";
 import { relaySocket, relaySocketTo } from "./sync/socket";
 import type { SocketFactory } from "./sync/engine";
 import { setDesktopShell } from "./tauri/shell";
-import "./i18n";
+import { t } from "./i18n";
 import "./styles.css";
 
 async function loadWasm(): Promise<NotesWasmModule & SyncWasmModule> {
@@ -41,13 +41,36 @@ async function desktopParts(): Promise<{ backend: NotesBackend; store: NotesStor
   await backend.reset();
   const api = new TauriDesktop();
   const relay = await api.relay();
-  setDesktopShell({ api, relay, ai: new Assistant({ store: new TauriAiStore() }) });
+  const ai = new Assistant({ store: new TauriAiStore(undefined, { keyInfo: "ai_key_info" }) });
+  setDesktopShell({ api, relay, ai });
   return {
     backend,
     store: new TauriNotesStore(),
     socket: relaySocketTo(relay.wsUrl),
     onReady: (ctl) => {
       ctl.desktop = { linkBase: relay.webBase, touch: async (id, name) => void (await api.touch(id, name)) };
+      // Settings › AI with the user's own endpoint (P11-X1): the window policy allows exactly that origin; the shell
+      // stores it and a restart applies it (as a changed relay).
+      let origin: string | null | undefined;
+      const syncAiHost = () => {
+        const s = ai.getState().settings;
+        let next: string | null = null;
+        try {
+          next = providerOrigin(s);
+        } catch {
+          next = null;
+        }
+        if (next === origin) return;
+        origin = next;
+        void api.setAiHost(next).then(
+          (restart) => {
+            if (restart) ctl.notify(t("notes.desktop.aiRestart"));
+          },
+          () => undefined,
+        );
+      };
+      syncAiHost();
+      ai.subscribe(syncAiHost);
       // Closing the window: the shell holds it until the writes are flushed (at most 5 s).
       void api.onCloseRequested(() => {
         void (async () => {

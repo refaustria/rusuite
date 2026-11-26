@@ -575,5 +575,10 @@
   "notes.welcome.title": "Fáilte go Rusuite Notes",
   "notes.zoomIn": "Zúmáil isteach",
   "notes.zoomOut": "Zúmáil amach",
-  "notes.import.cancelled": "Cealaithe – níor iompórtáladh na comhaid eile."
+  "notes.import.cancelled": "Cealaithe – níor iompórtáladh na comhaid eile.",
+  "notes.desktop.remove": "Bain na sonraí logánta",
+  "notes.desktop.removeFolders": "Scrios fillteáin na leabhar nótaí freisin…",
+  "notes.desktop.removeFoldersConfirm": "Déanann Notes dearmad ar gach leabhar nótaí, ar a shocruithe agus ar d’eochracha comhroinnte, agus scriosann sé na fillteáin seo go buan lena leathanaigh agus a bpictiúir go léir. Fanann na cóipeanna a chomhroinneann daoine eile leat acu siúd. Ní féidir é seo a chealú.",
+  "notes.desktop.removeFoldersButton": "Scrios go buan",
+  "notes.desktop.aiRestart": "Atosaigh Notes ionas gur féidir leis an gcúntóir do chríochphointe IS a bhaint amach."
 }

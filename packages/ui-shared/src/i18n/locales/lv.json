@@ -922,5 +922,6 @@
   "reader.pptx.picture.imageMissing": "trūkst attēla daļas {part}; attēls izlaists",
   "reader.pptx.tableStyle.diagonal": "tabulas stila diagonālās apmales izlaistas",
   "reader.pptx.tableStyle.threeD": "tabulas stila telpiskie efekti izlaisti",
-  "reader.pptx.tableStyle.partDropped": "tabulas stila daļa {part} izlaista"
+  "reader.pptx.tableStyle.partDropped": "tabulas stila daļa {part} izlaista",
+  "ai.settings.keyFile": "Šim datoram nav sistēmas atslēgu saišķa: atslēga tiek glabāta lietotnes datu mapes failā – nešifrēta: ikviens, kas var lasīt tavus failus, var to izlasīt. Tā nekad netiek sūtīta nekur citur kā vien pakalpojuma sniedzējam."
 }

@@ -575,5 +575,10 @@
   "notes.welcome.title": "Merħba f’Rusuite Notes",
   "notes.zoomIn": "Kabbar",
   "notes.zoomOut": "Naqqas",
-  "notes.import.cancelled": "Ikkanċellat – il-fajls l-oħra ma ġewx importati."
+  "notes.import.cancelled": "Ikkanċellat – il-fajls l-oħra ma ġewx importati.",
+  "notes.desktop.remove": "Neħħi d-data lokali",
+  "notes.desktop.removeFolders": "Ħassar ukoll il-fowlders tal-kotba tan-noti…",
+  "notes.desktop.removeFoldersConfirm": "Notes jinsa l-kotba tan-noti kollha, is-settings tiegħu u ċ-ċwievet tiegħek għall-qsim, u jħassar għal dejjem dawn il-fowlders bil-paġni u l-istampi kollha tagħhom. Il-kopji li ħaddieħor jaqsam miegħek jibqgħu għandhom. Dan ma jistax jitreġġa’ lura.",
+  "notes.desktop.removeFoldersButton": "Ħassar għal dejjem",
+  "notes.desktop.aiRestart": "Erġa’ ibda Notes biex l-assistent ikun jista’ jilħaq l-endpoint tal-IA tiegħek."
 }

@@ -227,14 +227,68 @@ fn ws_origin(origin: &str) -> String {
 }
 
 /// The AI providers of Settings › AI the page may call (ADR 0009 amendment: only when the user runs an action):
-/// the two cloud APIs and a local OpenAI-compatible server on this computer. Other self-hosted endpoints are
-/// blocked by the policy (the assistant reports a CSP error).
+/// the two cloud APIs and a local OpenAI-compatible server on this computer, plus the user's own endpoint
+/// ([`AI_HOST_FILE`], P11-X1).
 pub const AI_ORIGINS: &[&str] = &[
     "https://api.anthropic.com",
     "https://api.openai.com",
     "http://localhost:*",
     "http://127.0.0.1:*",
 ];
+
+/// The custom AI endpoint of Settings › AI (P11-X1), in the app data directory: `{"origin": "https://host[:port]"}`.
+/// The other desktop apps run without a Content-Security-Policy, so any configured endpoint works there; Notes
+/// keeps its policy and adds exactly this origin. The page stores it when the settings change; like the relay, it
+/// applies to the next window (restart).
+pub const AI_HOST_FILE: &str = "ai-host.json";
+
+#[derive(Serialize, Deserialize)]
+struct AiHost {
+    origin: String,
+}
+
+/// The stored custom AI origin (none, unreadable or no longer valid: `None`).
+#[must_use]
+pub fn load_ai_host(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join(AI_HOST_FILE)).ok()?;
+    let h: AiHost = serde_json::from_str(&text).ok()?;
+    check_ai_origin(&h.origin).ok().flatten()
+}
+
+/// An AI endpoint origin for the policy: https anywhere, http only on the local network; `None` when the
+/// built-in [`AI_ORIGINS`] already cover it.
+pub fn check_ai_origin(origin: &str) -> Result<Option<String>, RelayError> {
+    let o = check_relay_url(origin, true)?;
+    let builtin = AI_ORIGINS.iter().any(|a| {
+        *a == o
+            || a.strip_suffix(":*").is_some_and(|base| {
+                o == base || o.strip_prefix(base).is_some_and(|r| r.starts_with(':'))
+            })
+    });
+    Ok((!builtin).then_some(o))
+}
+
+/// Stores (or clears) the custom AI origin → the checked origin that is now stored.
+pub fn save_ai_host(dir: &Path, origin: Option<&str>) -> Result<Option<String>, SaveError> {
+    let checked = match origin {
+        Some(o) if !o.trim().is_empty() => check_ai_origin(o)?,
+        _ => None,
+    };
+    let path = dir.join(AI_HOST_FILE);
+    match &checked {
+        Some(o) => {
+            std::fs::create_dir_all(dir)?;
+            let json = serde_json::to_string(&AiHost { origin: o.clone() })
+                .map_err(std::io::Error::other)?;
+            std::fs::write(path, json)?;
+        }
+        None => match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        },
+    }
+    Ok(checked)
+}
 
 /// The problem-report endpoint (Help › Report a problem, ADR 0009 amendment): the same build-time
 /// `REPORT_RELAY_URL` as the page's (the ui-shared report client), allowed as this exact URL.
@@ -245,9 +299,9 @@ pub const REPORT_URL: &str = match option_env!("REPORT_RELAY_URL") {
 
 /// The window's Content-Security-Policy: the app's own files and IPC, `blob:`/`data:` pictures, WebAssembly (the
 /// Loro and sharing-crypto modules) and – for `connect-src` – exactly the relay origin (and its ws: twin) plus
-/// [`AI_ORIGINS`] and the [`REPORT_URL`].
+/// [`AI_ORIGINS`], the user's AI endpoint `ai_host` (checked by [`check_ai_origin`]) and the [`REPORT_URL`].
 #[must_use]
-pub fn csp(relay_origin: &str) -> String {
+pub fn csp(relay_origin: &str, ai_host: Option<&str>) -> String {
     let own = "'self' ipc: http://ipc.localhost tauri: http://tauri.localhost asset: http://asset.localhost";
     let connect = [
         own.to_owned(),
@@ -257,6 +311,7 @@ pub fn csp(relay_origin: &str) -> String {
     .into_iter()
     .chain(std::iter::once(REPORT_URL.trim().to_owned()))
     .chain(AI_ORIGINS.iter().map(|s| (*s).to_owned()))
+    .chain(ai_host.map(str::to_owned))
     .collect::<Vec<_>>()
     .join(" ");
     [
@@ -370,7 +425,7 @@ mod tests {
 
     #[test]
     fn csp_allows_exactly_the_relay_origin() {
-        let p = csp("https://relay.example.org:8443");
+        let p = csp("https://relay.example.org:8443", None);
         let connect = p
             .split("; ")
             .find(|d| d.starts_with("connect-src "))
@@ -407,8 +462,45 @@ mod tests {
         );
         assert!(p.contains("script-src 'self'") && p.contains("'wasm-unsafe-eval'"));
         assert!(!p.contains("'unsafe-eval'"));
-        let local = csp("http://nas.local:8080");
+        let local = csp("http://nas.local:8080", None);
         assert!(local.contains(" ws://nas.local:8080 http://nas.local:8080 "));
+    }
+
+    #[test]
+    fn the_custom_ai_endpoint_is_allowed_exactly() {
+        let dir =
+            std::env::temp_dir().join(format!("rusuite-notes-ai-host-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(load_ai_host(&dir), None);
+        assert_eq!(
+            save_ai_host(&dir, Some("https://LLM.example.org:8443/"))
+                .unwrap()
+                .as_deref(),
+            Some("https://llm.example.org:8443")
+        );
+        let host = load_ai_host(&dir);
+        assert_eq!(host.as_deref(), Some("https://llm.example.org:8443"));
+        let p = csp("https://rusuit.es", host.as_deref());
+        let connect = p
+            .split("; ")
+            .find(|d| d.starts_with("connect-src "))
+            .unwrap();
+        assert!(connect
+            .split(' ')
+            .any(|s| s == "https://llm.example.org:8443"));
+        // Built-in providers and localhost need no entry; public http and junk are refused.
+        assert_eq!(check_ai_origin("https://api.openai.com").unwrap(), None);
+        assert_eq!(check_ai_origin("http://localhost:11434").unwrap(), None);
+        assert_eq!(check_ai_origin("http://127.0.0.1").unwrap(), None);
+        assert_eq!(
+            check_ai_origin("http://gpu.lan:8000").unwrap().as_deref(),
+            Some("http://gpu.lan:8000")
+        );
+        assert!(check_ai_origin("http://llm.example.org").is_err());
+        assert!(check_ai_origin("https://a.org; script-src *").is_err());
+        assert_eq!(save_ai_host(&dir, None).unwrap(), None);
+        assert_eq!(load_ai_host(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -558,5 +558,10 @@
   "notes.welcome.title": "Dobrodošel(a) v Rusuite Notes",
   "notes.zoomIn": "Povečaj",
   "notes.zoomOut": "Pomanjšaj",
-  "notes.import.cancelled": "Preklicano – preostale datoteke niso bile uvožene."
+  "notes.import.cancelled": "Preklicano – preostale datoteke niso bile uvožene.",
+  "notes.desktop.remove": "Odstrani lokalne podatke",
+  "notes.desktop.removeFolders": "Izbriši tudi mape beležnic…",
+  "notes.desktop.removeFoldersConfirm": "Notes pozabi vse beležnice, svoje nastavitve in tvoje ključe za deljenje ter trajno izbriše te mape beležnic z vsemi stranmi in slikami. Kopije, ki jih drugi delijo s tabo, ostanejo pri njih. Tega ni mogoče razveljaviti.",
+  "notes.desktop.removeFoldersButton": "Trajno izbriši",
+  "notes.desktop.aiRestart": "Znova zaženi Notes, da bo pomočnik dosegel tvojo končno točko UI."
 }

@@ -913,5 +913,6 @@
   "reader.pptx.picture.imageMissing": "kuvan osa {part} puuttuu; kuva jätetty pois",
   "reader.pptx.tableStyle.diagonal": "taulukkotyylin lävistäjäreunat jätetty pois",
   "reader.pptx.tableStyle.threeD": "taulukkotyylin 3D-tehosteet jätetty pois",
-  "reader.pptx.tableStyle.partDropped": "taulukkotyylin osa {part} jätetty pois"
+  "reader.pptx.tableStyle.partDropped": "taulukkotyylin osa {part} jätetty pois",
+  "ai.settings.keyFile": "Tässä tietokoneessa ei ole järjestelmän avainnippua: avain tallennetaan sovelluksen datakansion tiedostoon salaamattomana – kuka tahansa, joka voi lukea tiedostojasi, voi lukea sen. Sitä ei lähetetä minnekään muualle kuin palveluntarjoajalle."
 }

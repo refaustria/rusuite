@@ -940,5 +940,6 @@
   "reader.pptx.picture.imageMissing": "tá cuid íomhá {part} ar iarraidh; scaoileadh an pictiúr",
   "reader.pptx.tableStyle.diagonal": "scaoileadh imlínte trasnánacha stíl tábla",
   "reader.pptx.tableStyle.threeD": "scaoileadh maisíochtaí 3-T stíl tábla",
-  "reader.pptx.tableStyle.partDropped": "scaoileadh cuid stíl tábla {part}"
+  "reader.pptx.tableStyle.partDropped": "scaoileadh cuid stíl tábla {part}",
+  "ai.settings.keyFile": "Níl fáinne eochracha córais ar an ríomhaire seo: stóráiltear an eochair i gcomhad i bhfillteán sonraí na haipe – gan chriptiú: is féidir le duine ar bith a fhéadann do chomhaid a léamh í a léamh. Ní sheoltar í in áit ar bith ach chuig an soláthraí."
 }

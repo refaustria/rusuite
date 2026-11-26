@@ -922,5 +922,6 @@
   "reader.pptx.picture.imageMissing": "partea de imagine {part} lipsește; imaginea ignorată",
   "reader.pptx.tableStyle.diagonal": "bordurile diagonale ale stilului de tabel ignorate",
   "reader.pptx.tableStyle.threeD": "efectele 3D ale stilului de tabel ignorate",
-  "reader.pptx.tableStyle.partDropped": "partea de stil de tabel {part} ignorată"
+  "reader.pptx.tableStyle.partDropped": "partea de stil de tabel {part} ignorată",
+  "ai.settings.keyFile": "Acest computer nu are un portchei de sistem: cheia este stocată într-un fișier din folderul de date al aplicației – necriptată: oricine îți poate citi fișierele o poate citi. Nu este trimisă nicăieri în afară de furnizor."
 }

@@ -913,5 +913,6 @@
   "reader.pptx.picture.imageMissing": "a(z) {part} képrész hiányzik; a kép elhagyva",
   "reader.pptx.tableStyle.diagonal": "a táblázatstílus átlós szegélyei elhagyva",
   "reader.pptx.tableStyle.threeD": "a táblázatstílus térhatású effektusai elhagyva",
-  "reader.pptx.tableStyle.partDropped": "a(z) {part} táblázatstílus-rész elhagyva"
+  "reader.pptx.tableStyle.partDropped": "a(z) {part} táblázatstílus-rész elhagyva",
+  "ai.settings.keyFile": "Ezen a számítógépen nincs rendszerkulcstartó: a kulcs az alkalmazás adatmappájának egy fájljában van – titkosítatlanul: bárki elolvashatja, aki a fájljaidat olvashatja. Csak a szolgáltatónak küldjük el."
 }

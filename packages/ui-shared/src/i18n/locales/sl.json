@@ -931,5 +931,6 @@
   "reader.pptx.picture.imageMissing": "del slike {part} manjka; slika izpuščena",
   "reader.pptx.tableStyle.diagonal": "diagonalne obrobe sloga tabele izpuščene",
   "reader.pptx.tableStyle.threeD": "prostorski učinki sloga tabele izpuščeni",
-  "reader.pptx.tableStyle.partDropped": "del sloga tabele {part} izpuščen"
+  "reader.pptx.tableStyle.partDropped": "del sloga tabele {part} izpuščen",
+  "ai.settings.keyFile": "Ta računalnik nima sistemske verige ključev: ključ je shranjen v datoteki v podatkovni mapi aplikacije – nešifriran: kdorkoli lahko bere tvoje datoteke, ga lahko prebere. Nikoli se ne pošlje nikamor drugam kot ponudniku."
 }

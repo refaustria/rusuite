@@ -931,5 +931,6 @@
   "reader.pptx.picture.imageMissing": "časť obrázka {part} chýba; obrázok vynechaný",
   "reader.pptx.tableStyle.diagonal": "diagonálne orámovania štýlu tabuľky vynechané",
   "reader.pptx.tableStyle.threeD": "priestorové efekty štýlu tabuľky vynechané",
-  "reader.pptx.tableStyle.partDropped": "časť štýlu tabuľky {part} vynechaná"
+  "reader.pptx.tableStyle.partDropped": "časť štýlu tabuľky {part} vynechaná",
+  "ai.settings.keyFile": "Tento počítač nemá systémovú kľúčenku: kľúč je uložený v súbore v priečinku údajov aplikácie – nešifrovaný: ktokoľvek, kto môže čítať tvoje súbory, ho môže prečítať. Nikdy sa neposiela nikam inam než poskytovateľovi."
 }

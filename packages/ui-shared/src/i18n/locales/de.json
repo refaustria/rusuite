@@ -913,5 +913,6 @@
   "reader.pptx.picture.imageMissing": "Bildteil {part} fehlt; Bild verworfen",
   "reader.pptx.tableStyle.diagonal": "diagonale Rahmen der Tabellenformatvorlage verworfen",
   "reader.pptx.tableStyle.threeD": "3D-Effekte der Tabellenformatvorlage verworfen",
-  "reader.pptx.tableStyle.partDropped": "Teil {part} der Tabellenformatvorlage verworfen"
+  "reader.pptx.tableStyle.partDropped": "Teil {part} der Tabellenformatvorlage verworfen",
+  "ai.settings.keyFile": "Dieser Computer hat keinen Schlüsselbund des Systems: Der Schlüssel liegt in einer Datei im Datenordner der App – unverschlüsselt: Wer deine Dateien lesen kann, kann ihn lesen. Er wird nur an den Anbieter gesendet."
 }

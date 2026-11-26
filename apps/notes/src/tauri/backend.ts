@@ -5,7 +5,7 @@
 // replies arrive as an `ArrayBuffer`. A command's error is a string: core errors are the core's JSON error reply,
 // which `rethrow` turns into a `CoreError` like the web's.
 
-import { base64ToBytes, bytesToBase64, isTauri, type BackendCapabilities, type PdfPaper } from "@rusuite/ui-shared";
+import { base64ToBytes, bytesToBase64, isTauri, shellRendersPdf, type BackendCapabilities, type PdfPaper } from "@rusuite/ui-shared";
 import type { InvokeArgs } from "@tauri-apps/api/core";
 import { CoreError, rethrow, type NotesBackend, type NotesRequest } from "../backend";
 import { LazyConverter, type ImportFileRequest } from "../convert/loader";
@@ -99,8 +99,9 @@ const dialog = (title: string, filterName?: string) => ({ dialog: { title, ...(f
 export class TauriNotesBackend implements NotesBackend {
   readonly kind = "tauri" as const;
   readonly converter: LazyConverter;
-  /** Desktop: printing is the webview's print dialog, whose "Save as PDF" is the PDF export. */
-  readonly capabilities: BackendCapabilities = { print: true, pdf: false, saveAs: true, share: false };
+  /** Desktop: printing is the webview's print dialog. Export PDF goes straight to a file where the shell renders
+   *  PDFs itself (Linux, as Calc/Write/Show: `export_pdf`); elsewhere it is the print dialog's "Save as PDF". */
+  readonly capabilities: BackendCapabilities = { print: true, pdf: shellRendersPdf(), saveAs: true, share: false };
 
   constructor(private readonly invoke: Invoke = tauriInvoke) {
     this.converter = new TauriConverter(invoke);
@@ -179,6 +180,10 @@ export class TauriNotesBackend implements NotesBackend {
     } catch {
       window.print();
     }
+  }
+  /** File › Export PDF… (`capabilities.pdf`): the native save dialog, then the shell's PDF of the print root. */
+  exportPdf(suggestedName: string, paper: PdfPaper): Promise<string | null> {
+    return this.call("export_pdf", { suggestedName, paper, dialog: { title: t("dialog.exportPdf.title") } });
   }
   /** A native open dialog for backups (`.rnotes`). */
   async openFile(): Promise<{ name: string; bytes: Uint8Array } | null> {
@@ -275,6 +280,18 @@ export class TauriDesktop {
   async keysInFile(): Promise<boolean> {
     return (await this.call<{ inFile: boolean }>("device_keys_info")).inFile;
   }
+  /** The known notebooks' folders ("Remove local data" offers to delete them). */
+  folders(): Promise<string[]> {
+    return this.call("store_folders");
+  }
+  /** Settings › AI changed: the custom endpoint's origin for the window policy → whether a restart applies it. */
+  setAiHost(origin: string | null): Promise<boolean> {
+    return this.call("ai_host_set", { origin });
+  }
+  /** Whether the AI key is in a file of the app data directory (no OS keyring). */
+  async aiKeyInFile(): Promise<boolean> {
+    return (await this.call<{ inFile: boolean }>("ai_key_info")).inFile;
+  }
   closeNow(): Promise<void> {
     return this.call("close_now");
   }
@@ -369,9 +386,10 @@ export class TauriNotesStore implements NotesStore {
     }
     await this.call("meta_set", { key, json: value == null ? null : metaToJson(value) });
   }
-  /** "Remove local data": the app forgets every folder, its settings and the device keys (the folders stay). */
-  clearAll(): Promise<void> {
-    return this.call("store_clear");
+  /** "Remove local data": the app forgets every folder, its settings and the device keys; the folders stay unless
+   *  `deleteFolders` (the user confirmed the listed paths). */
+  clearAll(opts?: { deleteFolders?: boolean }): Promise<void> {
+    return this.call("store_clear", { deleteFolders: opts?.deleteFolders === true });
   }
 }
 

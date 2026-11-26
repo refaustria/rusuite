@@ -541,5 +541,10 @@
   "notes.welcome.title": "Bienvenue dans Rusuite Notes",
   "notes.zoomIn": "Zoom avant",
   "notes.zoomOut": "Zoom arrière",
-  "notes.import.cancelled": "Annulé – les fichiers restants n’ont pas été importés."
+  "notes.import.cancelled": "Annulé – les fichiers restants n’ont pas été importés.",
+  "notes.desktop.remove": "Supprimer les données locales",
+  "notes.desktop.removeFolders": "Supprimer aussi les dossiers des blocs-notes…",
+  "notes.desktop.removeFoldersConfirm": "Notes oublie tous les blocs-notes, ses paramètres et tes clés de partage, et supprime définitivement ces dossiers de blocs-notes avec toutes leurs pages et images. Les copies que d’autres partagent avec toi restent chez eux. Cette action est irréversible.",
+  "notes.desktop.removeFoldersButton": "Supprimer définitivement",
+  "notes.desktop.aiRestart": "Redémarre Notes pour que l’assistant puisse joindre ton point d’accès IA."
 }

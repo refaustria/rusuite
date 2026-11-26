@@ -913,5 +913,6 @@
   "reader.pptx.picture.imageMissing": "pildi osa {part} puudub; pilt jäeti välja",
   "reader.pptx.tableStyle.diagonal": "tabelilaadi diagonaalsed äärised jäeti välja",
   "reader.pptx.tableStyle.threeD": "tabelilaadi ruumilised efektid jäeti välja",
-  "reader.pptx.tableStyle.partDropped": "tabelilaadi osa {part} jäeti välja"
+  "reader.pptx.tableStyle.partDropped": "tabelilaadi osa {part} jäeti välja",
+  "ai.settings.keyFile": "Sellel arvutil pole süsteemi võtmehoidjat: võti on salvestatud rakenduse andmekausta faili – krüpteerimata: igaüks, kes saab sinu faile lugeda, saab seda lugeda. Seda ei saadeta kuhugi mujale kui teenusepakkujale."
 }

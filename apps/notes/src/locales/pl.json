@@ -558,5 +558,10 @@
   "notes.welcome.title": "Witaj w Rusuite Notes",
   "notes.zoomIn": "Powiększ",
   "notes.zoomOut": "Pomniejsz",
-  "notes.import.cancelled": "Anulowano – pozostałe pliki nie zostały zaimportowane."
+  "notes.import.cancelled": "Anulowano – pozostałe pliki nie zostały zaimportowane.",
+  "notes.desktop.remove": "Usuń dane lokalne",
+  "notes.desktop.removeFolders": "Usuń też foldery notesów…",
+  "notes.desktop.removeFoldersConfirm": "Notes zapomina wszystkie notesy, swoje ustawienia i twoje klucze udostępniania oraz trwale usuwa te foldery notesów ze wszystkimi stronami i obrazami. Kopie, które inni ci udostępniają, zostają u nich. Tego nie można cofnąć.",
+  "notes.desktop.removeFoldersButton": "Usuń trwale",
+  "notes.desktop.aiRestart": "Uruchom ponownie Notes, aby asystent mógł połączyć się z twoim punktem końcowym AI."
 }
