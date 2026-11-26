@@ -125,5 +125,11 @@
   "portal.soon.link": "Vad som kommer snart",
   "portal.dl.mobile.title": "Telefoner och surfplattor",
   "portal.dl.mobile.text": "Rusuite Calc, Write och Show för Android och iOS – gratis, utan konto; dina dokument stannar på din enhet.",
-  "portal.dl.mobile.soon": "kommer snart"
+  "portal.dl.mobile.soon": "kommer snart",
+  "portal.notes.kind": "Anteckningsböcker",
+  "portal.notes.logo": "Rusuite Notes-logotyp",
+  "portal.notes.open": "Öppna Notes i webbläsaren",
+  "portal.notes.text": "Anteckningsböcker med avsnitt och sidor, checklistor, tabeller och bilder – dela en anteckningsbok med totalsträckskryptering.",
+  "portal.privacy.h.notes": "Rusuite Notes: delade anteckningsböcker",
+  "portal.privacy.notes": "Anteckningsböcker stannar på din enhet (i webbläsarens lagring; i skrivbordsappen som mappar på din dator) tills du delar en. En delad anteckningsbok synkroniseras via vårt relä rusuit.es; den är totalsträckskrypterad, så servern kan inte läsa den. Reläet lagrar bara den krypterade anteckningsboken så att medlemmar som var offline kan komma ikapp, och tar bort den efter ett år utan aktivitet. Anteckningsböcker som inte delas orsakar ingen trafik alls."
 }

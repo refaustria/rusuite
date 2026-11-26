@@ -125,5 +125,11 @@
   "portal.soon.link": "Wat er binnenkort komt",
   "portal.dl.mobile.title": "Telefoons en tablets",
   "portal.dl.mobile.text": "Rusuite Calc, Write en Show voor Android en iOS – gratis, zonder account; je documenten blijven op je apparaat.",
-  "portal.dl.mobile.soon": "binnenkort"
+  "portal.dl.mobile.soon": "binnenkort",
+  "portal.notes.kind": "Notitieblokken",
+  "portal.notes.logo": "Rusuite Notes-logo",
+  "portal.notes.open": "Notes openen in de browser",
+  "portal.notes.text": "Notitieblokken met secties en pagina’s, controlelijsten, tabellen en afbeeldingen – deel een notitieblok end-to-end versleuteld.",
+  "portal.privacy.h.notes": "Rusuite Notes: gedeelde notitieblokken",
+  "portal.privacy.notes": "Notitieblokken blijven op je apparaat (in de opslag van de browser; in de desktop-app als mappen op je computer) totdat je er een deelt. Een gedeeld notitieblok wordt gesynchroniseerd via onze relay rusuit.es; het is end-to-end versleuteld, dus de server kan het niet lezen. De relay bewaart alleen het versleutelde notitieblok, zodat leden die offline waren kunnen bijwerken, en verwijdert het na een jaar zonder activiteit. Niet-gedeelde notitieblokken veroorzaken helemaal geen verkeer."
 }
