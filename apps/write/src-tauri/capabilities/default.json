@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main window",
+  "description": "Default capability for the document windows (main, doc-N: one per document, P11-D2)",
   "platforms": ["linux", "macOS", "windows"],
-  "windows": ["main"],
+  "windows": ["main", "doc-*"],
   "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-close", "dialog:default"]
 }

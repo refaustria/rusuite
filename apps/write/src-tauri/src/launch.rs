@@ -1,43 +1,28 @@
 //! Documents from the OS (P11-D1, desktop only): a Finder / Explorer double-click or "Open with" (macOS:
 //! `RunEvent::Opened`; Windows / Linux: the command line, and a second launch's command line forwarded by
 //! `tauri-plugin-single-instance`), and files dropped onto the window (macOS: also onto the Dock icon, which is
-//! `Opened` again). [`offer`] queues the paths ([`app_common::launch::LaunchQueue`]) and tells the page
-//! ([`OPEN_DOCUMENT_EVENT`]); the page asks the unsaved-changes question, then takes them
-//! ([`take_launch_documents`]), which reads the first openable one exactly like the open dialog does: recent list,
-//! and the document is bound to the file once the core opened it. The page never names a path here.
+//! `Opened` again). [`offer`] routes the paths to windows (P11-D2, [`crate::windows::open`]: an empty focused
+//! window, the document's own window, or a new one), queues them there ([`app_common::launch::LaunchQueue`]) and
+//! tells that window's page ([`OPEN_DOCUMENT_EVENT`]); the page takes them ([`take_launch_documents`]), which
+//! reads the first openable one exactly like the open dialog does: recent list, and the document is bound to the
+//! file once the core opened it. The page never names a path here.
 //! This file is identical in the three document shells; the app's types are [`crate::OPEN_EXTENSIONS`].
 
 use std::path::{Path, PathBuf};
 
 use app_common::launch::{self, LaunchQueue};
 use serde::Serialize;
-use tauri::{Emitter, Manager};
 
+use crate::windows::CurrentDoc;
 use crate::{blocking, file_name, read_file, DocPath, FileError, OpenedFile, SessionState};
 
-/// Sent to the page when documents wait (`ui-shared`'s `OPEN_DOCUMENT_EVENT`).
+/// Sent to a window's page when documents wait for it (`ui-shared`'s `OPEN_DOCUMENT_EVENT`).
 pub const OPEN_DOCUMENT_EVENT: &str = "rusuite://open-document";
 
-/// The documents the OS delivered that the page has not taken yet.
-#[derive(Debug, Default)]
-pub struct Launch(pub LaunchQueue);
-
-/// Queues `paths` and tells the page (and brings the window to the front). Before the page has loaded nobody
-/// listens: the page takes the queue when it starts.
+/// Routes `paths` to windows and tells their pages (and brings them to the front). Before a page has loaded
+/// nobody listens: the page takes its queue when it starts.
 pub fn offer(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
-    if paths.is_empty() {
-        return;
-    }
-    // Managed in `setup`; an event that came earlier still finds the queue.
-    app.manage(Launch::default());
-    if !app.state::<Launch>().0.push(paths) {
-        return;
-    }
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-        let _ = window.emit(OPEN_DOCUMENT_EVENT, ());
-    }
+    crate::windows::open(app, paths, None);
 }
 
 /// The documents of this process's command line (Windows / Linux "Open with", a terminal).
@@ -63,11 +48,8 @@ pub fn single_instance(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<ta
     builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
         let paths = launch::paths_from_args(argv, Path::new(&cwd));
         if paths.is_empty() {
-            // Started again without a document: show the running window.
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            // Started again without a document: show the running window (a new one when none is open).
+            crate::windows::reopen(app, false);
         }
         offer(app, paths);
     }))
@@ -87,8 +69,8 @@ pub struct LaunchDocuments {
 
 /// Whether an openable document waits (the page then asks about unsaved changes and takes it).
 #[tauri::command]
-pub fn launch_pending(launch: tauri::State<'_, Launch>) -> bool {
-    launch.0.has_openable(crate::OPEN_EXTENSIONS)
+pub fn launch_pending(doc: CurrentDoc) -> bool {
+    doc.launch.has_openable(crate::OPEN_EXTENSIONS)
 }
 
 /// Takes the waiting documents: with `open` the first openable one is read (as the open dialog does: recent list,
@@ -97,20 +79,19 @@ pub fn launch_pending(launch: tauri::State<'_, Launch>) -> bool {
 #[tauri::command]
 pub async fn take_launch_documents(
     open: bool,
-    launch: tauri::State<'_, Launch>,
+    doc: CurrentDoc,
     session: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
 ) -> Result<LaunchDocuments, FileError> {
-    take(&launch, &session, &doc_path, open).await
+    take(&doc.launch, &session, &doc.path, open).await
 }
 
 async fn take(
-    launch: &Launch,
+    launch: &LaunchQueue,
     session: &SessionState,
     doc_path: &DocPath,
     open: bool,
 ) -> Result<LaunchDocuments, FileError> {
-    let taken = launch.0.take(crate::OPEN_EXTENSIONS, open);
+    let taken = launch.take(crate::OPEN_EXTENSIONS, open);
     // The recent list is a convenience: failing to update it never fails the open.
     for p in &taken.not_opened {
         let _ = session.record(&p.to_string_lossy());
@@ -158,13 +139,11 @@ mod tests {
         let second = dir.join(format!("second.{ext}"));
         std::fs::write(&first, b"PK").unwrap();
         std::fs::write(&second, b"PK").unwrap();
-        let launch = Launch::default();
+        let launch = LaunchQueue::default();
         let session = SessionState::new(dir.join("data"));
         let doc_path = DocPath::default();
-        launch
-            .0
-            .push([dir.join("picture.bmp"), first.clone(), second.clone()]);
-        assert!(launch.0.has_openable(crate::OPEN_EXTENSIONS));
+        launch.push([dir.join("picture.bmp"), first.clone(), second.clone()]);
+        assert!(launch.has_openable(crate::OPEN_EXTENSIONS));
         let run = |open| {
             tauri::async_runtime::block_on(take(&launch, &session, &doc_path, open)).unwrap()
         };
@@ -185,9 +164,9 @@ mod tests {
             ]
         );
         // Declined: nothing is read or recorded; a missing file fails the take.
-        launch.0.push([dir.join(format!("third.{ext}"))]);
+        launch.push([dir.join(format!("third.{ext}"))]);
         assert_eq!(run(false).file, None);
-        launch.0.push([dir.join(format!("missing.{ext}"))]);
+        launch.push([dir.join(format!("missing.{ext}"))]);
         let missing = tauri::async_runtime::block_on(take(&launch, &session, &doc_path, true));
         assert!(matches!(missing, Err(FileError::Io(_))));
         assert_eq!(session.session().recent().unwrap().len(), 2);
