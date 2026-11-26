@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": [
+          "docx"
+        ],
+        "name": "Word Document",
+        "description": "Word document",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "org.openxmlformats.wordprocessingml.document"
+        ],
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      },
+      {
+        "ext": [
+          "dotx"
+        ],
+        "name": "Word Template",
+        "description": "Word template",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "org.openxmlformats.wordprocessingml.template"
+        ],
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+      }
+    ]
+  }
+}

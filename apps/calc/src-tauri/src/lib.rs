@@ -3,6 +3,8 @@
 //! `dispatch` command plus the native file dialogs and the recent-files /
 //! crash-recovery store (`SessionState`). No document logic lives here.
 
+#[cfg(desktop)]
+pub mod launch;
 pub mod mobile;
 mod pdf;
 pub mod smoke;
@@ -24,6 +26,10 @@ use calc_core::{CalcDocument, CalcHost};
 use serde::{Deserialize, Serialize, Serializer};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
+
+/// The files the open dialog offers (P9-C2): workbooks and the text files of the Text Import Wizard.
+/// Documents from the OS (P11-D1, [`launch`]) of other types are reported, not read.
+pub const OPEN_EXTENSIONS: &[&str] = &["xlsx", "csv", "txt", "tsv"];
 
 /// The Tauri-managed app state: the host of the open document.
 pub struct CalcState(pub Mutex<CalcHost>);
@@ -380,10 +386,7 @@ struct DialogText {
 /// `(name, extensions)`; `workbook` is the UI's name of the `.xlsx` type.
 fn open_filters(workbook: &str) -> [(String, &'static [&'static str]); 3] {
     [
-        (
-            format!("{workbook}, CSV, TXT"),
-            &["xlsx", "csv", "txt", "tsv"],
-        ),
+        (format!("{workbook}, CSV, TXT"), OPEN_EXTENSIONS),
         (workbook.to_string(), &["xlsx"]),
         ("CSV / TXT".to_string(), &["csv", "txt", "tsv"]),
     ]
@@ -523,6 +526,8 @@ async fn save_file(
 async fn smoke_report(
     window: tauri::WebviewWindow,
     smoke: tauri::State<'_, smoke::Smoke>,
+    session: tauri::State<'_, SessionState>,
+    doc_path: tauri::State<'_, DocPath>,
     report: smoke::Report,
 ) -> Result<(), ()> {
     if !smoke.enabled() {
@@ -532,6 +537,32 @@ async fn smoke_report(
     if report.error.is_none() {
         if let Err(e) = pdf::smoke_pdf(window.clone()).await {
             report.error = Some(e);
+        }
+    }
+    // `--smoke <file>` (P11-D1): the page opens the command line's document on start.
+    if let (None, Some(file)) = (&report.error, smoke.file()) {
+        let t0 = std::time::Instant::now();
+        loop {
+            let recent: Vec<String> = session
+                .session()
+                .recent()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|r| r.path)
+                .collect();
+            let title = window.title().unwrap_or_default();
+            let checked = smoke::check_opened(file, &title, doc_path.current().as_deref(), &recent);
+            match checked {
+                Ok(()) => break,
+                Err(e) if t0.elapsed() > std::time::Duration::from_secs(60) => {
+                    report.error = Some(format!("open with a file: {e}"));
+                    break;
+                }
+                Err(_) => {
+                    let pause = || std::thread::sleep(std::time::Duration::from_millis(200));
+                    let _ = tauri::async_runtime::spawn_blocking(pause).await;
+                }
+            }
         }
     }
     smoke.finish("Rusuite Calc", &window.title().unwrap_or_default(), &report);
@@ -544,7 +575,11 @@ async fn smoke_report(
 /// Panics if the Tauri runtime fails to start.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Windows / Linux: a second start hands its documents to this instance (P11-D1).
+    #[cfg(desktop)]
+    let builder = launch::single_instance(builder);
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_rusuite_mobile::init())
         .manage(smoke::Smoke::from_args())
@@ -559,13 +594,21 @@ pub fn run() {
         })
         .manage(CloseGuard::default())
         .manage(DocPath::default())
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 if window.state::<CloseGuard>().hold_close() {
                     api.prevent_close();
                     let _ = window.emit(CLOSE_REQUESTED_EVENT, ());
                 }
             }
+            // Files dropped onto the window from the OS (P11-D1).
+            #[cfg(desktop)]
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. })
+                if window.label() == "main" =>
+            {
+                launch::offer(window.app_handle(), paths.clone());
+            }
+            _ => {}
         })
         .manage(CalcState::default())
         .setup(|app| {
@@ -578,6 +621,12 @@ pub fn run() {
             #[cfg(desktop)]
             app.manage(connectors_tauri::ConnectorState::new(&dir));
             app.manage(SessionState::new(dir));
+            // Windows / Linux "Open with", a terminal: the documents of the command line (P11-D1).
+            #[cfg(desktop)]
+            {
+                app.manage(launch::Launch::default());
+                launch::offer_args(app.handle());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -601,6 +650,10 @@ pub fn run() {
             mobile::export_document,
             mobile::share_document,
             mobile::take_launch_document,
+            #[cfg(desktop)]
+            launch::launch_pending,
+            #[cfg(desktop)]
+            launch::take_launch_documents,
             print_webview,
             pdf::export_pdf,
             pdf::print_pdf,
@@ -630,13 +683,43 @@ pub fn run() {
             #[cfg(desktop)]
             connectors_tauri::connector_secret_delete
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Rusuite Calc");
+        .build(tauri::generate_context!())
+        .expect("error while building Rusuite Calc")
+        .run(|_app, _event| {
+            // macOS delivers Finder / Dock opens as an Apple Event, not on the command line (P11-D1).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &_event {
+                launch::offer(_app, launch::url_paths(urls));
+            }
+        });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The OS file associations (P11-D1) live in the platform configs (`tauri.{macos,linux,windows}.conf.json`,
+    /// merged by Tauri; not in `tauri.conf.json`, which would also rewrite the Android manifest): the same in all
+    /// three, and only types this app opens.
+    #[test]
+    fn file_associations_are_the_same_everywhere_and_openable() {
+        let configs = [
+            include_str!("../tauri.macos.conf.json"),
+            include_str!("../tauri.linux.conf.json"),
+            include_str!("../tauri.windows.conf.json"),
+        ];
+        assert!(configs.iter().all(|c| *c == configs[0]));
+        let config: serde_json::Value = serde_json::from_str(configs[0]).unwrap();
+        let associations = config["bundle"]["fileAssociations"].as_array().unwrap();
+        assert!(!associations.is_empty());
+        for a in associations {
+            assert_eq!(a["role"], "Editor");
+            assert_eq!(a["rank"], "Alternate");
+            for ext in a["ext"].as_array().unwrap() {
+                assert!(OPEN_EXTENSIONS.contains(&ext.as_str().unwrap()), "{ext}");
+            }
+        }
+    }
     use serde_json::{json, Value};
 
     fn call(state: &CalcState, request: Value) -> Value {

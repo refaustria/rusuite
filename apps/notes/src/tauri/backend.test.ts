@@ -112,6 +112,30 @@ describe("TauriNotesBackend", () => {
     expect(await b.openFile()).toBeNull();
   });
 
+  it("takes the OS files of the shell and listens for more (P11-D1)", async () => {
+    const head = new TextEncoder().encode(JSON.stringify({ files: ["a.rnotes", "b.md"], unsupported: ["x.bmp"], failed: [] }));
+    const f = fake(() => buf(frameRecords([head, new Uint8Array([1]), new Uint8Array([2, 3])])));
+    let handler: (() => void) | null = null;
+    const unlisten = () => (handler = null);
+    const b = new TauriNotesBackend(f.invoke, async (event, fn) => {
+      expect(event).toBe("rusuite://open-document");
+      handler = fn;
+      return unlisten;
+    });
+    const got = await b.launchFiles.take();
+    expect(f.calls[0]!.cmd).toBe("take_launch_files");
+    expect(got.files.map((x) => [x.name, [...x.bytes]])).toEqual([["a.rnotes", [1]], ["b.md", [2, 3]]]);
+    expect(got.unsupported).toEqual(["x.bmp"]);
+    let n = 0;
+    const stop = b.launchFiles.subscribe(() => n++);
+    await Promise.resolve();
+    await Promise.resolve();
+    handler!();
+    expect(n).toBe(1);
+    stop();
+    expect(handler).toBeNull();
+  });
+
   it("saves through the native dialog", async () => {
     const f = fake(() => null);
     expect(await new TauriNotesBackend(f.invoke).saveFile("nb.rnotes", new Uint8Array([1]))).toBe(false);

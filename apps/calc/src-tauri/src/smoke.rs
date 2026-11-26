@@ -10,8 +10,13 @@
 //! line also goes to the file named by `RUSUITE_SMOKE_OUT`, if set (a GUI
 //! subsystem binary on Windows may have no usable stdout). Without the flag
 //! nothing here runs. This file is identical in the three shells.
+//!
+//! `app-<name> --smoke <file>` (P11-D1) also checks the "open with" path: the shell got the document on its
+//! command line, so the page must open it on start – the binary waits until the window title names the file,
+//! the document is bound to it (the core opened it) and it is on the recent list ([`check_opened`]).
 
 use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -55,19 +60,32 @@ pub struct Report {
 pub struct Smoke {
     enabled: bool,
     started: AtomicBool,
+    /// The document of the command line, which the page must open.
+    file: Option<PathBuf>,
 }
 
 impl Smoke {
     /// The state for this process's command line.
     pub fn from_args() -> Self {
-        Smoke::new(std::env::args().skip(1).any(|a| a == FLAG))
+        let mut smoke = Smoke::new(std::env::args().skip(1).any(|a| a == FLAG));
+        let cwd = std::env::current_dir().unwrap_or_default();
+        smoke.file = app_common::launch::paths_from_args(std::env::args(), &cwd)
+            .into_iter()
+            .next();
+        smoke
     }
 
     pub fn new(enabled: bool) -> Self {
         Smoke {
             enabled,
             started: AtomicBool::new(false),
+            file: None,
         }
+    }
+
+    /// `--smoke <file>`: the document the page must have opened.
+    pub fn file(&self) -> Option<&Path> {
+        self.file.as_deref().filter(|_| self.enabled)
     }
 
     pub fn enabled(&self) -> bool {
@@ -120,6 +138,32 @@ fn write_out(line: &str) {
     if let Some(path) = std::env::var_os("RUSUITE_SMOKE_OUT") {
         let _ = std::fs::write(path, format!("{line}\n"));
     }
+}
+
+/// `--smoke <file>`: the window title names `file`, the document is bound to it (`bound`: the shell's current
+/// file, set once the core opened it) and it is on the recent list (`recent`: the paths).
+pub fn check_opened(
+    file: &Path,
+    title: &str,
+    bound: Option<&Path>,
+    recent: &[String],
+) -> Result<(), String> {
+    let name = file
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    if !title.contains(&name) {
+        return Err(format!(
+            "window title {title:?} lacks the opened file {name:?}"
+        ));
+    }
+    if bound != Some(file) {
+        return Err(format!("document bound to {bound:?}, expected {file:?}"));
+    }
+    let path = file.to_string_lossy();
+    if !recent.iter().any(|r| *r == path) {
+        return Err(format!("{path} is not on the recent list {recent:?}"));
+    }
+    Ok(())
 }
 
 /// The checks: no script error, `ping` names the app and this version, the
@@ -201,6 +245,22 @@ mod tests {
         assert!(check("Rusuite X", "1.0.0", title, &failed)
             .unwrap_err()
             .contains("boom"));
+    }
+
+    #[test]
+    fn check_opened_needs_title_binding_and_recent_entry() {
+        let file = Path::new("/d/Book 1.xlsx");
+        let recent = vec!["/d/Book 1.xlsx".to_owned()];
+        let title = "Book 1.xlsx – Rusuite X";
+        assert!(check_opened(file, title, Some(file), &recent).is_ok());
+        assert!(
+            check_opened(file, "Untitled – Rusuite X", Some(file), &recent)
+                .unwrap_err()
+                .contains("lacks")
+        );
+        assert!(check_opened(file, title, None, &recent).is_err());
+        assert!(check_opened(file, title, Some(file), &[]).is_err());
+        assert_eq!(Smoke::new(false).file(), None);
     }
 
     #[test]

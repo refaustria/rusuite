@@ -922,5 +922,7 @@
   "reader.pptx.picture.imageMissing": "parte de imagen {part} inexistente; imagen descartada",
   "reader.pptx.tableStyle.diagonal": "bordes diagonales del estilo de tabla descartados",
   "reader.pptx.tableStyle.threeD": "efectos 3D del estilo de tabla descartados",
-  "reader.pptx.tableStyle.partDropped": "parte del estilo de tabla {part} descartada"
+  "reader.pptx.tableStyle.partDropped": "parte del estilo de tabla {part} descartada",
+  "launch.notOpened": "Solo se abre un documento a la vez: encontrarás {names} en «{recent}».",
+  "launch.unsupported": "Esta app no puede abrir {names}."
 }

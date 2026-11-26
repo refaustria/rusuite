@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "Bildteil {part} fehlt; Bild verworfen",
   "reader.pptx.tableStyle.diagonal": "diagonale Rahmen der Tabellenformatvorlage verworfen",
   "reader.pptx.tableStyle.threeD": "3D-Effekte der Tabellenformatvorlage verworfen",
-  "reader.pptx.tableStyle.partDropped": "Teil {part} der Tabellenformatvorlage verworfen"
+  "reader.pptx.tableStyle.partDropped": "Teil {part} der Tabellenformatvorlage verworfen",
+  "launch.notOpened": "Es wird immer nur ein Dokument geöffnet – {names} findest du unter „{recent}“.",
+  "launch.unsupported": "Diese App kann {names} nicht öffnen."
 }

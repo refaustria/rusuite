@@ -922,5 +922,7 @@
   "reader.pptx.picture.imageMissing": "dio slike {part} nedostaje; slika izostavljena",
   "reader.pptx.tableStyle.diagonal": "dijagonalni obrubi stila tablice izostavljeni",
   "reader.pptx.tableStyle.threeD": "3D efekti stila tablice izostavljeni",
-  "reader.pptx.tableStyle.partDropped": "dio stila tablice {part} izostavljen"
+  "reader.pptx.tableStyle.partDropped": "dio stila tablice {part} izostavljen",
+  "launch.notOpened": "Otvara se samo jedan dokument odjednom – {names} pronaći ćeš pod „{recent}”.",
+  "launch.unsupported": "Ova aplikacija ne može otvoriti {names}."
 }

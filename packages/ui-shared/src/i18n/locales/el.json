@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "το τμήμα εικόνας {part} λείπει· η εικόνα αφαιρέθηκε",
   "reader.pptx.tableStyle.diagonal": "τα διαγώνια περιγράμματα του στυλ πίνακα αφαιρέθηκαν",
   "reader.pptx.tableStyle.threeD": "τα τρισδιάστατα εφέ του στυλ πίνακα αφαιρέθηκαν",
-  "reader.pptx.tableStyle.partDropped": "το τμήμα στυλ πίνακα {part} αφαιρέθηκε"
+  "reader.pptx.tableStyle.partDropped": "το τμήμα στυλ πίνακα {part} αφαιρέθηκε",
+  "launch.notOpened": "Ανοίγει μόνο ένα έγγραφο κάθε φορά – θα βρεις {names} στην ενότητα «{recent}».",
+  "launch.unsupported": "Αυτή η εφαρμογή δεν μπορεί να ανοίξει {names}."
 }

@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "afbeeldingsonderdeel {part} ontbreekt; afbeelding genegeerd",
   "reader.pptx.tableStyle.diagonal": "diagonale randen van tabelstijl genegeerd",
   "reader.pptx.tableStyle.threeD": "3D-effecten van tabelstijl genegeerd",
-  "reader.pptx.tableStyle.partDropped": "tabelstijlonderdeel {part} genegeerd"
+  "reader.pptx.tableStyle.partDropped": "tabelstijlonderdeel {part} genegeerd",
+  "launch.notOpened": "Er wordt maar één document tegelijk geopend – je vindt {names} onder ‘{recent}’.",
+  "launch.unsupported": "Deze app kan {names} niet openen."
 }

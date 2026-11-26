@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "kuvan osa {part} puuttuu; kuva jätetty pois",
   "reader.pptx.tableStyle.diagonal": "taulukkotyylin lävistäjäreunat jätetty pois",
   "reader.pptx.tableStyle.threeD": "taulukkotyylin 3D-tehosteet jätetty pois",
-  "reader.pptx.tableStyle.partDropped": "taulukkotyylin osa {part} jätetty pois"
+  "reader.pptx.tableStyle.partDropped": "taulukkotyylin osa {part} jätetty pois",
+  "launch.notOpened": "Vain yksi asiakirja avautuu kerrallaan – löydät tiedoston {names} kohdasta ”{recent}”.",
+  "launch.unsupported": "Tämä sovellus ei voi avata tiedostoa {names}."
 }

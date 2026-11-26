@@ -9,6 +9,7 @@
 //! error reply where there is one.
 
 pub mod folders;
+pub mod launch;
 pub mod relay;
 pub mod smoke;
 
@@ -888,7 +889,8 @@ fn create_window(app: &tauri::App, csp: String) -> tauri::Result<()> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    // Windows / Linux: a second start hands its files to this instance (P11-D1).
+    launch::single_instance(tauri::Builder::default())
         .plugin(tauri_plugin_dialog::init())
         .manage(smoke::Smoke::from_args())
         .manage(NotesState::default())
@@ -903,6 +905,12 @@ pub fn run() {
             }
         })
         .on_window_event(|window, event| {
+            // Files dropped onto the window from the OS (P11-D1): backups open, the rest is imported.
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                if window.label() == "main" {
+                    launch::offer(window.app_handle(), paths.clone());
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let gate = window.state::<CloseGate>();
                 if gate.hold() {
@@ -939,6 +947,9 @@ pub fn run() {
                 keys_in_file: AtomicBool::new(false),
             });
             create_window(app, csp)?;
+            // "Open with", a terminal: the files of the command line (P11-D1).
+            app.manage(launch::Launch::default());
+            launch::offer_args(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -986,12 +997,20 @@ pub fn run() {
             relay_set,
             restart,
             close_now,
+            launch::take_launch_files,
             connectors_tauri::connector_secret_get,
             connectors_tauri::connector_secret_set,
             connectors_tauri::connector_secret_delete
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Rusuite Notes");
+        .build(tauri::generate_context!())
+        .expect("error while building Rusuite Notes")
+        .run(|_app, _event| {
+            // macOS delivers Finder / Dock opens as an Apple Event, not on the command line (P11-D1).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &_event {
+                launch::offer(_app, launch::url_paths(urls));
+            }
+        });
 }
 
 #[cfg(test)]

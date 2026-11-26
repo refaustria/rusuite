@@ -922,5 +922,7 @@
   "reader.pptx.picture.imageMissing": "partea de imagine {part} lipsește; imaginea ignorată",
   "reader.pptx.tableStyle.diagonal": "bordurile diagonale ale stilului de tabel ignorate",
   "reader.pptx.tableStyle.threeD": "efectele 3D ale stilului de tabel ignorate",
-  "reader.pptx.tableStyle.partDropped": "partea de stil de tabel {part} ignorată"
+  "reader.pptx.tableStyle.partDropped": "partea de stil de tabel {part} ignorată",
+  "launch.notOpened": "Se deschide doar un document odată – găsești {names} la „{recent}”.",
+  "launch.unsupported": "Această aplicație nu poate deschide {names}."
 }

@@ -226,12 +226,36 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   };
 
   /**
-   * Mobile shells (P10-M1): opens the document the app was launched with ("Open with", a tap in Files) through
-   * the app's Open, after the unsaved-changes question. The backend hands each document out once.
+   * Opens the document the app was launched with through the app's Open, after the unsaved-changes question; the
+   * backend hands each document out once. Mobile shells (P10-M1): "Open with", a tap in Files. Desktop shells
+   * (P11-D1, `Backend.launchDocuments`): Finder / Explorer, a drop onto the window or the Dock icon, a second start –
+   * also called when the shell says more arrived. One at a time: a second request waits for the first's question.
    */
-  async openLaunchDocument(): Promise<boolean> {
-    if (!this.inner.takeLaunchDocument || !this.adapter) return false;
+  openLaunchDocument(): Promise<boolean> {
+    const run = this.launching.then(() => this.openLaunchOnce());
+    this.launching = run.catch(() => false);
+    return run;
+  }
+
+  private launching: Promise<boolean> = Promise.resolve(false);
+  private unsubscribeLaunch: (() => void) | null = null;
+
+  private async openLaunchOnce(): Promise<boolean> {
+    if (!this.adapter) return false;
+    const docs = this.inner.launchDocuments;
     try {
+      if (docs) {
+        // Only an openable document asks the question; unsupported files are just named.
+        const open = (await docs.pending()) && (await this.confirmReplace());
+        const taken = await docs.take(open);
+        const list = (names: string[]) => names.join(", ");
+        if (taken.unsupported.length) this.report(new Error(t("launch.unsupported", { names: list(taken.unsupported) })));
+        if (taken.notOpened.length) this.report(new Error(t("launch.notOpened", { names: list(taken.notOpened), recent: t("recent.title") })));
+        // The shell put the documents on the recent list.
+        if (taken.file || taken.notOpened.length) void this.refresh();
+        return taken.file !== null && (await this.adapter.openFile(taken.file)) !== false;
+      }
+      if (!this.inner.takeLaunchDocument) return false;
       const file = await this.inner.takeLaunchDocument();
       if (!file || !(await this.confirmReplace())) return false;
       return (await this.adapter.openFile(file)) !== false;
@@ -257,6 +281,7 @@ export class DocumentSession<Req = unknown, Body = unknown> {
       const held = new Promise<void>((resolve) => (this.releaseLock = resolve));
       void Promise.resolve(this.locks.request(LOCK_PREFIX + this.docId, () => held)).catch(() => undefined);
     }
+    this.unsubscribeLaunch = this.inner.launchDocuments?.subscribe(() => void this.openLaunchDocument()) ?? null;
     await this.refresh();
     await this.openLaunchDocument();
   }
@@ -269,6 +294,8 @@ export class DocumentSession<Req = unknown, Body = unknown> {
     this.target?.removeEventListener("pagehide", this.onPageHide);
     this.releaseLock?.();
     this.releaseLock = null;
+    this.unsubscribeLaunch?.();
+    this.unsubscribeLaunch = null;
   }
 
   /** Re-reads the recent list and the recovery entries of other sessions. */

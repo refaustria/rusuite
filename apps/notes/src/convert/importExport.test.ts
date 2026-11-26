@@ -21,6 +21,25 @@ describe.runIf(convertAvailable)("import / export / paste (real modules)", () =>
     convert = await loadConvert();
   });
 
+  it("imports the files the desktop shell got from the OS after start and when more arrive (P11-D1)", async () => {
+    const backend = new WebNotesBackend(core, async () => convert);
+    const waiting: { name: string; bytes: Uint8Array }[][] = [[{ name: "Plan.md", bytes: enc("# From Finder\n") }]];
+    let more: (() => void) | null = null;
+    Object.assign(backend, {
+      launchFiles: {
+        take: async () => ({ files: waiting.shift() ?? [], unsupported: waiting.length ? [] : ["photo.bmp"], failed: [] }),
+        subscribe: (fn: () => void) => ((more = fn), () => (more = null)),
+      },
+    });
+    const ctl = new NotesController(backend, new MemoryNotesStore(), now);
+    await ctl.start();
+    await vi.waitFor(() => expect(allPages(ctl.tree()).map((p) => p.title)).toContain("From Finder"));
+    expect(ctl.getState().error).toContain("photo.bmp");
+    waiting.push([{ name: "Second.md", bytes: enc("# Dropped\n") }]);
+    more!();
+    await vi.waitFor(() => expect(allPages(ctl.tree()).map((p) => p.title)).toContain("Dropped"));
+  });
+
   it("imports Markdown and HTML as pages, exports and re-imports the same text; the module loads once", async () => {
     const load = vi.fn(async () => convert);
     const backend = new WebNotesBackend(core, load);

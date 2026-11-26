@@ -931,5 +931,7 @@
   "reader.pptx.picture.imageMissing": "trūksta paveikslėlio dalies {part}; paveikslėlis pašalintas",
   "reader.pptx.tableStyle.diagonal": "lentelės stiliaus įstrižosios kraštinės pašalintos",
   "reader.pptx.tableStyle.threeD": "lentelės stiliaus erdviniai efektai pašalinti",
-  "reader.pptx.tableStyle.partDropped": "lentelės stiliaus dalis {part} pašalinta"
+  "reader.pptx.tableStyle.partDropped": "lentelės stiliaus dalis {part} pašalinta",
+  "launch.notOpened": "Vienu metu atidaromas tik vienas dokumentas – {names} rasi skiltyje „{recent}“.",
+  "launch.unsupported": "Ši programa negali atidaryti {names}."
 }

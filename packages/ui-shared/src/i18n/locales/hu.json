@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "a(z) {part} képrész hiányzik; a kép elhagyva",
   "reader.pptx.tableStyle.diagonal": "a táblázatstílus átlós szegélyei elhagyva",
   "reader.pptx.tableStyle.threeD": "a táblázatstílus térhatású effektusai elhagyva",
-  "reader.pptx.tableStyle.partDropped": "a(z) {part} táblázatstílus-rész elhagyva"
+  "reader.pptx.tableStyle.partDropped": "a(z) {part} táblázatstílus-rész elhagyva",
+  "launch.notOpened": "Egyszerre csak egy dokumentum nyílik meg – a(z) {names} fájlt itt találod: „{recent}”.",
+  "launch.unsupported": "Ez az alkalmazás nem tudja megnyitni: {names}."
 }

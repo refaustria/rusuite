@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "частта на изображението {part} липсва; картината е пропусната",
   "reader.pptx.tableStyle.diagonal": "диагоналните граници на стила на таблицата са пропуснати",
   "reader.pptx.tableStyle.threeD": "триизмерните ефекти на стила на таблицата са пропуснати",
-  "reader.pptx.tableStyle.partDropped": "частта на стила на таблицата {part} е пропусната"
+  "reader.pptx.tableStyle.partDropped": "частта на стила на таблицата {part} е пропусната",
+  "launch.notOpened": "Отваря се само един документ наведнъж – ще намериш {names} в „{recent}“.",
+  "launch.unsupported": "Това приложение не може да отвори {names}."
 }

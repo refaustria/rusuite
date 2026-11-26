@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "billeddel {part} mangler; billede udeladt",
   "reader.pptx.tableStyle.diagonal": "diagonale kanter i tabeltypografi udeladt",
   "reader.pptx.tableStyle.threeD": "3D-effekter i tabeltypografi udeladt",
-  "reader.pptx.tableStyle.partDropped": "tabeltypografidel {part} udeladt"
+  "reader.pptx.tableStyle.partDropped": "tabeltypografidel {part} udeladt",
+  "launch.notOpened": "Der åbnes kun ét dokument ad gangen – du finder {names} under “{recent}”.",
+  "launch.unsupported": "Denne app kan ikke åbne {names}."
 }
