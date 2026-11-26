@@ -408,3 +408,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Partajare ca PDF… | `backstage.sharePdf` |
 | Export PDF | Exportare PDF | `print.exportPdf` |
 | Multi-select | Selecție multiplă | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | blocnotes | OneNote |
+| Section | secțiune | `apps/notes` |
+| Section group | grup de secțiuni | `apps/notes` |
+| Page / sub-page | pagină / subpagină | `apps/notes` |
+| Tag | etichetă | `apps/notes` |
+| To Do | De făcut | tag name |
+| Draw | Desenare | ribbon tab |
+| Ink / drawing | cerneală / desen | `apps/notes` |
+| Pen | Stilou | `apps/notes` |
+| Highlighter | Evidențiator | `apps/notes` |
+| Lasso select | Selecție cu lasou | `apps/notes` |
+| Recycle bin | Coș de reciclare | `apps/notes` |
+| Page history | Istoricul paginii | `apps/notes` |
+| Share | Partajează | `apps/notes` |
+| Free canvas | Canvas liber | `apps/notes` |
+| Alt text | Text alternativ | `apps/notes` |
+| Checklist | Listă de verificare | `apps/notes` |
