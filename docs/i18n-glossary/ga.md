@@ -424,3 +424,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Comhroinn mar PDF… | `backstage.sharePdf` |
 | Export PDF | Easpórtáil PDF | `print.exportPdf` |
 | Multi-select | Ilroghnú | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | leabhar nótaí | OneNote |
+| Section | rannán | `apps/notes` |
+| Section group | grúpa rannán | `apps/notes` |
+| Page / sub-page | leathanach / fo-leathanach | `apps/notes` |
+| Tag | clib | `apps/notes` |
+| To Do | Le Déanamh | tag name |
+| Draw | Líníocht | ribbon tab |
+| Ink / drawing | dúch / líníocht | `apps/notes` |
+| Pen | Peann | `apps/notes` |
+| Highlighter | Aibhsitheoir | `apps/notes` |
+| Lasso select | Roghnú laso | `apps/notes` |
+| Recycle bin | Araid Athchúrsála | `apps/notes` |
+| Page history | Stair an leathanaigh | `apps/notes` |
+| Share | Comhroinn | `apps/notes` |
+| Free canvas | Canbhás saor | `apps/notes` |
+| Alt text | Téacs malartach | `apps/notes` |
+| Checklist | Seicliosta | `apps/notes` |
