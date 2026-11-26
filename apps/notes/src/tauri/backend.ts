@@ -70,6 +70,11 @@ export class TauriConverter extends LazyConverter {
     super(() => Promise.reject(new Error("the desktop converts natively")));
     this.loaded = true;
   }
+  /** Native conversions run to the end (no Cancel). */
+  override get cancellable(): boolean {
+    return false;
+  }
+  override cancel(): void {}
   private async call(cmd: string, args: InvokeArgs): Promise<Uint8Array> {
     try {
       return toBytes(await this.invoke(cmd, args));
@@ -140,6 +145,9 @@ export class TauriNotesBackend implements NotesBackend {
   }
   exportUpdates(doc: string, vv: Uint8Array): Promise<Uint8Array> {
     return this.raw("export_updates", frameArgs({ doc }, vv));
+  }
+  async exportUpdateChunks(doc: string, vv: Uint8Array, maxBytes: number): Promise<Uint8Array[]> {
+    return splitRecords(await this.raw("export_update_chunks", frameArgs({ doc, maxBytes }, vv)));
   }
   versionVector(doc: string): Promise<Uint8Array> {
     return this.raw("version_vector", { doc });

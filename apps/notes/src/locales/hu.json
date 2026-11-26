@@ -216,6 +216,7 @@
   "notes.image.tab": "Kép",
   "notes.image.tools": "Képeszközök",
   "notes.import.busy": "{name} importálása…",
+  "notes.import.cancelled": "Megszakítva – a többi fájl nem lett importálva.",
   "notes.import.count.files.one": "{count} csatolt fájl",
   "notes.import.count.files.other": "{count} csatolt fájl",
   "notes.import.count.images.one": "{count} kép",

@@ -667,3 +667,74 @@ fn rebind_device_records_earlier_peers_under_the_new_id() {
         .iter()
         .all(|d| d.as_deref() == Some("a1b2")));
 }
+
+/// P11-X1: a first share of a large page goes out in parts below the relay's envelope limit; a fresh device that
+/// imports the parts (in order or reversed) has the same page.
+#[test]
+fn large_doc_exports_in_parts_below_the_limit() {
+    let (mut host, inbox) = host_with_section();
+    let page = create_page(&mut host, &inbox, "Big");
+    let mut m = Mirror::open(&mut host, &page);
+    // Incompressible text: ~450 kB in many changes, plus one 200 kB insert (a single change that must be sliced).
+    // Scaled down from a 3 MB page and the relay's 512 KiB parts to keep the debug build fast; the engine test
+    // (`apps/notes/src/sync/engine.test.ts`) sends a > 3 MB page.
+    let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+    let mut text = |n: usize| -> String {
+        (0..n)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                char::from(b'a' + (seed % 26) as u8)
+            })
+            .collect()
+    };
+    for i in 0..30 {
+        m.type_paragraph(&text(15_000), &[]);
+        m.commit_and_send(&mut host, &page, T0 + i * 60_000);
+    }
+    m.type_paragraph(&text(200_000), &[]);
+    m.commit_and_send(&mut host, &page, T0 + 200 * 60_000);
+    let all = host.export_updates(&page, &[]).unwrap();
+    assert!(all.len() > 600 * 1024, "{}", all.len());
+
+    let max = 64 * 1024;
+    let parts = host.export_update_chunks(&page, &[], max).unwrap();
+    assert!(parts.len() >= 7, "{} parts", parts.len());
+    assert!(
+        parts.iter().all(|p| p.len() <= max),
+        "{:?}",
+        parts.iter().map(Vec::len).collect::<Vec<_>>()
+    );
+    let expected = host.page(&page).unwrap().to_pm_json();
+    for order in [false, true] {
+        let mut b = NotesHost::with_peers("dev-b", 21, 22);
+        b.load_doc(
+            "nb",
+            "nb",
+            &[],
+            &notes_core::log_record(&host.export_updates("nb", &[]).unwrap()),
+        )
+        .unwrap();
+        ok(&mut b, json!({"type": "openNotebook", "id": "nb"}));
+        let mut seq: Vec<&Vec<u8>> = parts.iter().collect();
+        if order {
+            seq.reverse();
+        }
+        for p in seq {
+            b.import_updates(&page, p, None).unwrap();
+        }
+        assert_eq!(b.page(&page).unwrap().to_pm_json(), expected);
+        assert_eq!(
+            b.version_vector(&page).unwrap(),
+            host.version_vector(&page).unwrap()
+        );
+    }
+    // Small updates stay one part; updates since a version only cover what is new.
+    let vv = host.version_vector(&page).unwrap();
+    m.block_text(0).insert(0, "x").unwrap();
+    m.commit_and_send(&mut host, &page, T0 + 300 * 60_000);
+    let since = host.export_update_chunks(&page, &vv, max).unwrap();
+    assert_eq!(since.len(), 1);
+    assert!(since[0].len() < 1024, "{}", since[0].len());
+}

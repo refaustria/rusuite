@@ -216,6 +216,7 @@
   "notes.image.tab": "Billede",
   "notes.image.tools": "Billedværktøjer",
   "notes.import.busy": "Importerer {name}…",
+  "notes.import.cancelled": "Annulleret – de resterende filer blev ikke importeret.",
   "notes.import.count.files.one": "{count} vedhæftet fil",
   "notes.import.count.files.other": "{count} vedhæftede filer",
   "notes.import.count.images.one": "{count} billede",

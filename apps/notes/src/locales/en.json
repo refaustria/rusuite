@@ -216,6 +216,7 @@
   "notes.image.tab": "Picture",
   "notes.image.tools": "Picture Tools",
   "notes.import.busy": "Importing {name}…",
+  "notes.import.cancelled": "Cancelled – the remaining files were not imported.",
   "notes.import.count.files.one": "{count} attached file",
   "notes.import.count.files.other": "{count} attached files",
   "notes.import.count.images.one": "{count} picture",

@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => ({
   ...(mode === "desktop"
     ? { build: { outDir: "dist", target: "es2022", rollupOptions: { external: [/src-wasm-convert\/pkg\//], output: { manualChunks } } } }
     : {}),
+  // The converter worker (P11-X1) imports the converter module: ES module workers keep its wasm a separate asset.
+  // On the desktop it is never loaded (native converters), and its module is not built there.
+  worker: { format: "es" as const, ...(mode === "desktop" ? { rollupOptions: { external: [/src-wasm-convert\/pkg\//] } } : {}) },
   optimizeDeps: { exclude: ["loro-crdt"] },
   envPrefix: mode === "desktop" ? ["VITE_", "TAURI_", "REPORT_RELAY_"] : ["VITE_"],
   server: {

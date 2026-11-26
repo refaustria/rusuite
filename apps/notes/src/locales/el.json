@@ -216,6 +216,7 @@
   "notes.image.tab": "Εικόνα",
   "notes.image.tools": "Εργαλεία εικόνας",
   "notes.import.busy": "Εισαγωγή του {name}…",
+  "notes.import.cancelled": "Ακυρώθηκε – τα υπόλοιπα αρχεία δεν εισήχθησαν.",
   "notes.import.count.files.one": "{count} συνημμένο αρχείο",
   "notes.import.count.files.other": "{count} συνημμένα αρχεία",
   "notes.import.count.images.one": "{count} εικόνα",

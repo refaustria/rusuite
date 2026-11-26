@@ -540,5 +540,6 @@
   "notes.welcome.task4": "Transfere uma cópia de segurança de vez em quando (Ficheiro › Transferir cópia de segurança)",
   "notes.welcome.title": "Bem-vindo ao Rusuite Notes",
   "notes.zoomIn": "Ampliar",
-  "notes.zoomOut": "Reduzir"
+  "notes.zoomOut": "Reduzir",
+  "notes.import.cancelled": "Cancelado – os restantes ficheiros não foram importados."
 }

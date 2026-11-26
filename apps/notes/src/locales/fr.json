@@ -540,5 +540,6 @@
   "notes.welcome.task4": "Télécharge de temps en temps une sauvegarde (Fichier › Télécharger la sauvegarde)",
   "notes.welcome.title": "Bienvenue dans Rusuite Notes",
   "notes.zoomIn": "Zoom avant",
-  "notes.zoomOut": "Zoom arrière"
+  "notes.zoomOut": "Zoom arrière",
+  "notes.import.cancelled": "Annulé – les fichiers restants n’ont pas été importés."
 }

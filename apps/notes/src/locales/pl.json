@@ -557,5 +557,6 @@
   "notes.welcome.task4": "Od czasu do czasu pobieraj kopię zapasową (Plik › Pobierz kopię zapasową)",
   "notes.welcome.title": "Witaj w Rusuite Notes",
   "notes.zoomIn": "Powiększ",
-  "notes.zoomOut": "Pomniejsz"
+  "notes.zoomOut": "Pomniejsz",
+  "notes.import.cancelled": "Anulowano – pozostałe pliki nie zostały zaimportowane."
 }

@@ -540,5 +540,6 @@
   "notes.welcome.task4": "Descarcă din când în când o copie de rezervă (Fișier › Descarcă copia de rezervă)",
   "notes.welcome.title": "Bun venit în Rusuite Notes",
   "notes.zoomIn": "Mărește",
-  "notes.zoomOut": "Micșorează"
+  "notes.zoomOut": "Micșorează",
+  "notes.import.cancelled": "Anulat – fișierele rămase nu au fost importate."
 }

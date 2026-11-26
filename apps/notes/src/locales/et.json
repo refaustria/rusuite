@@ -216,6 +216,7 @@
   "notes.image.tab": "Pilt",
   "notes.image.tools": "Pilditööriistad",
   "notes.import.busy": "Imporditakse {name}…",
+  "notes.import.cancelled": "Katkestatud – ülejäänud faile ei imporditud.",
   "notes.import.count.files.one": "{count} manustatud fail",
   "notes.import.count.files.other": "{count} manustatud faili",
   "notes.import.count.images.one": "{count} pilt",

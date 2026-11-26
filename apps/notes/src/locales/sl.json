@@ -557,5 +557,6 @@
   "notes.welcome.task4": "Občasno prenesi varnostno kopijo (Datoteka › Prenesi varnostno kopijo)",
   "notes.welcome.title": "Dobrodošel(a) v Rusuite Notes",
   "notes.zoomIn": "Povečaj",
-  "notes.zoomOut": "Pomanjšaj"
+  "notes.zoomOut": "Pomanjšaj",
+  "notes.import.cancelled": "Preklicano – preostale datoteke niso bile uvožene."
 }

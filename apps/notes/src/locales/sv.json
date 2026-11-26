@@ -216,6 +216,7 @@
   "notes.image.tab": "Bild",
   "notes.image.tools": "Bildverktyg",
   "notes.import.busy": "Importerar {name}…",
+  "notes.import.cancelled": "Avbrutet – de återstående filerna importerades inte.",
   "notes.import.count.files.one": "{count} bifogad fil",
   "notes.import.count.files.other": "{count} bifogade filer",
   "notes.import.count.images.one": "{count} bild",

@@ -173,6 +173,12 @@ struct Doc {
     doc: String,
 }
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocChunks {
+    doc: String,
+    max_bytes: usize,
+}
+#[derive(Deserialize)]
 struct Nb {
     notebook: String,
 }
@@ -274,6 +280,25 @@ async fn export_updates(req: Request<'_>, state: tauri::State<'_, NotesState>) -
         .export_updates(&a.doc, &vv)
         .map_err(|e| core_err(&e))?;
     Ok(Response::new(out))
+}
+
+/// `export_updates` in parts below the relay's envelope limit (P11-X1) as `{len:u32 LE, bytes}*`.
+#[tauri::command]
+async fn export_update_chunks(
+    req: Request<'_>,
+    state: tauri::State<'_, NotesState>,
+) -> Res<Response> {
+    let (a, vv): (DocChunks, _) = args(&req)?;
+    let parts = state
+        .host()
+        .export_update_chunks(&a.doc, &vv, a.max_bytes)
+        .map_err(|e| core_err(&e))?;
+    Ok(Response::new(
+        parts
+            .iter()
+            .flat_map(|p| notes_core::log_record(p))
+            .collect::<Vec<u8>>(),
+    ))
 }
 
 #[tauri::command]
@@ -951,6 +976,7 @@ pub fn run() {
             rebind_device,
             import_remote,
             export_updates,
+            export_update_chunks,
             version_vector,
             take_persist_effects,
             page_genesis,

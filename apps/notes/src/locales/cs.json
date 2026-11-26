@@ -557,5 +557,6 @@
   "notes.welcome.task4": "Čas od času si stáhni zálohu (Soubor › Stáhnout zálohu)",
   "notes.welcome.title": "Vítej v Rusuite Notes",
   "notes.zoomIn": "Přiblížit",
-  "notes.zoomOut": "Oddálit"
+  "notes.zoomOut": "Oddálit",
+  "notes.import.cancelled": "Zrušeno – zbývající soubory nebyly importovány."
 }

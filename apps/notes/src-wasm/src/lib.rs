@@ -94,6 +94,17 @@ pub fn export_updates(doc: &str, vv: &[u8]) -> Result<Vec<u8>, String> {
     })
 }
 
+/// [`export_updates`] in parts of at most `max_bytes` (the relay's envelope limit; P11-X1) as `{len:u32 LE, bytes}*`.
+/// Throws the JSON error reply.
+#[wasm_bindgen]
+pub fn export_update_chunks(doc: &str, vv: &[u8], max_bytes: u32) -> Result<Vec<u8>, String> {
+    with(|h| {
+        h.export_update_chunks(doc, vv, max_bytes as usize)
+            .map(|parts| parts.iter().flat_map(|p| log_record(p)).collect())
+            .map_err(|e| binary::error_json(&e))
+    })
+}
+
 /// The encoded version vector of `doc`.
 #[wasm_bindgen]
 pub fn version_vector(doc: &str) -> Result<Vec<u8>, String> {

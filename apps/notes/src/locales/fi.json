@@ -216,6 +216,7 @@
   "notes.image.tab": "Kuva",
   "notes.image.tools": "Kuvatyökalut",
   "notes.import.busy": "Tuodaan {name}…",
+  "notes.import.cancelled": "Peruttu – jäljellä olevia tiedostoja ei tuotu.",
   "notes.import.count.files.one": "{count} liitetty tiedosto",
   "notes.import.count.files.other": "{count} liitettyä tiedostoa",
   "notes.import.count.images.one": "{count} kuva",

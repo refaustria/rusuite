@@ -9,7 +9,7 @@ import { createNodeFromLoroObj, updateLoroToPmState, type LoroDocType } from "lo
 import { CoreError, unwrap, type Body, type NotesBackend, type NotesRequest } from "./backend";
 import { LoroList, LoroMap } from "loro-crdt";
 import { BlobUrls, sniffImage } from "./blobs";
-import { decodeFrame, frameJson } from "./convert/loader";
+import { ConvertCancelled, decodeFrame, frameJson } from "./convert/loader";
 import { exportFileName, importKindOf, isOneNotePackage } from "./convert/formats";
 import { frameRecords } from "./effects";
 import type { ConvertWarning } from "./generated/ConvertWarning";
@@ -88,6 +88,8 @@ export interface ImportSummary {
   attachments: number;
   /** What "Open" shows: the first imported page (and whether a new notebook / a section was created). */
   open: { notebook: string; page: string | null; kind: "notebook" | "section" | "page" } | null;
+  /** Stopped with Cancel: the files after the ones listed were not imported (P11-X1). */
+  cancelled?: boolean;
 }
 
 /** A long command in progress (import, export, loading the converters): `done` of `total` steps. */
@@ -95,6 +97,8 @@ export interface BusyState {
   label: string;
   done: number;
   total: number;
+  /** Cancel stops it (a conversion in the web's converter worker, P11-X1). */
+  cancellable?: boolean;
 }
 
 export interface NotesState {
@@ -1215,8 +1219,19 @@ export class NotesController {
 
   // ---- import and export (P11-N6b) ----------------------------------------------------------------------
 
-  private busy(label: string, done = 0, total = 0): void {
-    this.set({ busy: { label, done, total } });
+  private busy(label: string, done = 0, total = 0, cancellable = false): void {
+    this.set({ busy: { label, done, total, ...(cancellable && this.backend.converter.cancellable ? { cancellable: true } : {}) } });
+  }
+
+  /** Set by Cancel while an import or export runs. */
+  private cancelRequested = false;
+
+  /** The progress card's Cancel: stops the running conversion (the web's converter worker is terminated) and the
+   * files after it; what was already imported stays. */
+  cancelBusy(): void {
+    if (!this.state.busy?.cancellable) return;
+    this.cancelRequested = true;
+    this.backend.converter.cancel();
   }
 
   /** File › Import, drag & drop on the navigation pane: OneNote (`.onepkg` → a new notebook, `.one` → a new section
@@ -1224,9 +1239,11 @@ export class NotesController {
   importFiles(files: readonly { name: string; bytes: Uint8Array }[]): Promise<void> {
     return this.run(async () => {
       const sum: ImportSummary = { files: [], notebooks: 0, sections: 0, pages: 0, images: 0, attachments: 0, open: null };
+      this.cancelRequested = false;
       try {
         for (const [i, f] of files.entries()) {
-          this.busy(t("notes.import.busy", { name: f.name }), i, files.length);
+          if (this.cancelRequested) break;
+          this.busy(t("notes.import.busy", { name: f.name }), i, files.length, true);
           await paint();
           try {
             const r = await this.importOne(f);
@@ -1238,12 +1255,19 @@ export class NotesController {
             sum.files.push({ name: f.name, warnings: r.warnings });
             sum.open ??= r.open;
           } catch (e) {
+            if (e instanceof ConvertCancelled || this.cancelRequested) break;
             console.warn("Rusuite Notes: import", f.name, e);
             sum.files.push({ name: f.name, warnings: [], error: e instanceof Error ? e.message : String(e) });
           }
         }
       } finally {
         this.set({ busy: null });
+      }
+      if (this.cancelRequested) {
+        this.cancelRequested = false;
+        // Nothing imported: no result to show.
+        if (sum.files.length === 0) return;
+        sum.cancelled = true;
       }
       this.set({ importResult: sum });
     });
@@ -1313,7 +1337,8 @@ export class NotesController {
       const nb = this.state.notebook;
       if (!nb) throw new Error(t("notes.error.noNotebook"));
       const tree = this.tree(nb);
-      this.busy(t("notes.export.busy"));
+      this.busy(t("notes.export.busy"), 0, 0, true);
+      this.cancelRequested = false;
       try {
         await this.state.mirror?.settle();
         await this.pump();
@@ -1333,10 +1358,18 @@ export class NotesController {
           if (b) blobs.push(b);
         }
         await paint();
-        const bytes = await this.backend.converter.exportFile(format, source, frameRecords(blobs));
+        let bytes: Uint8Array;
+        try {
+          bytes = await this.backend.converter.exportFile(format, source, frameRecords(blobs));
+        } catch (e) {
+          if (e instanceof ConvertCancelled || this.cancelRequested) return;
+          throw e;
+        }
+        if (this.cancelRequested) return;
         const name = exportFileName(source.title, format, source.section, t("notes.untitled"));
         await this.backend.saveFile(name, bytes);
       } finally {
+        this.cancelRequested = false;
         this.set({ busy: null });
       }
     });
@@ -1490,6 +1523,7 @@ export class NotesController {
       hasNotebook: (localId) => !!localId && this.state.notebooks.some((n) => n.summary.id === localId),
       versionVector: (doc) => this.backend.versionVector(doc),
       exportSince: (doc, vv) => this.backend.exportUpdates(doc, vv),
+      exportChunks: (doc, vv, max) => this.backend.exportUpdateChunks(doc, vv, max),
       importRemote: (localId, doc, bytes, notebookDoc) => this.importRemote(localId, doc, bytes, notebookDoc),
       adoptNotebook: (localId, updates) => this.adoptNotebook(localId, updates),
       readBlob: async (localId, sha) => {

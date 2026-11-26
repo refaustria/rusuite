@@ -216,6 +216,7 @@
   "notes.image.tab": "Afbeelding",
   "notes.image.tools": "Hulpmiddelen voor afbeeldingen",
   "notes.import.busy": "{name} importeren…",
+  "notes.import.cancelled": "Geannuleerd – de overige bestanden zijn niet geïmporteerd.",
   "notes.import.count.files.one": "{count} bijgevoegd bestand",
   "notes.import.count.files.other": "{count} bijgevoegde bestanden",
   "notes.import.count.images.one": "{count} afbeelding",

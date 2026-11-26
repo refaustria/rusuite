@@ -216,6 +216,7 @@
   "notes.image.tab": "Изображение",
   "notes.image.tools": "Инструменти за изображения",
   "notes.import.busy": "Импортира се {name}…",
+  "notes.import.cancelled": "Отменено – останалите файлове не бяха импортирани.",
   "notes.import.count.files.one": "{count} прикачен файл",
   "notes.import.count.files.other": "{count} прикачени файла",
   "notes.import.count.images.one": "{count} изображение",

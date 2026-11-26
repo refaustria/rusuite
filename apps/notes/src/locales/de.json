@@ -216,6 +216,7 @@
   "notes.image.tab": "Bild",
   "notes.image.tools": "Bildtools",
   "notes.import.busy": "{name} wird importiert…",
+  "notes.import.cancelled": "Abgebrochen – die restlichen Dateien wurden nicht importiert.",
   "notes.import.count.files.one": "{count} angehängte Datei",
   "notes.import.count.files.other": "{count} angehängte Dateien",
   "notes.import.count.images.one": "{count} Bild",
