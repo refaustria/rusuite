@@ -125,5 +125,11 @@
   "portal.soon.link": "Qué llega próximamente",
   "portal.dl.mobile.title": "Móviles y tabletas",
   "portal.dl.mobile.text": "Rusuite Calc, Write y Show para Android e iOS: gratis, sin cuenta; tus documentos se quedan en tu dispositivo.",
-  "portal.dl.mobile.soon": "próximamente"
+  "portal.dl.mobile.soon": "próximamente",
+  "portal.notes.kind": "Blocs de notas",
+  "portal.notes.logo": "Logotipo de Rusuite Notes",
+  "portal.notes.open": "Abrir Notes en el explorador",
+  "portal.notes.text": "Blocs de notas con secciones y páginas, listas de tareas, tablas e imágenes: comparte un bloc de notas con cifrado de extremo a extremo.",
+  "portal.privacy.h.notes": "Rusuite Notes: blocs de notas compartidos",
+  "portal.privacy.notes": "Los blocs de notas permanecen en tu dispositivo (en el almacenamiento del explorador; en la aplicación de escritorio, como carpetas en tu equipo) hasta que compartes uno. Un bloc de notas compartido se sincroniza a través de nuestro relé rusuit.es; está cifrado de extremo a extremo, por lo que el servidor no puede leerlo. El relé solo conserva el bloc de notas cifrado, para que los miembros que estaban sin conexión puedan ponerse al día, y lo elimina tras un año sin actividad. Los blocs de notas no compartidos no generan ningún tráfico."
 }
