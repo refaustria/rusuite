@@ -125,5 +125,11 @@
   "portal.soon.link": "Mi jön hamarosan",
   "portal.dl.mobile.title": "Telefonok és táblagépek",
   "portal.dl.mobile.text": "Rusuite Calc, Write és Show Androidra és iOS-re – ingyenes, fiók nélkül; a dokumentumaid az eszközödön maradnak.",
-  "portal.dl.mobile.soon": "hamarosan"
+  "portal.dl.mobile.soon": "hamarosan",
+  "portal.notes.kind": "Jegyzetfüzetek",
+  "portal.notes.logo": "Rusuite Notes embléma",
+  "portal.notes.open": "A Notes megnyitása a böngészőben",
+  "portal.notes.text": "Jegyzetfüzetek szakaszokkal és oldalakkal, ellenőrzőlistákkal, táblázatokkal és képekkel – oszd meg a jegyzetfüzetet végpontok közötti titkosítással.",
+  "portal.privacy.h.notes": "Rusuite Notes: megosztott jegyzetfüzetek",
+  "portal.privacy.notes": "A jegyzetfüzetek az eszközödön maradnak (a böngésző tárhelyén; az asztali alkalmazásban mappákként a számítógépeden), amíg meg nem osztasz egyet. A megosztott jegyzetfüzet a rusuit.es közvetítőnkön keresztül szinkronizálódik; végpontok közötti titkosítású, ezért a szerver nem tudja elolvasni. A közvetítő csak a titkosított jegyzetfüzetet tárolja, hogy az offline lévő tagok be tudják hozni a lemaradásukat, és egy év tevékenység nélkül törli. A meg nem osztott jegyzetfüzetek egyáltalán nem generálnak forgalmat."
 }

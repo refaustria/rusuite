@@ -419,3 +419,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Megosztás PDF-ként… | `backstage.sharePdf` |
 | Export PDF | Exportálás PDF-be | `print.exportPdf` |
 | Multi-select | Többszörös kijelölés | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | jegyzetfüzet | OneNote |
+| Section | szakasz | `apps/notes` |
+| Section group | szakaszcsoport | `apps/notes` |
+| Page / sub-page | oldal / aloldal | `apps/notes` |
+| Tag | címke | `apps/notes` |
+| To Do | Tennivaló | tag name |
+| Draw | Rajzolás | ribbon tab |
+| Ink / drawing | digitális tinta / rajz | `apps/notes` |
+| Pen | Toll | `apps/notes` |
+| Highlighter | Szövegkiemelő | `apps/notes` |
+| Lasso select | Lasszós kijelölés | `apps/notes` |
+| Recycle bin | Lomtár | `apps/notes` |
+| Page history | Oldalelőzmények | `apps/notes` |
+| Share | Megosztás | `apps/notes` |
+| Free canvas | Szabad vászon | `apps/notes` |
+| Alt text | Helyettesítő szöveg | `apps/notes` |
+| Checklist | Ellenőrzőlista | `apps/notes` |
