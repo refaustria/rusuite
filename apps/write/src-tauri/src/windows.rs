@@ -267,6 +267,21 @@ mod desktop {
         Ok(window)
     }
 
+    /// [`create`] off the calling thread, one window per entry of `windows` in order (each cascaded from the one
+    /// before): the OS events that open windows (drops, menu, a second start) run on the event loop, where building
+    /// a window deadlocks on Windows.
+    pub fn spawn_create(app: &AppHandle, windows: Vec<Vec<PathBuf>>) {
+        if windows.is_empty() {
+            return;
+        }
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            for paths in windows {
+                let _ = create(&app, paths);
+            }
+        });
+    }
+
     /// The registry with every open document window (the configured one has no document until its page calls).
     fn registry(app: &AppHandle) -> tauri::State<'_, Docs> {
         let docs = app.state::<Docs>();
@@ -307,6 +322,7 @@ mod desktop {
             .or_else(|| docs.focused())
             .filter(|l| app.get_webview_window(l).is_some());
         let routes = rules::route(paths, &docs.windows(), focused.as_deref());
+        let mut new = Vec::new();
         for (path, target) in &routes {
             match target {
                 Target::Window(label) => deliver(app, label, vec![path.clone()]),
@@ -315,19 +331,16 @@ mod desktop {
                         bring_to_front(&window);
                     }
                 }
-                Target::New => {
-                    let _ = create(app, vec![path.clone()]);
-                }
+                Target::New => new.push(vec![path.clone()]),
             }
         }
         if !unsupported.is_empty() {
             match focused {
                 Some(label) => deliver(app, &label, unsupported),
-                None => {
-                    let _ = create(app, unsupported);
-                }
+                None => new.push(unsupported),
             }
         }
+        spawn_create(app, new);
         routes
     }
 
@@ -345,7 +358,7 @@ mod desktop {
                 false
             }
             _ => {
-                let _ = create(app, vec![path]);
+                spawn_create(app, vec![vec![path]]);
                 false
             }
         }
@@ -452,7 +465,7 @@ mod desktop {
         }
         let windows = document_windows(app);
         if windows.is_empty() {
-            let _ = create(app, Vec::new());
+            spawn_create(app, vec![Vec::new()]);
         } else if !has_visible_windows {
             let docs = app.state::<Docs>();
             let front = docs
@@ -613,7 +626,7 @@ mod desktop {
         builder.on_menu_event(|app, event| match event.id().as_ref() {
             MENU_NEW => {
                 if !app.state::<Docs>().quitting() {
-                    let _ = create(app, Vec::new());
+                    spawn_create(app, vec![Vec::new()]);
                 }
             }
             MENU_QUIT => quit(app),
