@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoroDoc, VersionVector, type PeerID } from "loro-crdt";
 import { NOTEBOOK_DOC, type RelayEvent, type ShareStatus, type SyncCrypto } from "./crypto";
-import { BACKOFF_MS, COMPACT_AFTER, UPDATE_PART_BYTES, emptyState, NotebookSync, type EngineState, type SocketLike, type SyncDocHost } from "./engine";
+import { BACKOFF_MS, COMPACT_AFTER, SEND_PER_SEC, UPDATE_PART_BYTES, emptyState, NotebookSync, type EngineState, type SocketLike, type SyncDocHost } from "./engine";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -287,6 +287,46 @@ describe("NotebookSync", () => {
     expect(fresh.getText("t").toString()).toBe(big.getText("t").toString());
     // Each part is its own outbox entry (acknowledged one by one).
     expect(new Set(parts.map((p) => p.tag)).size).toBe(parts.length);
+  });
+
+  it("a first share of many pages stays under the relay's rate; a refused subscription is sent again (P11-X1)", async () => {
+    const docs: Record<string, LoroDoc> = { nb: new LoroDoc() };
+    for (let i = 0; i < 150; i++) {
+      const d = new LoroDoc();
+      edit(d, `page ${i}`);
+      docs[`pg${i}`] = d;
+    }
+    const { e } = make(member, docs);
+    e.start();
+    const ws = sockets[0]!;
+    ws.push({ type: "challenge" });
+    ws.push({ type: "subscribed", docs: [], newJoins: [] });
+    ws.push({ type: "caughtUp", doc: NOTEBOOK_DOC, last: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    await e.idle();
+    // Never more than the budget plus the refill in any second.
+    let last = 0;
+    for (let t = 0; t < 10; t++) {
+      const now = ws.sent.length;
+      // The relay allows 50 a second per connection.
+      expect(now - last).toBeLessThanOrEqual(Math.min(50, SEND_PER_SEC + 1));
+      last = now;
+      await vi.advanceTimersByTimeAsync(1000);
+      await e.idle();
+    }
+    const pages = new Set(ws.of("publish").map((p) => (p.env as FakeEnv).doc));
+    expect(pages.size).toBe(151);
+    expect(e.phase).toBe("syncing");
+    // The relay refused one request over its rate: what is still catching up is subscribed again.
+    const subs = ws.of("subscribe").length;
+    ws.push({ type: "error", code: "RateLimited" });
+    await vi.advanceTimersByTimeAsync(1100);
+    const again = ws.of("subscribe").slice(subs).flatMap((m) => (m.docs as [string, number][]).map(([d]) => d));
+    expect(again.length).toBeGreaterThanOrEqual(150);
+    for (const o of [...e.state.outbox]) ws.push({ type: "accepted", tag: o.tag, seq: 1 });
+    for (const d of new Set(again)) ws.push({ type: "caughtUp", doc: d, last: 0 });
+    await settle(e);
+    expect(e.phase).toBe("synced");
   });
 
   it("re-encrypts queued envelopes on an epoch change and on StaleEpoch", async () => {

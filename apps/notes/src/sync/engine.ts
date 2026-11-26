@@ -29,6 +29,9 @@ export const FLUSH_MIN_MS = 30;
 export const UPDATE_PART_BYTES = 512 * 1024;
 /** Reconnect delays (ms), the last one repeats. */
 export const BACKOFF_MS = [500, 1000, 2000, 4000, 8000, 15000, 30000];
+/** Frames per second sent to the relay (its limit is 50 per connection; P11-X1: a first share of hundreds of pages
+ *  went over it and the refused subscriptions left the notebook "syncing" for good). Up to this many go at once. */
+export const SEND_PER_SEC = 40;
 
 export interface SocketLike {
   binaryType?: string;
@@ -162,6 +165,12 @@ export class NotebookSync {
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private sentOnThisSocket = new Set<number>();
+  /** Frames waiting for the send budget (this socket only). */
+  private sendQueue: Uint8Array[] = [];
+  private sendTokens = SEND_PER_SEC;
+  private sendAt = 0;
+  private sendTimer: ReturnType<typeof setTimeout> | null = null;
+  private resubscribeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     readonly notebook: string,
@@ -252,6 +261,9 @@ export class NotebookSync {
     this.subscribedDocs.clear();
     this.catchingUp.clear();
     this.sentOnThisSocket.clear();
+    this.sendQueue = [];
+    this.sendTokens = SEND_PER_SEC;
+    this.sendAt = this.now();
     this.member = false;
     if (this.phase !== "offline") this.setPhase("connecting");
     ws.onmessage = (ev) => this.onFrame(ev.data);
@@ -277,11 +289,48 @@ export class NotebookSync {
     }, delay);
   }
 
+  /** Sends at most SEND_PER_SEC frames a second (a token bucket), in order; the rest wait on this socket. */
   private send(frame: Uint8Array): boolean {
     const ws = this.ws;
     if (!ws || ws.readyState !== 1) return false;
-    ws.send(frame);
+    this.sendQueue.push(frame);
+    this.drainSends();
     return true;
+  }
+
+  private drainSends(): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== 1) {
+      this.sendQueue = [];
+      return;
+    }
+    const now = this.now();
+    this.sendTokens = Math.min(SEND_PER_SEC, this.sendTokens + ((now - this.sendAt) / 1000) * SEND_PER_SEC);
+    this.sendAt = now;
+    while (this.sendQueue.length > 0 && this.sendTokens >= 1) {
+      this.sendTokens -= 1;
+      ws.send(this.sendQueue.shift()!);
+    }
+    if (this.sendQueue.length > 0 && !this.sendTimer) {
+      const wait = Math.ceil(((1 - this.sendTokens) / SEND_PER_SEC) * 1000);
+      this.sendTimer = setTimeout(() => {
+        this.sendTimer = null;
+        this.drainSends();
+      }, Math.max(wait, 5));
+    }
+  }
+
+  /** The relay refused a request over its rate (not a publish: those come back as rejected and are retried): the
+   *  docs still catching up are subscribed again, so none stays "syncing". */
+  private resubscribeLater(): void {
+    if (this.resubscribeTimer) return;
+    this.resubscribeTimer = setTimeout(() => {
+      this.resubscribeTimer = null;
+      if (!this.ws || !this.member) return;
+      const docs = [...this.catchingUp];
+      for (const d of docs) this.subscribedDocs.delete(d);
+      this.subscribeDocs(docs);
+    }, 1000);
   }
 
   private setPhase(phase: SyncPhase, error: string | null = this.error): void {
@@ -394,6 +443,7 @@ export class NotebookSync {
       case "error":
         if (ev.code === "NotFound") this.onStopped();
         else if (ev.code === "BadSignature" || ev.code === "Internal") this.setPhase("error", ev.code);
+        else if (ev.code === "RateLimited") this.resubscribeLater();
         return;
       case "dropped":
         // Delivered before this device had the key (admission: the key wrap follows the member list): fetched again
