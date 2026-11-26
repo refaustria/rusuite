@@ -125,5 +125,11 @@
   "portal.soon.link": "X'inhu dalwaqt",
   "portal.dl.mobile.title": "Telefons u tablets",
   "portal.dl.mobile.text": "Rusuite Calc, Write u Show għal Android u iOS – b'xejn, mingħajr kont; id-dokumenti tiegħek jibqgħu fuq l-apparat tiegħek.",
-  "portal.dl.mobile.soon": "dalwaqt"
+  "portal.dl.mobile.soon": "dalwaqt",
+  "portal.notes.kind": "Notebooks",
+  "portal.notes.logo": "Logo ta’ Rusuite Notes",
+  "portal.notes.open": "Iftaħ Notes fil-browser",
+  "portal.notes.text": "Notebooks b’sezzjonijiet u paġni, listi ta’ kontroll, tabelli u immaġini – aqsam notebook b’ċifrar minn tarf għal tarf.",
+  "portal.privacy.h.notes": "Rusuite Notes: notebooks maqsuma",
+  "portal.privacy.notes": "In-notebooks tiegħek jibqgħu fuq l-apparat tiegħek (fil-ħażna tal-browser; fl-app tad-desktop bħala folders fuq il-kompjuter tiegħek) sakemm taqsam wieħed. Notebook maqsum jissinkronizza permezz tar-relay tagħna rusuit.es; huwa ċċifrat minn tarf għal tarf, għalhekk is-server ma jistax jaqrah. Ir-relay iżomm biss in-notebook iċċifrat, biex il-membri li kienu offline ikunu jistgħu jilħqu, u jħassru wara sena mingħajr attività. In-notebooks mhux maqsuma ma jiġġeneraw ebda traffiku."
 }
