@@ -634,7 +634,7 @@ pub fn run() {
     // Windows / Linux: a second start hands its documents to this instance (P11-D1).
     #[cfg(desktop)]
     let builder = windows::with_menu(launch::single_instance(builder));
-    builder
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_rusuite_mobile::init())
         .manage(smoke::Smoke::from_args())
@@ -668,7 +668,8 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 app.manage(windows::MenuState::default());
-                launch::offer_args(app.handle());
+                // The configured window exists now: documents that came before it go there first (P11-D2).
+                windows::start(app.handle());
             }
             Ok(())
         })
@@ -732,12 +733,16 @@ pub fn run() {
             connectors_tauri::connector_secret_delete
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Rusuite Calc")
-        .run(|_app, _event| {
-            // macOS: Finder / Dock opens (P11-D1), staying open without windows, Dock clicks (P11-D2).
-            #[cfg(desktop)]
-            windows::on_run_event(_app, &_event);
-        });
+        .expect("error while building Rusuite Calc");
+    // Windows / Linux "Open with", a terminal: the documents of the command line (P11-D1). Offered before the
+    // event loop runs, like a macOS cold start's `Opened`: they wait for setup's configured window (P11-D2).
+    #[cfg(desktop)]
+    launch::offer_args(app.handle());
+    app.run(|_app, _event| {
+        // macOS: Finder / Dock opens (P11-D1), staying open without windows, Dock clicks (P11-D2).
+        #[cfg(desktop)]
+        windows::on_run_event(_app, &_event);
+    });
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@
 //! recovery, close guard). This module decides, without any Tauri types, where an opened document goes
 //! ([`route`]), what the next window is called ([`Labels`]), where it appears ([`cascade`]), whether the app
 //! keeps running without windows ([`keeps_running_without_windows`]) and in which order Quit asks about unsaved
-//! documents ([`Quit`]). The shells (`apps/*/src-tauri/src/windows.rs`) apply it to real windows.
+//! documents ([`Quit`]), and holds documents that arrive before the first window exists ([`Startup`]). The shells (`apps/*/src-tauri/src/windows.rs`) apply it to real windows.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -79,6 +79,35 @@ pub fn route(
         out.push((path, target));
     }
     out
+}
+
+/// Documents that arrive before the app has started: macOS delivers a Finder / Dock open of a cold start
+/// (`application:openURLs:`, Tauri's `RunEvent::Opened`) before `didFinishLaunching`, so before Tauri's setup has
+/// created the configured window. Routed then, they would see no window and each get a new one while the
+/// configured window opened empty behind them. They wait here until setup, then go through [`route`] like any
+/// open: the configured window takes the first, every further one gets a new window.
+#[derive(Debug, Default)]
+pub struct Startup {
+    started: bool,
+    early: Vec<PathBuf>,
+}
+
+impl Startup {
+    /// `paths` to route now, or `None` when they are held until [`Startup::start`].
+    pub fn hold(&mut self, paths: Vec<PathBuf>) -> Option<Vec<PathBuf>> {
+        if self.started {
+            return Some(paths);
+        }
+        self.early.extend(paths);
+        None
+    }
+
+    /// The app has started (its configured window exists): from now on nothing is held. Returns the documents
+    /// that waited, in the order they came.
+    pub fn start(&mut self) -> Vec<PathBuf> {
+        self.started = true;
+        std::mem::take(&mut self.early)
+    }
 }
 
 /// Hands out window labels: `main` first (when it is not open), then `doc-1`, `doc-2`, ... never reused while
@@ -228,6 +257,29 @@ mod tests {
 
     fn paths(p: &[&str]) -> Vec<PathBuf> {
         p.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn documents_opened_before_the_first_window_go_into_it_then_new_windows() {
+        let mut startup = Startup::default();
+        // Cold start: two Finder documents, then a Dock drop, all before setup.
+        assert_eq!(startup.hold(vec!["/a.xlsx".into(), "/b.xlsx".into()]), None);
+        assert_eq!(startup.hold(vec!["/c.xlsx".into()]), None);
+        let early = startup.start();
+        assert_eq!(early.len(), 3);
+        // Setup made the configured window: pristine and focused.
+        let routes = route(early, &[win(MAIN_LABEL, None, true)], Some(MAIN_LABEL));
+        let targets: Vec<_> = routes.into_iter().map(|(_, t)| t).collect();
+        assert_eq!(
+            targets,
+            vec![Target::Window(MAIN_LABEL.into()), Target::New, Target::New]
+        );
+        // Started: later opens are routed at once, nothing waits.
+        assert_eq!(
+            startup.hold(vec!["/d.xlsx".into()]),
+            Some(vec!["/d.xlsx".into()])
+        );
+        assert!(startup.start().is_empty());
     }
 
     #[test]

@@ -8,7 +8,9 @@
 //! [`app_common::windows::route`]: an untitled, unmodified, empty focused window takes the document, otherwise a
 //! new window opens (cascaded from the focused one, same size), and a document already open only brings its window
 //! to the front. File › New opens a new window. macOS keeps running without windows (Dock click or File › New
-//! opens one) and has a Window menu; Quit asks each window with unsaved changes in turn ([`quit`]).
+//! opens one) and has a Window menu; Quit asks each window with unsaved changes in turn ([`quit`]). Documents
+//! that arrive before setup has made the configured window (a macOS cold start's Finder open, the command line)
+//! wait until [`start`]: the configured window takes the first.
 //! This file is identical in the three document shells; the app's host is [`crate::HostState`].
 
 use std::collections::HashMap;
@@ -16,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use app_common::launch::LaunchQueue;
-use app_common::windows::{self as rules, Labels, Quit, QuitStep, WindowDoc};
+use app_common::windows::{self as rules, Labels, Quit, QuitStep, Startup, WindowDoc};
 
 use crate::{CloseGuard, DocPath, HostState};
 
@@ -58,6 +60,7 @@ struct Registry {
     order: Vec<String>,
     labels: Labels,
     quit: Quit,
+    startup: Startup,
     /// Recovery entry id → the window whose document autosaves it (not offered to other windows as a crash copy).
     recovery: HashMap<String, String>,
 }
@@ -150,6 +153,16 @@ impl Docs {
         let mut reg = self.lock();
         let focused = reg.order.last().cloned();
         reg.quit.start(windows, focused.as_deref())
+    }
+
+    /// `paths` to route now, or `None` while the app has not started (they wait for [`Docs::start`]).
+    pub fn hold(&self, paths: Vec<PathBuf>) -> Option<Vec<PathBuf>> {
+        self.lock().startup.hold(paths)
+    }
+
+    /// Setup made the configured window: the documents that waited for it.
+    pub fn start(&self) -> Vec<PathBuf> {
+        self.lock().startup.start()
     }
 
     pub fn quitting(&self) -> bool {
@@ -313,6 +326,10 @@ mod desktop {
         if paths.is_empty() {
             return Vec::new();
         }
+        // Before setup there is no window yet (macOS: `Opened` of a cold start comes first): wait for [`start`].
+        let Some(paths) = app.state::<Docs>().hold(paths) else {
+            return Vec::new();
+        };
         let docs = registry(app);
         let (paths, unsupported): (Vec<_>, Vec<_>) = paths
             .into_iter()
@@ -342,6 +359,13 @@ mod desktop {
         }
         spawn_create(app, new);
         routes
+    }
+
+    /// Setup made the configured window: the documents that came before go through [`open`] now, so that window
+    /// takes the first and every further one gets a new window (cascaded from the one before).
+    pub fn start(app: &AppHandle) {
+        let early = app.state::<Docs>().start();
+        open(app, early, None);
     }
 
     /// The open dialog or the recent list of window `here` picked `path`: `true` when that window opens it
@@ -681,6 +705,30 @@ mod tests {
         // Each window has its own document.
         assert!(!Arc::ptr_eq(&doc, &other));
         assert!(Arc::ptr_eq(&doc, &docs.doc("main")));
+    }
+
+    #[test]
+    fn documents_opened_before_the_main_window_is_ready_go_into_it_first() {
+        let docs = Docs::default();
+        let ext = crate::OPEN_EXTENSIONS[0];
+        let a = PathBuf::from(format!("/d/a.{ext}"));
+        let b = PathBuf::from(format!("/d/b.{ext}"));
+        // macOS cold start: Finder's documents arrive before setup has made `main`.
+        assert_eq!(docs.hold(vec![a.clone(), b.clone()]), None);
+        assert!(docs.windows().is_empty());
+        let early = docs.start();
+        // Setup made `main` (pristine, the only window, so the focused one).
+        docs.doc("main");
+        let routes = rules::route(early, &docs.windows(), docs.focused().as_deref());
+        assert_eq!(
+            routes,
+            vec![
+                (a, rules::Target::Window("main".into())),
+                (b, rules::Target::New)
+            ]
+        );
+        // Afterwards nothing waits.
+        assert!(docs.hold(vec![PathBuf::from("/d/c")]).is_some());
     }
 
     #[test]

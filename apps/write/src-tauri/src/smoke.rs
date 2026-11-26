@@ -16,7 +16,8 @@
 //! the document is bound to it (the core opened it) and it is on the recent list ([`check_opened`]).
 //!
 //! `app-<name> --smoke <file> <file> …` (P11-D2) also checks one window per document ([`check_windows`]): each
-//! file opens in its own window with its name in the title, opening the second file again only brings its window
+//! file opens in its own window with its name in the title (the first in the configured window, no window left
+//! empty: the files are offered before setup, as macOS hands a cold start's Finder documents), opening the second file again only brings its window
 //! to the front, and closing that window (its close guard held, then released by its own page) leaves the first
 //! window with its document.
 
@@ -243,6 +244,22 @@ pub async fn check_windows(app: &tauri::AppHandle, files: &[PathBuf]) -> Result<
     let second = window_of(&files[1])?;
     if first.label() == second.label() {
         return Err("two documents in one window".into());
+    }
+    // The command line came before setup (as a macOS cold start's Finder open does): the configured window takes
+    // the first document, and no empty window is left over, also a moment later.
+    if first.label() != app_common::windows::MAIN_LABEL {
+        return Err(format!(
+            "the first document opened in {}, not in the configured window",
+            first.label()
+        ));
+    }
+    let _ = wait_for(1, || Err(String::new())).await;
+    let n = open_windows().len();
+    if n != files.len() {
+        return Err(format!(
+            "{n} windows for {} documents after starting",
+            files.len()
+        ));
     }
     let mut labels: Vec<String> = open_windows()
         .iter()
