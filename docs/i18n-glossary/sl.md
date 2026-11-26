@@ -409,3 +409,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Deli kot PDF… | `backstage.sharePdf` |
 | Export PDF | Izvozi v PDF | `print.exportPdf` |
 | Multi-select | Večkratni izbor | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | zvezek | OneNote |
+| Section | razdelek | `apps/notes` |
+| Section group | skupina razdelkov | `apps/notes` |
+| Page / sub-page | stran / podstran | `apps/notes` |
+| Tag | oznaka | `apps/notes` |
+| To Do | Opravilo | tag name |
+| Draw | Risanje | ribbon tab |
+| Ink / drawing | pisava / risba | `apps/notes` |
+| Pen | Pisalo | `apps/notes` |
+| Highlighter | Marker | `apps/notes` |
+| Lasso select | Izbira z lasom | `apps/notes` |
+| Recycle bin | Koš | `apps/notes` |
+| Page history | Zgodovina strani | `apps/notes` |
+| Share | Skupna raba | `apps/notes` |
+| Free canvas | Prosto platno | `apps/notes` |
+| Alt text | Nadomestno besedilo | `apps/notes` |
+| Checklist | Kontrolni seznam | `apps/notes` |

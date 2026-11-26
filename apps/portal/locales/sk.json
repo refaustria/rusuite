@@ -125,5 +125,11 @@
   "portal.soon.link": "Čo príde čoskoro",
   "portal.dl.mobile.title": "Telefóny a tablety",
   "portal.dl.mobile.text": "Rusuite Calc, Write a Show pre Android a iOS – zadarmo, bez účtu; tvoje dokumenty zostávajú na tvojom zariadení.",
-  "portal.dl.mobile.soon": "čoskoro"
+  "portal.dl.mobile.soon": "čoskoro",
+  "portal.notes.kind": "Poznámkové bloky",
+  "portal.notes.logo": "Logo Rusuite Notes",
+  "portal.notes.open": "Otvoriť Notes v prehliadači",
+  "portal.notes.text": "Poznámkové bloky so sekciami a stranami, kontrolné zoznamy, tabuľky a obrázky – zdieľaj poznámkový blok s end-to-end šifrovaním.",
+  "portal.privacy.h.notes": "Rusuite Notes: zdieľané poznámkové bloky",
+  "portal.privacy.notes": "Poznámkové bloky zostávajú v tvojom zariadení (v úložisku prehliadača; v desktopovej aplikácii ako priečinky v tvojom počítači), kým nejaký nezačneš zdieľať. Zdieľaný poznámkový blok sa synchronizuje cez naše relé rusuit.es; je šifrovaný end-to-end, takže ho server nemôže čítať. Relé ukladá iba šifrovaný poznámkový blok, aby sa členovia, ktorí boli offline, mohli dorovnať, a po roku bez aktivity ho zmaže. Nezdieľané poznámkové bloky nevytvárajú vôbec žiadnu prevádzku."
 }
