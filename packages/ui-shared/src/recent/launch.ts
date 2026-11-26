@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { OpenedFile } from "../backend";
+import { thisWindow } from "./windows";
 
 /** Emitted by the desktop shells when OS documents wait (`launch::OPEN_DOCUMENT_EVENT`). */
 export const OPEN_DOCUMENT_EVENT = "rusuite://open-document";
@@ -50,7 +51,8 @@ export function tauriLaunchDocuments(): LaunchDocuments {
     subscribe(fn) {
       let stopped = false;
       let unlisten: (() => void) | null = null;
-      void listen(OPEN_DOCUMENT_EVENT, () => fn())
+      // The shell sends the event to the window the documents wait for (P11-D2).
+      void listen(OPEN_DOCUMENT_EVENT, () => fn(), thisWindow())
         .then((u) => {
           if (stopped) u();
           else unlisten = u;

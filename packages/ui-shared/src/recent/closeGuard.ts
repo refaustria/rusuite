@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { thisWindow } from "./windows";
 
 /** Emitted by the shells when they held a close request (`apps/*\/src-tauri`). */
 export const CLOSE_REQUESTED_EVENT = "rusuite://close-requested";
@@ -17,13 +18,17 @@ export interface CloseHooks {
   listen(onRequest: () => void): Promise<() => void>;
   /** Closes the window (with the guard lifted, the shell lets it close). */
   close(): Promise<void>;
+  /** The user kept the window open (Cancel): the shell stops quitting (P11-D2: Quit asks window by window). */
+  cancelled?(): Promise<void>;
 }
 
 /** The Tauri shell's close hooks (`set_close_guard`, the event, `core:window:allow-close`). */
 export function tauriCloseHooks(): CloseHooks {
   return {
     setGuard: (on) => invoke<void>("set_close_guard", { on }),
-    listen: (onRequest) => listen(CLOSE_REQUESTED_EVENT, () => onRequest()),
+    // The shell sends the event to the window whose close it held (P11-D2).
+    listen: (onRequest) => listen(CLOSE_REQUESTED_EVENT, () => onRequest(), thisWindow()),
     close: () => getCurrentWindow().close(),
+    cancelled: () => invoke<void>("close_cancelled"),
   };
 }

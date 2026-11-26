@@ -100,8 +100,11 @@ export function ShortcutLayer({ store, guard }: { store: CalcStore; guard: Unsav
       "Mod+Shift+:": { label: t("calc.sc.insertTime"), group: t("sc.edit"), when: inGrid, run: stamp(true) },
       "Mod+PageDown": { label: t("calc.sc.nextSheet"), group: t("calc.sheets"), when: inGrid, run: nextSheet(1) },
       "Mod+PageUp": { label: t("calc.sc.prevSheet"), group: t("calc.sheets"), when: inGrid, run: nextSheet(-1) },
-      "Mod+N": { label: t("calc.sc.newWorkbook"), group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
-      "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void guard.run(() => store.openFile()) },
+      // Desktop (P11-D2): New opens a new window, Open never replaces this window's document.
+      "Mod+N": { label: t("calc.sc.newWorkbook"), group: File, inField: true, run: () => void guard.runNew(() => store.newFile()) },
+      "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void guard.runOpen(() => store.openFile()) },
+      // Cmd/Ctrl+W (desktop, P11-D2): closes this window; its close guard asks about unsaved changes.
+      ...(guard.windows ? { "Mod+W": { label: t("cmd.closeWindow"), group: File, inField: true, run: () => void guard.closeWindow() } } : {}),
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void store.saveFile() },
       // Save As: F12 as in Excel, and Ctrl+Shift+S (P9-X2: Excel has no Apply Styles box, so both keys stay).
       // Desktop: the native save dialog is the Save As; web: name the download first.

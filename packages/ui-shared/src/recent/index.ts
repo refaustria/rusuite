@@ -11,3 +11,4 @@ export * from "./ConfirmDiscard";
 export * from "./AutosaveStatus";
 export * from "./privacy";
 export * from "./launch";
+export * from "./windows";

@@ -537,9 +537,11 @@ export class DocumentSession<Req = unknown, Body = unknown> {
   async openRecent(entry: RecentItem): Promise<boolean> {
     if (entry.remote) return this.openRemote(entry.remote.connectionId, entry.remote.path);
     if (!this.storage || !this.adapter) return false;
-    if (!(await this.confirmReplace())) return false;
+    // Desktop (P11-D2): the shell opens the file in an empty or a new window, never over this document.
+    if (!this.inner.windows && !(await this.confirmReplace())) return false;
     try {
       const source = await this.storage.openRecent(entry);
+      if (source === null) return false;
       const ok = "file" in source ? await this.adapter.openFile(source.file) : await this.adapter.restore(source.snapshot, entry.name);
       return ok !== false;
     } catch (e) {

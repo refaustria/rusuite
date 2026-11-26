@@ -17,10 +17,11 @@ export class TauriDocStorage implements DocStorage {
     return this.listRecent();
   }
 
-  async openRecent(entry: RecentEntry): Promise<RecentSource> {
+  /** `null`: the shell opened the file in another window (P11-D2: already open there, or in a new one). */
+  async openRecent(entry: RecentEntry): Promise<RecentSource | null> {
     if (entry.path === null) throw new Error(t("recent.noPath", { name: entry.name }));
-    const file = await invoke<{ name: string; bytesBase64: string }>("recent_open", { path: entry.path });
-    return { file: { name: file.name, bytesBase64: file.bytesBase64 } };
+    const file = await invoke<{ name: string; bytesBase64: string } | null>("recent_open", { path: entry.path });
+    return file && { file: { name: file.name, bytesBase64: file.bytesBase64 } };
   }
 
   listRecovery(): Promise<RecoveryInfo[]> {

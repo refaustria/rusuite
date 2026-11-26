@@ -89,7 +89,7 @@ export class UnsavedGuard {
   private guarded: boolean | null = null;
 
   constructor(
-    private readonly backend: Pick<Backend, "kind">,
+    private readonly backend: Pick<Backend, "kind" | "windows">,
     readonly doc: DocState,
   ) {}
 
@@ -161,6 +161,40 @@ export class UnsavedGuard {
     return true;
   }
 
+  /** The desktop shell's windows (P11-D2: one per document); `null` in the browser and on mobile. */
+  get windows(): Backend["windows"] | null {
+    return this.backend.windows ?? null;
+  }
+
+  /**
+   * File › New: desktop opens a new window (P11-D2) and leaves this document alone; elsewhere `action` replaces
+   * the document once `ensureSaved` proceeded.
+   */
+  async runNew(action: () => unknown): Promise<boolean> {
+    const windows = this.windows;
+    if (!windows) return this.run(action);
+    await windows.newWindow();
+    return true;
+  }
+
+  /**
+   * File › Open: desktop runs `action` at once – the shell opens the picked file in an empty or a new window, never
+   * over this document (P11-D2); elsewhere after `ensureSaved`.
+   */
+  async runOpen(action: () => unknown): Promise<boolean> {
+    if (!this.windows) return this.run(action);
+    await action();
+    return true;
+  }
+
+  /** Cmd/Ctrl+W (desktop): closes this window; its close guard asks about unsaved changes. */
+  closeWindow(): boolean {
+    const windows = this.windows;
+    if (!windows) return false;
+    void windows.closeWindow().catch(() => undefined);
+    return true;
+  }
+
   // --- closing the window ---------------------------------------------------
 
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -217,7 +251,10 @@ export class UnsavedGuard {
   async closeRequested(): Promise<boolean> {
     const hooks = this.hooks;
     if (!hooks) return false;
-    if ((await this.ensureSaved()) === "cancel") return false;
+    if ((await this.ensureSaved()) === "cancel") {
+      await hooks.cancelled?.().catch(() => undefined);
+      return false;
+    }
     this.guarded = false;
     await hooks.setGuard(false);
     await hooks.close();
