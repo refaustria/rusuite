@@ -125,5 +125,11 @@
   "portal.soon.link": "Mitä on tulossa pian",
   "portal.dl.mobile.title": "Puhelimet ja tabletit",
   "portal.dl.mobile.text": "Rusuite Calc, Write ja Show Androidille ja iOS:lle – ilmaiset, ilman tiliä; asiakirjasi pysyvät laitteellasi.",
-  "portal.dl.mobile.soon": "tulossa pian"
+  "portal.dl.mobile.soon": "tulossa pian",
+  "portal.notes.kind": "Muistikirjat",
+  "portal.notes.logo": "Rusuite Notes -logo",
+  "portal.notes.open": "Avaa Notes selaimessa",
+  "portal.notes.text": "Muistikirjoja, joissa on osioita ja sivuja, tarkistuslistoja, taulukoita ja kuvia – jaa muistikirja päästä päähän salattuna.",
+  "portal.privacy.h.notes": "Rusuite Notes: jaetut muistikirjat",
+  "portal.privacy.notes": "Muistikirjat pysyvät laitteellasi (selaimen tallennustilassa; työpöytäsovelluksessa kansioina tietokoneellasi), kunnes jaat jonkin niistä. Jaettu muistikirja synkronoidaan releemme rusuit.es kautta; se on salattu päästä päähän, joten palvelin ei voi lukea sitä. Rele tallentaa vain salatun muistikirjan, jotta offline-tilassa olleet jäsenet voivat päivittyä, ja poistaa sen vuoden käyttämättömyyden jälkeen. Jakamattomat muistikirjat eivät aiheuta lainkaan liikennettä."
 }
