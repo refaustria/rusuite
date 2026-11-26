@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "bilddelen {part} saknas; bilden ignorerades",
   "reader.pptx.tableStyle.diagonal": "diagonala kantlinjer i tabellformat ignorerades",
   "reader.pptx.tableStyle.threeD": "3D-effekter i tabellformat ignorerades",
-  "reader.pptx.tableStyle.partDropped": "tabellformatdelen {part} ignorerades"
+  "reader.pptx.tableStyle.partDropped": "tabellformatdelen {part} ignorerades",
+  "launch.notOpened": "Bara ett dokument öppnas åt gången – du hittar {names} under ”{recent}”.",
+  "launch.unsupported": "Den här appen kan inte öppna {names}."
 }

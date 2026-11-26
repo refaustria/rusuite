@@ -53,6 +53,9 @@ pub mod connector;
 #[cfg(feature = "tauri-connectors")]
 pub mod connectors_tauri;
 pub mod host;
+/// OS document opens of the desktop shells (P11-D1).
+#[cfg(feature = "fs")]
+pub mod launch;
 pub mod session;
 #[cfg(feature = "webdav")]
 pub mod webdav;

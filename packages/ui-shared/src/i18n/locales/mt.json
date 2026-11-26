@@ -940,5 +940,7 @@
   "reader.pptx.picture.imageMissing": "il-parti tal-immaġni {part} nieqsa; l-istampa tneħħiet",
   "reader.pptx.tableStyle.diagonal": "il-bordi dijagonali tal-istil tat-tabella tneħħew",
   "reader.pptx.tableStyle.threeD": "l-effetti 3D tal-istil tat-tabella tneħħew",
-  "reader.pptx.tableStyle.partDropped": "il-parti tal-istil tat-tabella {part} tneħħiet"
+  "reader.pptx.tableStyle.partDropped": "il-parti tal-istil tat-tabella {part} tneħħiet",
+  "launch.notOpened": "Jinfetaħ dokument wieħed biss kull darba – issib {names} taħt “{recent}”.",
+  "launch.unsupported": "Din l-app ma tistax tiftaħ {names}."
 }

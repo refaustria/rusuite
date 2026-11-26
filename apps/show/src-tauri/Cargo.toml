@@ -33,4 +33,6 @@ serde_json = { workspace = true }
 # `tauri-connectors`: the opt-in cloud connector commands (P8-36, ADR 0009 amendment) – desktop only (owner rule,
 # P10-M1): no connections, OS keyring or AI keys in the mobile apps.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# OS document opens (P11-D1): a second start forwards its command line to the running instance.
+tauri-plugin-single-instance = "=2.5.5"
 app-common = { path = "../../../crates/app-common", features = ["fs", "tauri-connectors"] }

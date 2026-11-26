@@ -922,5 +922,7 @@
   "reader.pptx.picture.imageMissing": "parte dell'immagine {part} mancante; immagine eliminata",
   "reader.pptx.tableStyle.diagonal": "bordi diagonali dello stile tabella eliminati",
   "reader.pptx.tableStyle.threeD": "effetti 3D dello stile tabella eliminati",
-  "reader.pptx.tableStyle.partDropped": "parte dello stile tabella {part} eliminata"
+  "reader.pptx.tableStyle.partDropped": "parte dello stile tabella {part} eliminata",
+  "launch.notOpened": "Si apre un solo documento alla volta: trovi {names} in «{recent}».",
+  "launch.unsupported": "Questa app non può aprire {names}."
 }

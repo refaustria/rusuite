@@ -931,5 +931,7 @@
   "reader.pptx.picture.imageMissing": "část obrázku {part} chybí; obrázek vynechán",
   "reader.pptx.tableStyle.diagonal": "diagonální ohraničení stylu tabulky vynechána",
   "reader.pptx.tableStyle.threeD": "prostorové efekty stylu tabulky vynechány",
-  "reader.pptx.tableStyle.partDropped": "část stylu tabulky {part} vynechána"
+  "reader.pptx.tableStyle.partDropped": "část stylu tabulky {part} vynechána",
+  "launch.notOpened": "Otevírá se vždy jen jeden dokument – {names} najdeš v části „{recent}“.",
+  "launch.unsupported": "Tahle aplikace nedokáže otevřít {names}."
 }

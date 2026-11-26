@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "image part {part} missing; picture dropped",
   "reader.pptx.tableStyle.diagonal": "diagonal table style borders dropped",
   "reader.pptx.tableStyle.threeD": "3-D table style effects dropped",
-  "reader.pptx.tableStyle.partDropped": "table style part {part} dropped"
+  "reader.pptx.tableStyle.partDropped": "table style part {part} dropped",
+  "launch.notOpened": "Only one document opens at a time – you'll find {names} under “{recent}”.",
+  "launch.unsupported": "This app can't open {names}."
 }

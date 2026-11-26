@@ -940,5 +940,7 @@
   "reader.pptx.picture.imageMissing": "tá cuid íomhá {part} ar iarraidh; scaoileadh an pictiúr",
   "reader.pptx.tableStyle.diagonal": "scaoileadh imlínte trasnánacha stíl tábla",
   "reader.pptx.tableStyle.threeD": "scaoileadh maisíochtaí 3-T stíl tábla",
-  "reader.pptx.tableStyle.partDropped": "scaoileadh cuid stíl tábla {part}"
+  "reader.pptx.tableStyle.partDropped": "scaoileadh cuid stíl tábla {part}",
+  "launch.notOpened": "Ní osclaítear ach doiciméad amháin ag an am – gheobhaidh tú {names} faoi “{recent}”.",
+  "launch.unsupported": "Ní féidir leis an aip seo {names} a oscailt."
 }

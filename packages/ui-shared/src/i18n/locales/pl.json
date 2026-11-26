@@ -931,5 +931,7 @@
   "reader.pptx.picture.imageMissing": "brakuje części obrazu {part}; pominięto obraz",
   "reader.pptx.tableStyle.diagonal": "pominięto ukośne obramowania stylu tabeli",
   "reader.pptx.tableStyle.threeD": "pominięto efekty 3-W stylu tabeli",
-  "reader.pptx.tableStyle.partDropped": "pominięto część stylu tabeli {part}"
+  "reader.pptx.tableStyle.partDropped": "pominięto część stylu tabeli {part}",
+  "launch.notOpened": "Otwiera się tylko jeden dokument naraz – {names} znajdziesz w sekcji „{recent}”.",
+  "launch.unsupported": "Ta aplikacja nie może otworzyć {names}."
 }

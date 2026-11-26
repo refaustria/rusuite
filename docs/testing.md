@@ -87,6 +87,15 @@ menu, a wall-clock wait).
   exits 0 (`apps/*/src-tauri/src/smoke.rs`; also written to `$RUSUITE_SMOKE_OUT`). Under xvfb on Linux without a
   display. `--start-only` stops after this step: that is what the release workflow's `smoke` job runs on Linux,
   Windows and macOS (docs/release.md).
+- **Open with a file** (every OS, P11-D1; Calc, Write, Show): `app-<name> --smoke "<dir>/Open with <fixture>"` – the
+  command-line path of Explorer / file-manager "Open with" and of a second start (`tauri-plugin-single-instance`
+  forwards it). The binary also waits until the window title names the file, the shell's `DocPath` is bound to it and
+  it is on the recent list (`smoke::check_opened`). Part of `--start-only`.
+- **macOS Finder / Dock / drops** (manual, P11-D1): Finder delivers opens as an Apple Event (`RunEvent::Opened`), not
+  on the command line, so they need a Mac: `pnpm --filter <app> tauri build --bundles app`,
+  `scripts/check-macos-doctypes.sh <app>` (Info.plist has `CFBundleDocumentTypes`, Editor / Alternate), then Finder ›
+  Open With (app closed, and again while it runs), a drop onto the window and onto the Dock icon, an unsupported file
+  (message), and File › Recent lists each file.
 - **Close guard** (Linux, WebDriver): an edit (Calc: type + Enter on the grid; Write: Enter in the editor; Show: New
   slide) puts `•` in the native window title → a close request (`Window.close()`, which raises `CloseRequested` like the
   window manager's close button) → the "Save changes to …?" dialog → **Don't save** → the process exits.

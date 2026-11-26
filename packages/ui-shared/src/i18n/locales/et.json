@@ -913,5 +913,7 @@
   "reader.pptx.picture.imageMissing": "pildi osa {part} puudub; pilt jäeti välja",
   "reader.pptx.tableStyle.diagonal": "tabelilaadi diagonaalsed äärised jäeti välja",
   "reader.pptx.tableStyle.threeD": "tabelilaadi ruumilised efektid jäeti välja",
-  "reader.pptx.tableStyle.partDropped": "tabelilaadi osa {part} jäeti välja"
+  "reader.pptx.tableStyle.partDropped": "tabelilaadi osa {part} jäeti välja",
+  "launch.notOpened": "Korraga avatakse ainult üks dokument – {names} leiad jaotisest „{recent}“.",
+  "launch.unsupported": "See rakendus ei saa avada faili {names}."
 }

@@ -68,6 +68,15 @@ export interface NotesBackend extends ReportHost {
   /** Web: a download. */
   saveFile(name: string, bytes: Uint8Array): Promise<boolean>;
   setTitle(title: string): Promise<void>;
+  /** Desktop (P11-D1): files from the OS – Finder / Explorer "Open with", a drop onto the window, a second start. */
+  readonly launchFiles?: LaunchFiles;
+}
+
+/** Files the desktop shell got from the OS (`take_launch_files`), each handed out once. */
+export interface LaunchFiles {
+  take(): Promise<{ files: { name: string; bytes: Uint8Array }[]; unsupported: string[]; failed: string[] }>;
+  /** Calls `fn` when more files arrive while the app runs; returns the unsubscribe function. */
+  subscribe(fn: () => void): () => void;
 }
 
 /** The exports of `app-notes-wasm` (wasm-pack, `--target web`). */
