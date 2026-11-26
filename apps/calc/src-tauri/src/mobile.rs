@@ -170,8 +170,8 @@ pub async fn recent_open(
     }
     let handle = path.clone();
     match blocking(move || Ok(app.rusuite_mobile().read_document(&handle)?)).await {
-        Ok(doc) => {
-            let file = opened(doc);
+        Ok(picked) => {
+            let file = opened(picked);
             reading(&file, &state, &doc.path);
             Ok(file)
         }
