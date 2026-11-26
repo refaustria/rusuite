@@ -125,5 +125,11 @@
   "portal.soon.link": "Ką atneš netrukus",
   "portal.dl.mobile.title": "Telefonai ir planšetės",
   "portal.dl.mobile.text": "Rusuite Calc, Write ir Show, skirtos „Android“ ir „iOS“ – nemokamai, be paskyros; tavo dokumentai lieka tavo įrenginyje.",
-  "portal.dl.mobile.soon": "netrukus"
+  "portal.dl.mobile.soon": "netrukus",
+  "portal.notes.kind": "Sąsiuviniai",
+  "portal.notes.logo": "„Rusuite Notes“ logotipas",
+  "portal.notes.open": "Atidaryti „Notes“ naršyklėje",
+  "portal.notes.text": "Sąsiuviniai su skyriais ir puslapiais, kontroliniais sąrašais, lentelėmis ir vaizdais – bendrink sąsiuvinį su visapusiu šifravimu.",
+  "portal.privacy.h.notes": "„Rusuite Notes“: bendrinami sąsiuviniai",
+  "portal.privacy.notes": "Tavo sąsiuviniai lieka tavo įrenginyje (naršyklės saugykloje; kompiuterio programoje – kaip aplankai tavo kompiuteryje), kol vieną jų pradedi bendrinti. Bendrinamas sąsiuvinis sinchronizuojamas per mūsų perdavimo serverį rusuit.es; jis visapusiškai šifruotas, todėl serveris jo perskaityti negali. Perdavimo serveris saugo tik šifruotą sąsiuvinį, kad neprisijungę nariai galėtų pasivyti, ir ištrina jį po metų be veiklos. Nebendrinami sąsiuviniai nesukuria jokio srauto."
 }

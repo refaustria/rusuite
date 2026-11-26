@@ -403,3 +403,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Kopīgot kā PDF… | `backstage.sharePdf` |
 | Export PDF | Eksportēt PDF | `print.exportPdf` |
 | Multi-select | Vairākkārtēja atlase | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | piezīmju grāmatiņa | OneNote |
+| Section | sadaļa | `apps/notes` |
+| Section group | sadaļu grupa | `apps/notes` |
+| Page / sub-page | lapa / apakšlapa | `apps/notes` |
+| Tag | tags | `apps/notes` |
+| To Do | Jāizdara | tag name |
+| Draw | Zīmēšana | ribbon tab |
+| Ink / drawing | tinte / zīmējums | `apps/notes` |
+| Pen | Pildspalva | `apps/notes` |
+| Highlighter | Marķieris | `apps/notes` |
+| Lasso select | Atlase ar laso | `apps/notes` |
+| Recycle bin | Atkritne | `apps/notes` |
+| Page history | Lapas vēsture | `apps/notes` |
+| Share | Koplietot | `apps/notes` |
+| Free canvas | Brīvā audekla zona | `apps/notes` |
+| Alt text | Alternatīvais teksts | `apps/notes` |
+| Checklist | Kontrolsaraksts | `apps/notes` |

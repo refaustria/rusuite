@@ -402,3 +402,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Bendrinti kaip PDF… | `backstage.sharePdf` |
 | Export PDF | Eksportuoti į PDF | `print.exportPdf` |
 | Multi-select | Kelių elementų žymėjimas | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | sąsiuvinis | OneNote |
+| Section | skyrius | `apps/notes` |
+| Section group | skyrių grupė | `apps/notes` |
+| Page / sub-page | puslapis / polapis | `apps/notes` |
+| Tag | žyma | `apps/notes` |
+| To Do | Atlikti | tag name |
+| Draw | Piešimas | ribbon tab |
+| Ink / drawing | rašalas / brėžinys | `apps/notes` |
+| Pen | Rašiklis | `apps/notes` |
+| Highlighter | Žymeklis | `apps/notes` |
+| Lasso select | Laso žymėjimas | `apps/notes` |
+| Recycle bin | Šiukšlinė | `apps/notes` |
+| Page history | Puslapio istorija | `apps/notes` |
+| Share | Bendrinti | `apps/notes` |
+| Free canvas | Laisvas drobės plotas | `apps/notes` |
+| Alt text | Alternatyvusis tekstas | `apps/notes` |
+| Checklist | Kontrolinis sąrašas | `apps/notes` |

@@ -3,6 +3,9 @@
   "untranslated": {
     "apps/show/src/locales:show.defaultName": "\"Presentation\" is also the Swedish word; only the file extension differs",
     "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "Sample sequence of upper-case Roman numerals, language-neutral",
-    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "Sample sequence of lower-case Roman numerals, language-neutral"
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "Sample sequence of lower-case Roman numerals, language-neutral",
+    "apps/notes/src/locales:notes.export.md": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.markdown": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.oneNote": "File format name (OneNote product name and extensions), the same in every language"
   }
 }

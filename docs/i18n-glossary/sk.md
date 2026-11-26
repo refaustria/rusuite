@@ -407,3 +407,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Zdieľať ako PDF… | `backstage.sharePdf` |
 | Export PDF | Exportovať do PDF | `print.exportPdf` |
 | Multi-select | Viacnásobný výber | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | poznámkový blok | OneNote |
+| Section | sekcia | `apps/notes` |
+| Section group | skupina sekcií | `apps/notes` |
+| Page / sub-page | strana / podstrana | `apps/notes` |
+| Tag | značka | `apps/notes` |
+| To Do | Úloha | tag name |
+| Draw | Kreslenie | ribbon tab |
+| Ink / drawing | rukopis / kresba | `apps/notes` |
+| Pen | Pero | `apps/notes` |
+| Highlighter | Zvýrazňovač | `apps/notes` |
+| Lasso select | Výber lasom | `apps/notes` |
+| Recycle bin | Kôš | `apps/notes` |
+| Page history | História strany | `apps/notes` |
+| Share | Zdieľať | `apps/notes` |
+| Free canvas | Voľné plátno | `apps/notes` |
+| Alt text | Alternatívny text | `apps/notes` |
+| Checklist | Kontrolný zoznam | `apps/notes` |

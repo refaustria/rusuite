@@ -3,7 +3,7 @@
 // loads on first use (src/convert/loader.ts).
 
 import { useState } from "react";
-import { Dialog, FOCUS_RING, readerWarningText } from "@rusuite/ui-shared";
+import { Dialog, FOCUS_RING, getLocale, i18n, readerWarningText, type Locale, type ReaderWarningLike } from "@rusuite/ui-shared";
 import type { NotesController } from "../controller";
 import { IMPORT_ACCEPT } from "../convert/formats";
 import type { ExportFormat } from "../generated/ExportFormat";
@@ -138,6 +138,21 @@ export function ExportDialog({ ctl, scope: initial, node, onClose }: { ctl: Note
   );
 }
 
+/**
+ * A converter warning in the UI language: `notes.convertWarning.<code>` of this catalog with the warning's params
+ * (the `notes.*`, `onenote.*` and `docx.*` codes of `notes-convert`), else the shared `reader.<code>` message of
+ * the Word reader's own codes, else the English `text`; repeats get ` (N×)` (`notes.convertWarning.count`).
+ */
+export function convertWarningText(w: ReaderWarningLike, locale: Locale = getLocale()): string {
+  const key = w.code ? `notes.convertWarning.${w.code}` : null;
+  const count = w.count ?? 1;
+  if (key && i18n.has(locale, key)) {
+    const text = i18n.translate(locale, key, w.params);
+    return count > 1 ? i18n.translate(locale, "notes.convertWarning.count", { text, count }) : text;
+  }
+  return readerWarningText(w, locale);
+}
+
 /** The result of an import: counts, warnings per file, "Open". */
 export function ImportResultDialog({ ctl }: { ctl: NotesController }) {
   const t = useT();
@@ -173,7 +188,7 @@ export function ImportResultDialog({ ctl }: { ctl: NotesController }) {
                     </li>
                   )}
                   {f.warnings.map((w, i) => (
-                    <li key={i}>{readerWarningText(w)}</li>
+                    <li key={i}>{convertWarningText(w)}</li>
                   ))}
                 </ul>
               </details>

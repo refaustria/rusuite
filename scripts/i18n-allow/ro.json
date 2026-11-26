@@ -5,6 +5,9 @@
     "apps/write/src/locales:write.defaultName": "Document.docx: the Romanian word is also \"Document\"",
     "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "number sequence samples, language-independent",
     "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number sequence samples, language-independent",
-    "apps/show/src/locales:show.tableStyle.accentPair": "pattern of placeholders only"
+    "apps/show/src/locales:show.tableStyle.accentPair": "pattern of placeholders only",
+    "apps/notes/src/locales:notes.export.md": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.markdown": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.oneNote": "File format name (OneNote product name and extensions), the same in every language"
   }
 }

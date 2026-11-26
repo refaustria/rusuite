@@ -125,5 +125,11 @@
   "portal.soon.link": "Cad atá ag teacht go luath",
   "portal.dl.mobile.title": "Fóin agus táibléid",
   "portal.dl.mobile.text": "Rusuite Calc, Write agus Show do Android agus iOS – saor in aisce, gan cuntas; fanann do cháipéisí ar do ghléas.",
-  "portal.dl.mobile.soon": "ag teacht go luath"
+  "portal.dl.mobile.soon": "ag teacht go luath",
+  "portal.notes.kind": "Leabhair nótaí",
+  "portal.notes.logo": "Lógó Rusuite Notes",
+  "portal.notes.open": "Oscail Notes sa bhrabhsálaí",
+  "portal.notes.text": "Leabhair nótaí le rannáin agus leathanaigh, seiclisteanna, táblaí agus íomhánna – comhroinn leabhar nótaí le criptiú ó cheann go ceann.",
+  "portal.privacy.h.notes": "Rusuite Notes: leabhair nótaí comhroinnte",
+  "portal.privacy.notes": "Fanann do chuid leabhar nótaí ar do ghléas (i stóras an bhrabhsálaí; san aip deisce mar fhillteáin ar do ríomhaire) go dtí go gcomhroinneann tú ceann. Sioncronaítear leabhar nótaí comhroinnte trínár n-athsheachadán rusuit.es; tá sé criptithe ó cheann go ceann, mar sin ní féidir leis an bhfreastalaí é a léamh. Ní choinníonn an t-athsheachadán ach an leabhar nótaí criptithe, ionas gur féidir le baill a bhí as líne teacht suas, agus scriosann sé é tar éis bliana gan ghníomhaíocht. Ní ghineann leabhair nótaí neamhchomhroinnte aon trácht."
 }

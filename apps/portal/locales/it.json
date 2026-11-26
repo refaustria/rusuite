@@ -125,5 +125,11 @@
   "portal.soon.link": "Cosa è in arrivo",
   "portal.dl.mobile.title": "Telefoni e tablet",
   "portal.dl.mobile.text": "Rusuite Calc, Write e Show per Android e iOS – gratis, senza account; i tuoi documenti restano sul tuo dispositivo.",
-  "portal.dl.mobile.soon": "in arrivo"
+  "portal.dl.mobile.soon": "in arrivo",
+  "portal.notes.kind": "Blocchi appunti",
+  "portal.notes.logo": "Logo di Rusuite Notes",
+  "portal.notes.open": "Apri Notes nel browser",
+  "portal.notes.text": "Blocchi appunti con sezioni e pagine, elenchi di controllo, tabelle e immagini – condividi un blocco appunti con crittografia end-to-end.",
+  "portal.privacy.h.notes": "Rusuite Notes: blocchi appunti condivisi",
+  "portal.privacy.notes": "I blocchi appunti restano sul tuo dispositivo (nell’archivio del browser; nell’app desktop come cartelle sul tuo computer) finché non ne condividi uno. Un blocco appunti condiviso si sincronizza tramite il nostro relay rusuit.es; è crittografato end-to-end, quindi il server non può leggerlo. Il relay conserva solo il blocco appunti crittografato, in modo che i membri che erano offline possano recuperare le modifiche, e lo elimina dopo un anno senza attività. I blocchi appunti non condivisi non generano alcun traffico."
 }

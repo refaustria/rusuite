@@ -422,3 +422,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Aqsam bħala PDF… | `backstage.sharePdf` |
 | Export PDF | Esporta PDF | `print.exportPdf` |
 | Multi-select | Għażla multipla | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | notebook | OneNote |
+| Section | sezzjoni | `apps/notes` |
+| Section group | grupp ta' sezzjonijiet | `apps/notes` |
+| Page / sub-page | paġna / sottopaġna | `apps/notes` |
+| Tag | tikketta | `apps/notes` |
+| To Do | Biex Issir | tag name |
+| Draw | Iddisinja | ribbon tab |
+| Ink / drawing | linka / disinn | `apps/notes` |
+| Pen | Pinna | `apps/notes` |
+| Highlighter | Evidenzjatur | `apps/notes` |
+| Lasso select | Għażla bil-lasso | `apps/notes` |
+| Recycle bin | Landa tar-Riċiklaġġ | `apps/notes` |
+| Page history | Storja tal-paġna | `apps/notes` |
+| Share | Aqsam | `apps/notes` |
+| Free canvas | Kanvas ħieles | `apps/notes` |
+| Alt text | Test alternattiv | `apps/notes` |
+| Checklist | Lista ta' kontroll | `apps/notes` |

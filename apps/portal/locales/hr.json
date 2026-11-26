@@ -125,5 +125,11 @@
   "portal.soon.link": "Što dolazi uskoro",
   "portal.dl.mobile.title": "Telefoni i tableti",
   "portal.dl.mobile.text": "Rusuite Calc, Write i Show za Android i iOS – besplatno, bez računa; tvoji dokumenti ostaju na tvom uređaju.",
-  "portal.dl.mobile.soon": "uskoro"
+  "portal.dl.mobile.soon": "uskoro",
+  "portal.notes.kind": "Bilježnice",
+  "portal.notes.logo": "Logotip aplikacije Rusuite Notes",
+  "portal.notes.open": "Otvori Notes u pregledniku",
+  "portal.notes.text": "Bilježnice s odjeljcima i stranicama, popisi za provjeru, tablice i slike – dijeli bilježnicu s end-to-end šifriranjem.",
+  "portal.privacy.h.notes": "Rusuite Notes: dijeljene bilježnice",
+  "portal.privacy.notes": "Bilježnice ostaju na tvom uređaju (u pohrani preglednika; u desktop aplikaciji kao mape na tvom računalu) dok neku ne podijeliš. Dijeljena bilježnica sinkronizira se preko našeg releja rusuit.es; šifrirana je end-to-end pa je poslužitelj ne može čitati. Relej pohranjuje samo šifriranu bilježnicu kako bi se članovi koji su bili izvan mreže mogli uskladiti i briše je nakon godinu dana bez aktivnosti. Bilježnice koje se ne dijele ne stvaraju nikakav promet."
 }

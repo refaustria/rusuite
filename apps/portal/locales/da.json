@@ -125,5 +125,11 @@
   "portal.soon.link": "Hvad der kommer snart",
   "portal.dl.mobile.title": "Telefoner og tablets",
   "portal.dl.mobile.text": "Rusuite Calc, Write og Show til Android og iOS – gratis, uden konto; dine dokumenter bliver på din enhed.",
-  "portal.dl.mobile.soon": "kommer snart"
+  "portal.dl.mobile.soon": "kommer snart",
+  "portal.notes.kind": "Notesbøger",
+  "portal.notes.logo": "Rusuite Notes-logo",
+  "portal.notes.open": "Åbn Notes i browseren",
+  "portal.notes.text": "Notesbøger med sektioner og sider, tjeklister, tabeller og billeder – del en notesbog med ende-til-ende-kryptering.",
+  "portal.privacy.h.notes": "Rusuite Notes: delte notesbøger",
+  "portal.privacy.notes": "Notesbøger bliver på din enhed (i browserens lager; i desktop-appen som mapper på din computer), indtil du deler en. En delt notesbog synkroniseres via vores relay rusuit.es; den er ende-til-ende-krypteret, så serveren kan ikke læse den. Relayet gemmer kun den krypterede notesbog, så medlemmer, der var offline, kan komme up to date, og sletter den efter et år uden aktivitet. Notesbøger, der ikke deles, giver slet ingen trafik."
 }

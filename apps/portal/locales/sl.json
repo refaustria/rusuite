@@ -125,5 +125,11 @@
   "portal.soon.link": "Kaj prihaja kmalu",
   "portal.dl.mobile.title": "Telefoni in tablični računalniki",
   "portal.dl.mobile.text": "Rusuite Calc, Write in Show za Android in iOS – brezplačno, brez računa; tvoji dokumenti ostanejo na tvoji napravi.",
-  "portal.dl.mobile.soon": "kmalu"
+  "portal.dl.mobile.soon": "kmalu",
+  "portal.notes.kind": "Zvezki",
+  "portal.notes.logo": "Logotip Rusuite Notes",
+  "portal.notes.open": "Odpri Notes v brskalniku",
+  "portal.notes.text": "Zvezki z razdelki in stranmi, kontrolni seznami, tabele in slike – daj zvezek v skupno rabo s šifriranjem od konca do konca.",
+  "portal.privacy.h.notes": "Rusuite Notes: zvezki v skupni rabi",
+  "portal.privacy.notes": "Zvezki ostanejo v tvoji napravi (v shrambi brskalnika; v namizni aplikaciji kot mape v tvojem računalniku), dokler katerega ne daš v skupno rabo. Zvezek v skupni rabi se sinhronizira prek našega posrednika rusuit.es; je šifriran od konca do konca, zato ga strežnik ne more brati. Posrednik shranjuje samo šifriran zvezek, da se lahko člani, ki so bili brez povezave, posodobijo, in ga po letu brez dejavnosti izbriše. Zvezki, ki niso v skupni rabi, ne povzročajo nobenega prometa."
 }

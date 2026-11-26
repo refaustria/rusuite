@@ -125,5 +125,11 @@
   "portal.soon.link": "Ce urmează în curând",
   "portal.dl.mobile.title": "Telefoane și tablete",
   "portal.dl.mobile.text": "Rusuite Calc, Write și Show pentru Android și iOS – gratuite, fără cont; documentele tale rămân pe dispozitivul tău.",
-  "portal.dl.mobile.soon": "în curând"
+  "portal.dl.mobile.soon": "în curând",
+  "portal.notes.kind": "Blocnotesuri",
+  "portal.notes.logo": "Sigla Rusuite Notes",
+  "portal.notes.open": "Deschide Notes în browser",
+  "portal.notes.text": "Blocnotesuri cu secțiuni și pagini, liste de verificare, tabele și imagini – partajează un blocnotes cu criptare end-to-end.",
+  "portal.privacy.h.notes": "Rusuite Notes: blocnotesuri partajate",
+  "portal.privacy.notes": "Blocnotesurile rămân pe dispozitivul tău (în stocarea browserului; în aplicația desktop ca foldere pe computerul tău) până când partajezi unul. Un blocnotes partajat se sincronizează prin releul nostru rusuit.es; este criptat end-to-end, deci serverul nu îl poate citi. Releul păstrează doar blocnotesul criptat, pentru ca membrii care au fost offline să se poată pune la zi, și îl șterge după un an fără activitate. Blocnotesurile nepartajate nu generează deloc trafic."
 }

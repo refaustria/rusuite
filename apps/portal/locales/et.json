@@ -125,5 +125,11 @@
   "portal.soon.link": "Mis on peagi tulemas",
   "portal.dl.mobile.title": "Telefonid ja tahvelarvutid",
   "portal.dl.mobile.text": "Rusuite Calc, Write ja Show Androidile ja iOS-ile – tasuta, ilma kontota; sinu dokumendid jäävad sinu seadmesse.",
-  "portal.dl.mobile.soon": "peagi tulemas"
+  "portal.dl.mobile.soon": "peagi tulemas",
+  "portal.notes.kind": "Märkmikud",
+  "portal.notes.logo": "Rusuite Notes'i logo",
+  "portal.notes.open": "Ava Notes brauseris",
+  "portal.notes.text": "Märkmikud jaotiste ja lehtedega, kontrollnimekirjad, tabelid ja pildid – jaga märkmikku otspunktkrüptimisega.",
+  "portal.privacy.h.notes": "Rusuite Notes: jagatud märkmikud",
+  "portal.privacy.notes": "Sinu märkmikud jäävad sinu seadmesse (brauseri salvestusruumi; töölauarakenduses kaustadena sinu arvutis), kuni sa mõne jagad. Jagatud märkmik sünkroonitakse meie releeserveri rusuit.es kaudu; see on otspunktkrüptitud, nii et server ei saa seda lugeda. Releeserver hoiab ainult krüptitud märkmikku, et võrguühenduseta olnud liikmed saaksid järele jõuda, ja kustutab selle pärast aastat tegevuseta. Jagamata märkmikud ei tekita üldse liiklust."
 }

@@ -125,5 +125,11 @@
   "portal.soon.link": "Kas drīzumā gaidāms",
   "portal.dl.mobile.title": "Tālruņi un planšetdatori",
   "portal.dl.mobile.text": "Rusuite Calc, Write un Show operētājsistēmām Android un iOS – bez maksas, bez konta; tavi dokumenti paliek tavā ierīcē.",
-  "portal.dl.mobile.soon": "drīzumā"
+  "portal.dl.mobile.soon": "drīzumā",
+  "portal.notes.kind": "Piezīmju grāmatiņas",
+  "portal.notes.logo": "Rusuite Notes logotips",
+  "portal.notes.open": "Atvērt Notes pārlūkā",
+  "portal.notes.text": "Piezīmju grāmatiņas ar sadaļām un lapām, kontrolsarakstiem, tabulām un attēliem – koplieto piezīmju grāmatiņu ar pilnīgu šifrēšanu.",
+  "portal.privacy.h.notes": "Rusuite Notes: koplietotas piezīmju grāmatiņas",
+  "portal.privacy.notes": "Tavas piezīmju grāmatiņas paliek tavā ierīcē (pārlūka krātuvē; darbvirsmas lietotnē – kā mapes tavā datorā), kamēr tu kādu nekoplieto. Koplietota piezīmju grāmatiņa tiek sinhronizēta caur mūsu releju rusuit.es; tā ir šifrēta ar pilnīgu šifrēšanu, tāpēc serveris to nevar izlasīt. Releja serveris glabā tikai šifrēto piezīmju grāmatiņu, lai dalībnieki, kas bijuši bezsaistē, varētu panākt jaunāko stāvokli, un izdzēš to pēc gada bez aktivitātes. Nekoplietotas piezīmju grāmatiņas neģenerē nekādu datplūsmu."
 }

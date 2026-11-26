@@ -125,5 +125,11 @@
   "portal.soon.link": "Ce qui arrive bientôt",
   "portal.dl.mobile.title": "Téléphones et tablettes",
   "portal.dl.mobile.text": "Rusuite Calc, Write et Show pour Android et iOS – gratuits, sans compte ; tes documents restent sur ton appareil.",
-  "portal.dl.mobile.soon": "bientôt disponible"
+  "portal.dl.mobile.soon": "bientôt disponible",
+  "portal.notes.kind": "Bloc-notes",
+  "portal.notes.logo": "Logo Rusuite Notes",
+  "portal.notes.open": "Ouvrir Notes dans le navigateur",
+  "portal.notes.text": "Des bloc-notes avec sections et pages, listes de tâches, tableaux et images – partage un bloc-notes avec chiffrement de bout en bout.",
+  "portal.privacy.h.notes": "Rusuite Notes : bloc-notes partagés",
+  "portal.privacy.notes": "Les bloc-notes restent sur ton appareil (dans le stockage du navigateur ; dans l’application de bureau, sous forme de dossiers sur ton ordinateur) jusqu’à ce que tu en partages un. Un bloc-notes partagé se synchronise via notre relais rusuit.es ; il est chiffré de bout en bout, le serveur ne peut donc pas le lire. Le relais ne conserve que le bloc-notes chiffré, afin que les membres qui étaient hors connexion puissent rattraper leur retard, et le supprime après un an sans activité. Les bloc-notes non partagés ne génèrent aucun trafic."
 }

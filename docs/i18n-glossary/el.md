@@ -403,3 +403,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Κοινή χρήση ως PDF… | `backstage.sharePdf` |
 | Export PDF | Εξαγωγή σε PDF | `print.exportPdf` |
 | Multi-select | Πολλαπλή επιλογή | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | σημειωματάριο | OneNote |
+| Section | ενότητα | `apps/notes` |
+| Section group | ομάδα ενοτήτων | `apps/notes` |
+| Page / sub-page | σελίδα / υποσελίδα | `apps/notes` |
+| Tag | ετικέτα | `apps/notes` |
+| To Do | Να γίνει | tag name |
+| Draw | Σχεδίαση | ribbon tab |
+| Ink / drawing | μελάνι / σχέδιο | `apps/notes` |
+| Pen | Στυλό | `apps/notes` |
+| Highlighter | Μαρκαδόρος | `apps/notes` |
+| Lasso select | Επιλογή με λάσο | `apps/notes` |
+| Recycle bin | Κάδος απορριμμάτων | `apps/notes` |
+| Page history | Ιστορικό σελίδας | `apps/notes` |
+| Share | Κοινή χρήση | `apps/notes` |
+| Free canvas | Ελεύθερος καμβάς | `apps/notes` |
+| Alt text | Εναλλακτικό κείμενο | `apps/notes` |
+| Checklist | Λίστα ελέγχου | `apps/notes` |

@@ -4,6 +4,9 @@
   },
   "untranslated": {
     "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "numeral samples (I, II, III) are language-neutral",
-    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "numeral samples (i, ii, iii) are language-neutral"
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "numeral samples (i, ii, iii) are language-neutral",
+    "apps/notes/src/locales:notes.export.md": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.markdown": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.oneNote": "File format name (OneNote product name and extensions), the same in every language"
   }
 }

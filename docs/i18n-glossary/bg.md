@@ -409,3 +409,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Сподели като PDF… | `backstage.sharePdf` |
 | Export PDF | Експортирай като PDF | `print.exportPdf` |
 | Multi-select | Множествена селекция | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | бележник | OneNote |
+| Section | раздел | `apps/notes` |
+| Section group | група раздели | `apps/notes` |
+| Page / sub-page | страница / подстраница | `apps/notes` |
+| Tag | етикет | `apps/notes` |
+| To Do | За изпълнение | tag name |
+| Draw | Чертане | ribbon tab |
+| Ink / drawing | мастило / чертеж | `apps/notes` |
+| Pen | Писалка | `apps/notes` |
+| Highlighter | Маркер | `apps/notes` |
+| Lasso select | Избор с ласо | `apps/notes` |
+| Recycle bin | Кошче | `apps/notes` |
+| Page history | История на страницата | `apps/notes` |
+| Share | Сподели | `apps/notes` |
+| Free canvas | Свободно платно | `apps/notes` |
+| Alt text | Алтернативен текст | `apps/notes` |
+| Checklist | Списък за проверка | `apps/notes` |

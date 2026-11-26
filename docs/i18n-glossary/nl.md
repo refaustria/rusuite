@@ -407,3 +407,27 @@ One term per gesture across the five catalogs (cycle 3.1415: ui-shared compact b
 | Share as PDF… | Delen als PDF… | `backstage.sharePdf` |
 | Export PDF | PDF exporteren | `print.exportPdf` |
 | Multi-select | Meervoudige selectie | `show.touch.multiSelect` |
+
+## Notes (P11-L1, 2026-11-25)
+
+Terms follow OneNote's localisation; informal address as in the rest of the catalogs. Translator: P11-L1.
+
+| English | Term | Note |
+| --- | --- | --- |
+| Notebook | notitieblok | OneNote |
+| Section | sectie | `apps/notes` |
+| Section group | sectiegroep | `apps/notes` |
+| Page / sub-page | pagina / subpagina | `apps/notes` |
+| Tag | label | `apps/notes` |
+| To Do | Taak | tag name |
+| Draw | Tekenen | ribbon tab |
+| Ink / drawing | inkt / tekening | `apps/notes` |
+| Pen | Pen | `apps/notes` |
+| Highlighter | Markeerstift | `apps/notes` |
+| Lasso select | Lasso-selectie | `apps/notes` |
+| Recycle bin | Prullenbak | `apps/notes` |
+| Page history | Paginageschiedenis | `apps/notes` |
+| Share | Delen | `apps/notes` |
+| Free canvas | Vrij canvas | `apps/notes` |
+| Alt text | Alternatieve tekst | `apps/notes` |
+| Checklist | Controlelijst | `apps/notes` |
