@@ -3,6 +3,9 @@
   "untranslated": {
     "apps/portal/locales:portal.privacy.title": "Italian uses the loanword \"Privacy\"; the page title is \"Privacy – Rusuite\" as in English",
     "apps/write/src/locales:write.fieldDialog.seqFormat.upperRoman": "number format sample (roman numerals), the same in every language",
-    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number format sample (roman numerals), the same in every language"
+    "apps/write/src/locales:write.fieldDialog.seqFormat.lowerRoman": "number format sample (roman numerals), the same in every language",
+    "apps/notes/src/locales:notes.export.md": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.markdown": "File format name with extension, the same in every language",
+    "apps/notes/src/locales:notes.import.oneNote": "File format name (OneNote product name and extensions), the same in every language"
   }
 }

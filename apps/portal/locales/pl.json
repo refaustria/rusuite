@@ -125,5 +125,11 @@
   "portal.soon.link": "Co nas czeka wkrótce",
   "portal.dl.mobile.title": "Telefony i tablety",
   "portal.dl.mobile.text": "Rusuite Calc, Write i Show na Androida i iOS – za darmo, bez konta; Twoje dokumenty zostają na Twoim urządzeniu.",
-  "portal.dl.mobile.soon": "wkrótce"
+  "portal.dl.mobile.soon": "wkrótce",
+  "portal.notes.kind": "Notesy",
+  "portal.notes.logo": "Logo Rusuite Notes",
+  "portal.notes.open": "Otwórz Notes w przeglądarce",
+  "portal.notes.text": "Notesy z sekcjami i stronami, listami kontrolnymi, tabelami i obrazami – udostępnij notes z szyfrowaniem end-to-end.",
+  "portal.privacy.h.notes": "Rusuite Notes: udostępnione notesy",
+  "portal.privacy.notes": "Notesy zostają na Twoim urządzeniu (w pamięci przeglądarki; w aplikacji na komputer jako foldery na Twoim komputerze), dopóki któregoś nie udostępnisz. Udostępniony notes jest synchronizowany przez nasz przekaźnik rusuit.es; jest szyfrowany end-to-end, więc serwer nie może go odczytać. Przekaźnik przechowuje tylko zaszyfrowany notes, aby członkowie, którzy byli offline, mogli się zsynchronizować, i usuwa go po roku bez aktywności. Nieudostępnione notesy nie generują żadnego ruchu."
 }
