@@ -59,6 +59,8 @@ pub mod launch;
 pub mod session;
 #[cfg(feature = "webdav")]
 pub mod webdav;
+/// One window per document of the desktop shells (P11-D2).
+pub mod windows;
 pub mod wire;
 
 pub use host::{Applied, Document, Envelope, Host, Patch, Revision, DEFAULT_UNDO_LIMIT};

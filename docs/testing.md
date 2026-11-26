@@ -91,6 +91,15 @@ menu, a wall-clock wait).
   command-line path of Explorer / file-manager "Open with" and of a second start (`tauri-plugin-single-instance`
   forwards it). The binary also waits until the window title names the file, the shell's `DocPath` is bound to it and
   it is on the recent list (`smoke::check_opened`). Part of `--start-only`.
+- **One window per document** (every OS, P11-D2; Calc, Write, Show): `app-<name> --smoke "<dir>/Window a" "<dir>/Window
+  b"` – each file opens in its own window whose title names it, opening the second again only brings its window to the
+  front (no new window), closing that window is held by its close guard and answered by its own page, and the first
+  window keeps its document (`smoke::check_windows`; prints `windows main+doc-1 → doc-1 closed, main kept`). Part of
+  `--start-only`.
+- **macOS windows** (manual, P11-D2): two files from Finder → two windows (cascaded); the same file again → its window
+  comes to the front; Cmd+N → an empty window; an edit → the title reads "<name> — Edited"; Cmd+W on it asks only for
+  that window; Cmd+Q with two edited windows asks in each, one after the other (Cancel stops quitting); closing the last
+  window keeps the app running, a Dock click opens a new window; the Window menu lists the open windows.
 - **macOS Finder / Dock / drops** (manual, P11-D1): Finder delivers opens as an Apple Event (`RunEvent::Opened`), not
   on the command line, so they need a Mac: `pnpm --filter <app> tauri build --bundles app`,
   `scripts/check-macos-doctypes.sh <app>` (Info.plist has `CFBundleDocumentTypes`, Editor / Alternate), then Finder ›

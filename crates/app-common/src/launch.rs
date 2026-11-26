@@ -111,6 +111,19 @@ impl LaunchQueue {
         q.len() > before
     }
 
+    /// Whether nothing waits (P11-D2: a window with waiting documents is not empty).
+    pub fn is_empty(&self) -> bool {
+        self.queue().is_empty()
+    }
+
+    /// The first openable path waiting (the document this window is about to open).
+    pub fn first_openable(&self, extensions: &[&str]) -> Option<PathBuf> {
+        self.queue()
+            .iter()
+            .find(|p| openable(p, extensions))
+            .cloned()
+    }
+
     /// Whether an openable path waits (the page then asks about unsaved changes before taking it).
     pub fn has_openable(&self, extensions: &[&str]) -> bool {
         self.queue().iter().any(|p| openable(p, extensions))
@@ -212,6 +225,8 @@ mod tests {
         assert!(!q.push([PathBuf::from("/d/a.xlsx")]));
         assert!(q.push([PathBuf::from("/d/b.csv")]));
         assert!(q.has_openable(EXT));
+        assert!(!q.is_empty());
+        assert_eq!(q.first_openable(EXT), Some(PathBuf::from("/d/a.xlsx")));
         let taken = q.take(EXT, true);
         assert_eq!(taken.open, Some(PathBuf::from("/d/a.xlsx")));
         assert_eq!(taken.not_opened, vec![PathBuf::from("/d/b.csv")]);
@@ -219,6 +234,8 @@ mod tests {
         // Taken once: nothing waits any more.
         assert!(!q.has_openable(EXT));
         assert_eq!(q.take(EXT, true), Taken::default());
+        assert!(q.is_empty());
+        assert_eq!(q.first_openable(EXT), None);
     }
 
     #[test]

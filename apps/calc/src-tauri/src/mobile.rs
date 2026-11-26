@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use tauri_plugin_rusuite_mobile::{DocumentTypes, PickedDocument, RusuiteMobileExt};
 
+use crate::windows::CurrentDoc;
 use crate::{blocking, DocPath, FileError, OpenedFile, SavedFile, SessionState};
 
 /// The workbook types: `.xlsx` first (saved), then the text files the Text Import Wizard opens (P9-C2).
@@ -50,13 +51,13 @@ fn reading(file: &OpenedFile, session: &SessionState, doc_path: &DocPath) {
 pub async fn open_document(
     app: tauri::AppHandle,
     session: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
+    doc: CurrentDoc,
 ) -> Result<Option<OpenedFile>, FileError> {
     let picked = blocking(move || Ok(app.rusuite_mobile().pick_document(&document_types())?))
         .await?
         .map(opened);
     if let Some(file) = &picked {
-        reading(file, &session, &doc_path);
+        reading(file, &session, &doc.path);
     }
     Ok(picked)
 }
@@ -69,12 +70,13 @@ pub async fn open_document(
 pub async fn save_document(
     app: tauri::AppHandle,
     session: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
+    doc: CurrentDoc,
     suggested_name: String,
     bytes_base64: String,
     save_as: bool,
 ) -> Result<Option<SavedFile>, FileError> {
-    let target = doc_path
+    let target = doc
+        .path
         .save_target(save_as)
         .map(|p| p.to_string_lossy().into_owned());
     let saved = blocking(move || {
@@ -92,7 +94,7 @@ pub async fn save_document(
     let Some((handle, name)) = saved else {
         return Ok(None);
     };
-    doc_path.set(handle.as_ref().map(PathBuf::from));
+    doc.path.set(handle.as_ref().map(PathBuf::from));
     if let Some(handle) = &handle {
         let _ = session.record_named(handle, &name);
     }
@@ -141,13 +143,13 @@ pub async fn share_document(
 pub async fn take_launch_document(
     app: tauri::AppHandle,
     session: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
+    doc: CurrentDoc,
 ) -> Result<Option<OpenedFile>, FileError> {
     let file = blocking(move || Ok(app.rusuite_mobile().take_launch_document()?))
         .await?
         .map(opened);
     if let Some(file) = &file {
-        reading(file, &session, &doc_path);
+        reading(file, &session, &doc.path);
     }
     Ok(file)
 }
@@ -161,16 +163,16 @@ pub async fn recent_open(
     app: tauri::AppHandle,
     path: String,
     state: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
+    doc: CurrentDoc,
 ) -> Result<OpenedFile, FileError> {
     if state.session().recent_path(&path)?.is_none() {
         return Err(FileError::NotRecent(path));
     }
     let handle = path.clone();
     match blocking(move || Ok(app.rusuite_mobile().read_document(&handle)?)).await {
-        Ok(doc) => {
-            let file = opened(doc);
-            reading(&file, &state, &doc_path);
+        Ok(picked) => {
+            let file = opened(picked);
+            reading(&file, &state, &doc.path);
             Ok(file)
         }
         Err(e) => {

@@ -8,6 +8,7 @@ pub mod launch;
 pub mod mobile;
 mod pdf;
 pub mod smoke;
+pub mod windows;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,15 +25,19 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use calc_core::{CalcDocument, CalcHost};
 use serde::{Deserialize, Serialize, Serializer};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+use windows::{CurrentDoc, Docs};
 
 /// The files the open dialog offers (P9-C2): workbooks and the text files of the Text Import Wizard.
 /// Documents from the OS (P11-D1, [`launch`]) of other types are reported, not read.
 pub const OPEN_EXTENSIONS: &[&str] = &["xlsx", "csv", "txt", "tsv"];
 
-/// The Tauri-managed app state: the host of the open document.
+/// The host of one window's document (P11-D2: one per window, [`windows::Doc`]).
 pub struct CalcState(pub Mutex<CalcHost>);
+
+/// The app's host type for the shared [`windows`] module.
+pub type HostState = CalcState;
 
 impl Default for CalcState {
     fn default() -> Self {
@@ -221,6 +226,8 @@ struct PathState {
     current: Option<PathBuf>,
     /// A file read for opening; it becomes `current` once the core opened it.
     opening: Option<PathBuf>,
+    /// The document was opened or loaded (not just new): the window is not empty any more (P11-D2).
+    used: bool,
 }
 
 /// The `type` of a dispatched request (the rest is skipped).
@@ -237,6 +244,18 @@ impl DocPath {
 
     pub fn current(&self) -> Option<PathBuf> {
         self.state().current.clone()
+    }
+
+    /// The file the document is bound to or being opened from.
+    pub fn bound(&self) -> Option<PathBuf> {
+        let st = self.state();
+        st.current.clone().or_else(|| st.opening.clone())
+    }
+
+    /// A new document nothing was opened or loaded into (P11-D2: an opened document may replace it).
+    pub fn untouched(&self) -> bool {
+        let st = self.state();
+        st.current.is_none() && st.opening.is_none() && !st.used
     }
 
     /// Binds the document to `path` (after Save As).
@@ -272,12 +291,21 @@ impl DocPath {
         };
         let mut st = self.state();
         match kind.as_ref() {
-            "openXlsx" => st.current = st.opening.take(),
-            // A text file opened through the wizard is a new workbook (P9-C2):
-            // Save asks where (never writes xlsx bytes into the .csv).
-            "newDocument" | "loadSnapshotJson" | "restoreRecovery" | "openText" => {
+            "openXlsx" => {
+                st.current = st.opening.take();
+                st.used = true;
+            }
+            "newDocument" => {
                 st.current = None;
                 st.opening = None;
+                st.used = false;
+            }
+            // A text file opened through the wizard is a new workbook (P9-C2):
+            // Save asks where (never writes xlsx bytes into the .csv).
+            "loadSnapshotJson" | "restoreRecovery" | "openText" => {
+                st.current = None;
+                st.opening = None;
+                st.used = true;
             }
             _ => {}
         }
@@ -285,8 +313,8 @@ impl DocPath {
 }
 
 #[tauri::command]
-fn set_close_guard(on: bool, guard: tauri::State<'_, CloseGuard>) {
-    guard.set(on);
+fn set_close_guard(on: bool, doc: CurrentDoc) {
+    doc.guard.set(on);
 }
 
 #[tauri::command]
@@ -294,22 +322,41 @@ fn recent_list(state: tauri::State<'_, SessionState>) -> Result<Vec<RecentEntry>
     Ok(state.session().recent()?)
 }
 
-/// Re-opens a file of the recent list → its contents (as `open_file_dialog`).
+/// Re-opens a file of the recent list → its contents (as `open_file_dialog`); `None` when it went to another
+/// window (P11-D2: already open there, or this window holds a document and a new one opens it).
 #[cfg(desktop)]
 #[tauri::command]
-fn recent_open(
+async fn recent_open(
+    window: tauri::Window,
     path: String,
     state: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
-) -> Result<OpenedFile, FileError> {
+    doc: CurrentDoc,
+) -> Result<Option<OpenedFile>, FileError> {
+    if state.session().recent_path(&path)?.is_none() {
+        return Err(FileError::NotRecent(path));
+    }
+    // A missing file fails here (and leaves the list) rather than in another window.
+    if Path::new(&path).exists()
+        && !windows::open_here(window.app_handle(), window.label(), PathBuf::from(&path))
+    {
+        return Ok(None);
+    }
     let file = state.open_recent(&path)?;
-    doc_path.opening(PathBuf::from(&file.path));
-    Ok(file)
+    doc.path.opening(PathBuf::from(&file.path));
+    Ok(Some(file))
 }
 
+/// The recovery entries, without those other open windows autosave (their documents are not lost, P11-D2).
 #[tauri::command]
-fn recovery_list(state: tauri::State<'_, SessionState>) -> Result<Vec<RecoveryInfo>, FileError> {
-    Ok(state.session().recovery_list()?)
+fn recovery_list(
+    window: tauri::Window,
+    state: tauri::State<'_, SessionState>,
+    docs: tauri::State<'_, Docs>,
+) -> Result<Vec<RecoveryInfo>, FileError> {
+    let others = docs.recovery_of_others(window.label());
+    let mut list = state.session().recovery_list()?;
+    list.retain(|r| !others.contains(&r.id));
+    Ok(list)
 }
 
 #[tauri::command]
@@ -322,9 +369,12 @@ fn recovery_get(
 
 #[tauri::command]
 fn recovery_put(
+    window: tauri::Window,
     entry: RecoveryEntry,
     state: tauri::State<'_, SessionState>,
+    docs: tauri::State<'_, Docs>,
 ) -> Result<(), FileError> {
+    docs.own_recovery(&entry.id, window.label());
     Ok(state.session().recovery_put(&entry)?)
 }
 
@@ -361,13 +411,9 @@ fn ping() -> String {
 /// The single document entry point (ADR 0002 amendment); the shell only
 /// watches it for the document's file ([`DocPath::observe`]).
 #[tauri::command]
-fn dispatch(
-    request: String,
-    state: tauri::State<'_, CalcState>,
-    doc_path: tauri::State<'_, DocPath>,
-) -> String {
-    let reply = state.dispatch(&request);
-    doc_path.observe(&request, &reply);
+fn dispatch(request: String, doc: CurrentDoc) -> String {
+    let reply = doc.host.dispatch(&request);
+    doc.path.observe(&request, &reply);
     reply
 }
 
@@ -447,29 +493,29 @@ fn into_path(p: tauri_plugin_dialog::FilePath) -> Result<PathBuf, FileError> {
 }
 
 /// Shows the native open dialog and reads the picked file; `None` when
-/// cancelled.
+/// cancelled or when the file went to another window (P11-D2, [`windows::open_here`]).
 #[tauri::command]
 async fn open_file_dialog(
     window: tauri::Window,
     session: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
+    doc: CurrentDoc,
     dialog: Option<DialogText>,
 ) -> Result<Option<OpenedFile>, FileError> {
     let dialog = xlsx_dialog(&window, dialog, true);
-    let picked = blocking(move || {
-        dialog
-            .blocking_pick_file()
-            .map(|p| read_file(&into_path(p)?))
-            .transpose()
-    })
-    .await?;
-    if let Some(file) = &picked {
-        // The recent list is a convenience: failing to update it never
-        // fails the open.
-        let _ = session.record(&file.path);
-        doc_path.opening(PathBuf::from(&file.path));
+    let picked = blocking(move || dialog.blocking_pick_file().map(into_path).transpose()).await?;
+    let Some(path) = picked else {
+        return Ok(None);
+    };
+    #[cfg(desktop)]
+    if !windows::open_here(window.app_handle(), window.label(), path.clone()) {
+        return Ok(None);
     }
-    Ok(picked)
+    let file = blocking(move || read_file(&path)).await?;
+    // The recent list is a convenience: failing to update it never
+    // fails the open.
+    let _ = session.record(&file.path);
+    doc.path.opening(PathBuf::from(&file.path));
+    Ok(Some(file))
 }
 
 /// Saves the document (P7-7): a plain Save (`save_as` false) of a document
@@ -480,12 +526,13 @@ async fn open_file_dialog(
 async fn save_file(
     window: tauri::Window,
     session: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
+    doc: CurrentDoc,
     suggested_name: String,
     bytes_base64: String,
     save_as: bool,
     dialog: Option<DialogText>,
 ) -> Result<Option<SavedFile>, FileError> {
+    let doc_path = &doc.path;
     let saved = match doc_path.save_target(save_as) {
         Some(path) => {
             blocking(move || {
@@ -527,7 +574,7 @@ async fn smoke_report(
     window: tauri::WebviewWindow,
     smoke: tauri::State<'_, smoke::Smoke>,
     session: tauri::State<'_, SessionState>,
-    doc_path: tauri::State<'_, DocPath>,
+    doc: CurrentDoc,
     report: smoke::Report,
 ) -> Result<(), ()> {
     if !smoke.enabled() {
@@ -551,7 +598,7 @@ async fn smoke_report(
                 .filter_map(|r| r.path)
                 .collect();
             let title = window.title().unwrap_or_default();
-            let checked = smoke::check_opened(file, &title, doc_path.current().as_deref(), &recent);
+            let checked = smoke::check_opened(file, &title, doc.path.current().as_deref(), &recent);
             match checked {
                 Ok(()) => break,
                 Err(e) if t0.elapsed() > std::time::Duration::from_secs(60) => {
@@ -563,6 +610,14 @@ async fn smoke_report(
                     let _ = tauri::async_runtime::spawn_blocking(pause).await;
                 }
             }
+        }
+    }
+    // `--smoke <file> <file> …` (P11-D2): one window per document.
+    #[cfg(desktop)]
+    if report.error.is_none() && smoke.files().len() > 1 {
+        match smoke::check_windows(window.app_handle(), smoke.files()).await {
+            Ok(line) => println!("{line}"),
+            Err(e) => report.error = Some(format!("one window per document: {e}")),
         }
     }
     smoke.finish("Rusuite Calc", &window.title().unwrap_or_default(), &report);
@@ -578,8 +633,8 @@ pub fn run() {
     let builder = tauri::Builder::default();
     // Windows / Linux: a second start hands its documents to this instance (P11-D1).
     #[cfg(desktop)]
-    let builder = launch::single_instance(builder);
-    builder
+    let builder = windows::with_menu(launch::single_instance(builder));
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_rusuite_mobile::init())
         .manage(smoke::Smoke::from_args())
@@ -592,25 +647,13 @@ pub fn run() {
                 let _ = webview.eval(smoke::SCRIPT);
             }
         })
-        .manage(CloseGuard::default())
-        .manage(DocPath::default())
-        .on_window_event(|window, event| match event {
-            tauri::WindowEvent::CloseRequested { api, .. } => {
-                if window.state::<CloseGuard>().hold_close() {
-                    api.prevent_close();
-                    let _ = window.emit(CLOSE_REQUESTED_EVENT, ());
-                }
-            }
-            // Files dropped onto the window from the OS (P11-D1).
+        // One document per window (P11-D2): host, file binding, close guard, waiting documents.
+        .manage(Docs::default())
+        .on_window_event(|_window, _event| {
+            // Close guard, focus, closed windows, dropped files (P11-D1/D2).
             #[cfg(desktop)]
-            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. })
-                if window.label() == "main" =>
-            {
-                launch::offer(window.app_handle(), paths.clone());
-            }
-            _ => {}
+            windows::on_window_event(_window, _event);
         })
-        .manage(CalcState::default())
         .setup(|app| {
             let dir = app
                 .path()
@@ -624,8 +667,9 @@ pub fn run() {
             // Windows / Linux "Open with", a terminal: the documents of the command line (P11-D1).
             #[cfg(desktop)]
             {
-                app.manage(launch::Launch::default());
-                launch::offer_args(app.handle());
+                app.manage(windows::MenuState::default());
+                // The configured window exists now: documents that came before it go there first (P11-D2).
+                windows::start(app.handle());
             }
             Ok(())
         })
@@ -645,6 +689,11 @@ pub fn run() {
             recovery_put,
             recovery_remove,
             set_close_guard,
+            windows::close_cancelled,
+            #[cfg(desktop)]
+            windows::window_new,
+            #[cfg(desktop)]
+            windows::menu_texts,
             mobile::open_document,
             mobile::save_document,
             mobile::export_document,
@@ -684,14 +733,16 @@ pub fn run() {
             connectors_tauri::connector_secret_delete
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Rusuite Calc")
-        .run(|_app, _event| {
-            // macOS delivers Finder / Dock opens as an Apple Event, not on the command line (P11-D1).
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = &_event {
-                launch::offer(_app, launch::url_paths(urls));
-            }
-        });
+        .expect("error while building Rusuite Calc");
+    // Windows / Linux "Open with", a terminal: the documents of the command line (P11-D1). Offered before the
+    // event loop runs, like a macOS cold start's `Opened`: they wait for setup's configured window (P11-D2).
+    #[cfg(desktop)]
+    launch::offer_args(app.handle());
+    app.run(|_app, _event| {
+        // macOS: Finder / Dock opens (P11-D1), staying open without windows, Dock clicks (P11-D2).
+        #[cfg(desktop)]
+        windows::on_run_event(_app, &_event);
+    });
 }
 
 #[cfg(test)]
@@ -772,12 +823,14 @@ mod tests {
             doc_path.observe(&request, &reply);
             serde_json::from_str::<Value>(&reply).unwrap()
         };
-        // Untitled: Save asks (no target).
+        // Untitled: Save asks (no target); an empty window (P11-D2).
         assert_eq!(doc_path.save_target(false), None);
+        assert!(doc_path.untouched());
         let bytes = run(json!({"type": "saveXlsx"}))["ok"]["bytesBase64"].clone();
-        // Opened from bytes alone (no file read for it): still untitled.
+        // Opened from bytes alone (no file read for it): still untitled, but the window is used.
         run(json!({"type": "openXlsx", "bytesBase64": bytes, "name": "a.xlsx"}));
         assert_eq!(doc_path.current(), None);
+        assert!(!doc_path.untouched());
         // A file read for opening is bound once the core opened it; a
         // failed open keeps the previous binding.
         let file = PathBuf::from("/docs/a.xlsx");
@@ -796,9 +849,13 @@ mod tests {
         doc_path.set(Some(other.clone()));
         assert_eq!(doc_path.save_target(false), Some(other));
         assert_eq!(SavedFile::new(Path::new("/docs/b.xlsx")).name, "b.xlsx");
-        // New: untitled again.
+        // New: untitled again, an empty window.
         run(json!({"type": "newDocument"}));
         assert_eq!(doc_path.current(), None);
+        assert!(doc_path.untouched());
+        doc_path.opening(PathBuf::from("/docs/c.xlsx"));
+        assert!(!doc_path.untouched());
+        assert_eq!(doc_path.bound(), Some(PathBuf::from("/docs/c.xlsx")));
         // Garbage never panics.
         doc_path.observe("not json", "{\"ok\":{}}");
     }

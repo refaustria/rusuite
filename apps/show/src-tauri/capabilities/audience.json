@@ -3,6 +3,6 @@
   "identifier": "audience",
   "description": "The presenter view's slide show window (P7-8): Tauri events to the main window, closing itself",
   "platforms": ["linux", "macOS", "windows"],
-  "windows": ["audience"],
+  "windows": ["audience", "audience-*"],
   "permissions": ["core:default", "core:window:allow-close"]
 }
