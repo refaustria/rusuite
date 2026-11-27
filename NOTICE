@@ -32,24 +32,31 @@ crates/tauri-plugin-rusuite-mobile) additionally include, all under the Apache L
 The iOS apps use no CocoaPods or other Swift packages besides the Tauri Swift API; Apple system frameworks are
 not redistributed.
 
-Rust crates (461)
+Rust crates (547)
 -----------------
 
-Apache-2.0 OR MIT (274)
+Apache-2.0 OR MIT (330)
+  aead 0.5.2 – https://github.com/RustCrypto/traits
   aes 0.8.4 – https://github.com/RustCrypto/block-ciphers
+  ahash 0.8.12 – https://github.com/tkaitchuck/ahash
   android_system_properties 0.1.6 – https://github.com/nical/android_system_properties
   anyhow 1.0.104 – https://github.com/dtolnay/anyhow
+  arbitrary 1.5.0 – https://github.com/rust-fuzz/arbitrary/
+  arrayvec 0.7.8 – https://github.com/bluss/arrayvec
   async-broadcast 0.7.2 – https://github.com/smol-rs/async-broadcast
   async-channel 2.5.0 – https://github.com/smol-rs/async-channel
+  async-executor 1.14.1 – https://github.com/smol-rs/async-executor
   async-lock 3.4.2 – https://github.com/smol-rs/async-lock
   async-process 2.5.0 – https://github.com/smol-rs/async-process
   async-recursion 1.2.0 – https://github.com/dcchut/async-recursion
   async-signal 0.2.14 – https://github.com/smol-rs/async-signal
   async-task 4.7.1 – https://github.com/smol-rs/async-task
+  atomic-polyfill 1.0.3 – https://github.com/embassy-rs/atomic-polyfill
   atomic-waker 1.1.2 – https://github.com/smol-rs/atomic-waker
   base64 0.21.7 – https://github.com/marshallpierce/rust-base64
   base64 0.22.1 – https://github.com/marshallpierce/rust-base64
   base64 0.23.1 – https://github.com/marshallpierce/rust-base64
+  base64ct 1.8.3 – https://github.com/RustCrypto/formats
   bit-set 0.8.0 – https://github.com/contain-rs/bit-set
   bit-vec 0.8.0 – https://github.com/contain-rs/bit-vec
   bitflags 1.3.2 – https://github.com/bitflags/bitflags
@@ -64,9 +71,13 @@ Apache-2.0 OR MIT (274)
   cbc 0.1.2 – https://github.com/RustCrypto/block-modes
   cesu8 1.1.0 – https://github.com/emk/cesu8-rs
   cfg-if 1.0.5 – https://github.com/rust-lang/cfg-if
+  chacha20 0.9.1 – https://github.com/RustCrypto/stream-ciphers
+  chacha20poly1305 0.10.1 – https://github.com/RustCrypto/AEADs/tree/master/chacha20poly1305
   chrono 0.4.45 – https://github.com/chronotope/chrono
   cipher 0.4.4 – https://github.com/RustCrypto/traits
+  cobs 0.3.0 – https://github.com/jamesmunns/cobs.rs
   concurrent-queue 2.5.0 – https://github.com/smol-rs/concurrent-queue
+  const-oid 0.9.6 – https://github.com/RustCrypto/formats/tree/master/const-oid
   cookie 0.18.2 – https://github.com/SergioBenitez/cookie-rs
   core_detect 1.0.0 – https://github.com/thomcc/core_detect
   core-foundation 0.10.1 – https://github.com/servo/core-foundation-rs
@@ -76,22 +87,32 @@ Apache-2.0 OR MIT (274)
   core-graphics-types 0.2.0 – https://github.com/servo/core-foundation-rs
   cpufeatures 0.2.17 – https://github.com/RustCrypto/utils
   crc32fast 1.5.2 – https://github.com/srijs/rust-crc32fast
+  critical-section 1.2.0 – https://github.com/rust-embedded/critical-section
   crossbeam-channel 0.5.17 – https://github.com/crossbeam-rs/crossbeam
   crossbeam-utils 0.8.23 – https://github.com/crossbeam-rs/crossbeam
   crypto-common 0.1.7 – https://github.com/RustCrypto/traits
   ctor 1.0.13 – https://github.com/mmastrac/linktime
+  curve25519-dalek-derive 0.1.1 – https://github.com/dalek-cryptography/curve25519-dalek
   dbus 0.9.12 – https://github.com/diwic/dbus-rs
   dbus-secret-service 4.1.0 – https://github.com/brotskydotcom/dbus-secret-service.git
   defmt 1.1.1 – https://github.com/knurling-rs/defmt
   defmt-macros 1.1.1 – https://github.com/knurling-rs/defmt
+  der 0.7.10 – https://github.com/RustCrypto/formats/tree/master/der
   deranged 0.5.9 – https://github.com/jhpratt/deranged
+  diff 0.1.13 – https://github.com/utkarshkukreti/diff.rs
   digest 0.10.7 – https://github.com/RustCrypto/traits
   dirs 7.0.0 – https://codeberg.org/dirs/dirs-rs
   dirs-sys 0.5.0 – https://github.com/dirs-dev/dirs-sys-rs
   dtoa 1.0.11 – https://github.com/dtolnay/dtoa
   dyn-clone 1.0.20 – https://github.com/dtolnay/dyn-clone
+  ed25519 2.2.3 – https://github.com/RustCrypto/signatures/tree/master/ed25519
   either 1.19.0 – https://github.com/rayon-rs/either
   embed_plist 1.2.2 – https://github.com/nvzqz/embed-plist-rs
+  embedded-io 0.4.0 – https://github.com/embassy-rs/embedded-io
+  embedded-io 0.6.1 – https://github.com/rust-embedded/embedded-hal
+  ensure-cov 0.1.0 – https://github.com/zxch3n/ensure-cov
+  enum-as-inner 0.5.1 – https://github.com/bluejekyll/enum-as-inner
+  enum-as-inner 0.6.1 – https://github.com/bluejekyll/enum-as-inner
   equivalent 1.0.3 – https://github.com/indexmap-rs/equivalent
   erased-serde 0.4.10 – https://github.com/dtolnay/erased-serde
   errno 0.3.14 – https://github.com/lambda-fairy/rust-errno
@@ -113,11 +134,18 @@ Apache-2.0 OR MIT (274)
   futures-macro 0.3.34 – https://github.com/rust-lang/futures-rs
   futures-sink 0.3.34 – https://github.com/rust-lang/futures-rs
   futures-task 0.3.34 – https://github.com/rust-lang/futures-rs
+  generator 0.8.12 – https://github.com/Xudong-Huang/generator-rs.git
   getrandom 0.2.17 – https://github.com/rust-random/getrandom
   getrandom 0.3.4 – https://github.com/rust-random/getrandom
   getrandom 0.4.3 – https://github.com/rust-random/getrandom
+  hash32 0.2.1 – https://github.com/japaric/hash32
+  hash32 0.3.1 – https://github.com/japaric/hash32
   hashbrown 0.12.3 – https://github.com/rust-lang/hashbrown
+  hashbrown 0.16.1 – https://github.com/rust-lang/hashbrown
   hashbrown 0.17.1 – https://github.com/rust-lang/hashbrown
+  heapless 0.7.17 – https://github.com/japaric/heapless
+  heapless 0.8.0 – https://github.com/rust-embedded/heapless
+  heapless 0.9.3 – https://github.com/rust-embedded/heapless
   hermit-abi 0.5.3 – https://github.com/hermit-os/hermit-rs
   hex 0.4.3 – https://github.com/KokaKiwi/rust-hex
   hkdf 0.12.4 – https://github.com/RustCrypto/KDFs/
@@ -135,7 +163,6 @@ Apache-2.0 OR MIT (274)
   indexmap 2.14.2 – https://github.com/indexmap-rs/indexmap
   inout 0.1.4 – https://github.com/RustCrypto/utils
   ipnet 2.12.2 – https://github.com/krisprice/ipnet
-  itertools 0.14.0 – https://github.com/rust-itertools/itertools
   itoa 1.0.18 – https://github.com/dtolnay/itoa
   jni 0.21.1 – https://github.com/jni-rs/jni-rs
   jni 0.22.4 – https://github.com/jni-rs/jni-rs
@@ -148,45 +175,58 @@ Apache-2.0 OR MIT (274)
   jsonptr 0.7.1 – https://github.com/chanced/jsonptr
   keyboard-types 0.8.3 – https://github.com/rust-windowing/keyboard-types
   keyring 3.6.3 – https://github.com/hwchen/keyring-rs.git
+  lazy_static 1.5.1 – https://github.com/rust-lang-nursery/lazy-static.rs
+  leb128 0.2.7 – https://github.com/gimli-rs/leb128
   libappindicator 0.9.0
   libappindicator-sys 0.9.0
   libdbus-sys 0.2.7 – https://github.com/diwic/dbus-rs
   lock_api 0.4.14 – https://github.com/Amanieu/parking_lot
   log 0.4.34 – https://github.com/rust-lang/log
+  loro-thunderdome 0.6.2 – https://github.com/LPGhatguy/thunderdome
   lzxd 0.2.7 – https://github.com/Lonami/lzxd
   markup5ever 0.39.0 – https://github.com/servo/html5ever
+  md5 0.7.0 – https://github.com/stainless-steel/md5
   mime 0.3.17 – https://github.com/hyperium/mime
   muda 0.20.0 – https://github.com/tauri-apps/muda
   ndk 0.9.0 – https://github.com/rust-mobile/ndk
   ndk-context 0.1.1 – https://github.com/rust-windowing/android-ndk-rs
   ndk-sys 0.6.0+11769913 – https://github.com/rust-mobile/ndk
+  nonmax 0.5.5 – https://github.com/LPGhatguy/nonmax
   num 0.4.3 – https://github.com/rust-num/num
   num-bigint 0.4.8 – https://github.com/rust-num/num-bigint
   num-complex 0.4.6 – https://github.com/rust-num/num-complex
   num-integer 0.1.47 – https://github.com/rust-num/num-integer
   num-iter 0.1.46 – https://github.com/rust-num/num-iter
   num-rational 0.4.2 – https://github.com/rust-num/num-rational
-  num-traits 0.2.19 – https://github.com/rust-num/num-traits
+  opaque-debug 0.3.1 – https://github.com/RustCrypto/utils
   openssl-probe 0.2.1 – https://github.com/rustls/openssl-probe
   ordered-stream 0.2.0 – https://github.com/danieldg/ordered-stream
   parking 2.2.1 – https://github.com/smol-rs/parking
   parking_lot 0.12.5 – https://github.com/Amanieu/parking_lot
   parking_lot_core 0.9.12 – https://github.com/Amanieu/parking_lot
   percent-encoding 2.3.2 – https://github.com/servo/rust-url/
+  pest_meta 2.9.6 – https://github.com/pest-parser/pest
+  pest_stack_guard 1.0.1 – https://github.com/pest-parser/pest_stack_guard
   pin-project-lite 0.2.17 – https://github.com/taiki-e/pin-project-lite
   piper 0.2.5 – https://github.com/smol-rs/piper
+  pkcs8 0.10.2 – https://github.com/RustCrypto/formats/tree/master/pkcs8
   png 0.17.16 – https://github.com/image-rs/image-png
   png 0.18.1 – https://github.com/image-rs/image-png
   polling 3.11.0 – https://github.com/smol-rs/polling
+  poly1305 0.8.0 – https://github.com/RustCrypto/universal-hashes
   portable-atomic 1.15.0 – https://github.com/taiki-e/portable-atomic
   portable-atomic-util 0.2.8 – https://github.com/taiki-e/portable-atomic-util
+  postcard 1.1.3 – https://github.com/jamesmunns/postcard
   powerfmt 0.2.1 – https://github.com/jhpratt/powerfmt
   ppv-lite86 0.2.21 – https://github.com/cryptocorrosion/cryptocorrosion
   proc-macro-error-attr 1.0.4 – https://gitlab.com/CreepySkeleton/proc-macro-error
-  rand 0.8.8 – https://github.com/rust-random/rand
+  psm 0.1.32 – https://github.com/rust-lang/stacker/
   rand_chacha 0.3.1 – https://github.com/rust-random/rand
+  rand_chacha 0.9.0 – https://github.com/rust-random/rand
   rand_core 0.10.1 – https://github.com/rust-random/rand_core
   rand_core 0.6.4 – https://github.com/rust-random/rand
+  rand_core 0.9.5 – https://github.com/rust-random/rand
+  rand_xoshiro 0.6.0 – https://github.com/rust-random/rngs
   ref-cast-impl 1.0.27 – https://github.com/dtolnay/ref-cast
   regex-automata 0.4.18 – https://github.com/rust-lang/regex
   regex-syntax 0.8.11 – https://github.com/rust-lang/regex
@@ -195,12 +235,14 @@ Apache-2.0 OR MIT (274)
   rustls-pki-types 1.15.1 – https://github.com/rustls/pki-types
   rustls-platform-verifier 0.7.1 – https://github.com/rustls/rustls-platform-verifier
   rustls-platform-verifier-android 0.2.0 – https://github.com/rustls/rustls-platform-verifier
+  scoped-tls 1.0.1 – https://github.com/alexcrichton/scoped-tls
   scopeguard 1.2.0 – https://github.com/bluss/scopeguard
   secret-service 4.0.0 – https://github.com/hwchen/secret-service-rs.git
   security-framework 2.11.1 – https://github.com/kornelski/rust-security-framework
   security-framework 3.7.0 – https://github.com/kornelski/rust-security-framework
   security-framework-sys 2.17.0 – https://github.com/kornelski/rust-security-framework
   semver 1.0.28 – https://github.com/dtolnay/semver
+  serde_columnar 0.3.14 – https://github.com/loro-dev/columnar
   serde_core 1.0.229 – https://github.com/serde-rs/serde
   serde_path_to_error 0.1.20 – https://github.com/dtolnay/path-to-error
   serde_spanned 0.6.9 – https://github.com/toml-rs/toml
@@ -213,12 +255,15 @@ Apache-2.0 OR MIT (274)
   sha1 0.10.7 – https://github.com/RustCrypto/hashes
   sha2 0.10.9 – https://github.com/RustCrypto/hashes
   signal-hook-registry 1.4.8 – https://github.com/vorner/signal-hook
+  signature 2.2.0 – https://github.com/RustCrypto/traits/tree/master/signature
   simdutf8 0.1.5 – https://github.com/rusticstuff/simdutf8
   siphasher 1.0.4 – https://github.com/jedisct1/rust-siphash
   smallvec 1.16.3 – https://github.com/servo/rust-smallvec
   socket2 0.6.5 – https://github.com/rust-lang/socket2
   softbuffer 0.4.8 – https://github.com/rust-windowing/softbuffer
+  spki 0.7.3 – https://github.com/RustCrypto/formats/tree/master/spki
   stable_deref_trait 1.2.1 – https://github.com/storyyeller/stable_deref_trait
+  stacker 0.1.25 – https://github.com/rust-lang/stacker
   string_cache 0.9.0 – https://github.com/servo/string-cache
   swift-rs 1.0.9 – https://github.com/Brendonovich/swift-rs
   tao-macros 0.1.4 – https://github.com/tauri-apps/tao
@@ -226,12 +271,14 @@ Apache-2.0 OR MIT (274)
   tauri-macros 2.7.3 – https://github.com/tauri-apps/tauri
   tauri-plugin-dialog 2.8.0 – https://github.com/tauri-apps/plugins-workspace
   tauri-plugin-fs 2.6.0 – https://github.com/tauri-apps/plugins-workspace
+  tauri-plugin-single-instance 2.5.5 – https://github.com/tauri-apps/plugins-workspace
   tauri-runtime 2.12.2 – https://github.com/tauri-apps/tauri
   tauri-runtime-wry 2.12.2 – https://github.com/tauri-apps/tauri
   tempfile 3.27.0 – https://github.com/Stebalien/tempfile
   tendril 0.5.1 – https://github.com/servo/html5ever
   thiserror-impl 1.0.69 – https://github.com/dtolnay/thiserror
   thiserror-impl 2.0.21 – https://github.com/dtolnay/thiserror
+  thread_local 1.1.10 – https://github.com/Amanieu/thread_local-rs
   time 0.3.55 – https://github.com/time-rs/time
   time-macros 0.2.32 – https://github.com/time-rs/time
   tokio-rustls 0.26.6 – https://github.com/rustls/tokio-rustls
@@ -244,11 +291,13 @@ Apache-2.0 OR MIT (274)
   toml_parser 1.1.5+spec-1.1.0 – https://github.com/toml-rs/toml
   toml_writer 1.1.3+spec-1.1.0 – https://github.com/toml-rs/toml
   tray-icon 0.25.1 – https://github.com/tauri-apps/tray-icon
+  tungstenite 0.29.0 – https://github.com/snapview/tungstenite-rs
   typed-path 0.12.3 – https://github.com/chipsenkbeil/typed-path
   typeid 1.0.3 – https://github.com/dtolnay/typeid
   typenum 1.20.1 – https://github.com/paholg/typenum
-  unicase 2.10.0 – https://github.com/seanmonstar/unicase
+  ucd-trie 0.1.7 – https://github.com/BurntSushi/ucd-generate
   unicode-segmentation 1.13.3 – https://github.com/unicode-rs/unicode-segmentation
+  universal-hash 0.5.1 – https://github.com/RustCrypto/traits
   url 2.5.8 – https://github.com/servo/rust-url
   utf8_iter 1.0.4 – https://github.com/hsivonen/utf8_iter
   uuid 1.28.0 – https://github.com/uuid-rs/uuid
@@ -290,13 +339,19 @@ Apache-2.0 OR MIT (274)
   windows_x86_64_msvc 0.52.6 – https://github.com/microsoft/windows-rs
   windows_x86_64_msvc 0.53.1 – https://github.com/microsoft/windows-rs
   windows-collections 0.3.2 – https://github.com/microsoft/windows-rs
+  windows-core 0.100.0 – https://github.com/microsoft/windows-rs
   windows-core 0.62.2 – https://github.com/microsoft/windows-rs
   windows-future 0.3.2 – https://github.com/microsoft/windows-rs
+  windows-implement 0.100.0 – https://github.com/microsoft/windows-rs
   windows-implement 0.60.2 – https://github.com/microsoft/windows-rs
+  windows-interface 0.100.0 – https://github.com/microsoft/windows-rs
   windows-interface 0.59.3 – https://github.com/microsoft/windows-rs
+  windows-link 0.100.0 – https://github.com/microsoft/windows-rs
   windows-link 0.2.1 – https://github.com/microsoft/windows-rs
   windows-numerics 0.3.1 – https://github.com/microsoft/windows-rs
+  windows-result 0.100.0 – https://github.com/microsoft/windows-rs
   windows-result 0.4.1 – https://github.com/microsoft/windows-rs
+  windows-strings 0.100.0 – https://github.com/microsoft/windows-rs
   windows-strings 0.5.1 – https://github.com/microsoft/windows-rs
   windows-sys 0.45.0 – https://github.com/microsoft/windows-rs
   windows-sys 0.52.0 – https://github.com/microsoft/windows-rs
@@ -309,9 +364,12 @@ Apache-2.0 OR MIT (274)
   windows-threading 0.2.1 – https://github.com/microsoft/windows-rs
   windows-version 0.1.7 – https://github.com/microsoft/windows-rs
   wry 0.57.0 – https://github.com/tauri-apps/wry
+  yansi 1.0.1 – https://github.com/SergioBenitez/yansi
   zeroize 1.9.1 – https://github.com/RustCrypto/utils
 
-MIT (99)
+MIT (121)
+  append-only-bytes 0.1.12 – https://github.com/zxch3n/append-only-bytes
+  arref 0.1.0 – https://github.com/zxch3n/arref
   atk 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   atk-sys 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   axum 0.8.9 – https://github.com/tokio-rs/axum
@@ -324,6 +382,7 @@ MIT (99)
   cargo_metadata 0.19.2 – https://github.com/oli-obk/cargo_metadata
   cfb 0.14.0 – https://github.com/mdsteele/rust-cfb
   combine 4.6.8 – https://github.com/Marwes/combine
+  data-encoding 2.11.1 – https://github.com/ia0/data-encoding
   derive_more 2.1.1 – https://github.com/JelteF/derive_more
   derive_more-impl 2.1.1 – https://github.com/JelteF/derive_more
   dlopen2 0.8.2 – https://github.com/OpenByteDev/dlopen2
@@ -338,6 +397,7 @@ MIT (99)
   gdkx11 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   gdkx11-sys 0.18.2 – https://github.com/gtk-rs/gtk3-rs
   generic-array 0.14.7 – https://github.com/fizyk20/generic-array.git
+  generic-btree 0.10.7 – https://github.com/loro-dev/generic-btree
   gio 0.18.4 – https://github.com/gtk-rs/gtk-rs-core
   gio-sys 0.18.1 – https://github.com/gtk-rs/gtk-rs-core
   glib-macros 0.18.5 – https://github.com/gtk-rs/gtk-rs-core
@@ -354,12 +414,23 @@ MIT (99)
   javascriptcore-rs 1.1.2 – https://github.com/tauri-apps/javascriptcore-rs
   javascriptcore-rs-sys 1.1.1 – https://github.com/tauri-apps/javascriptcore-rs
   libredox 0.1.25 – https://gitlab.redox-os.org/redox-os/libredox.git
+  loom 0.7.3 – https://github.com/tokio-rs/loom
+  loro 1.17.1 – https://github.com/loro-dev/loro/
+  loro_fractional_index 1.13.0 – https://github.com/loro-dev/loro/
+  loro-common 1.17.0 – https://github.com/loro-dev/loro
+  loro-delta 1.13.0 – https://github.com/loro-dev/loro/
+  loro-internal 1.17.1 – https://github.com/loro-dev/loro/
+  loro-kv-store 1.17.0 – https://github.com/loro-dev/loro/
+  loro-rle 1.6.0 – https://github.com/loro-dev/loro/
   lru 0.18.5 – https://github.com/jeromefroe/lru-rs.git
+  lz4_flex 0.11.6 – https://github.com/pseitz/lz4_flex
+  matchers 0.2.0 – https://github.com/hawkw/matchers
   memoffset 0.9.1 – https://github.com/Gilnaa/memoffset
   mio 1.2.4 – https://github.com/tokio-rs/mio
   new_debug_unreachable 1.0.6 – https://github.com/mbrubeck/rust-debug-unreachable
   nix 0.29.0 – https://github.com/nix-rust/nix
   nix 0.31.3 – https://github.com/nix-rust/nix
+  nu-ansi-term 0.50.3 – https://github.com/nushell/nu-ansi-term
   objc2 0.6.5 – https://github.com/madsmtm/objc2
   objc2-encode 4.1.0 – https://github.com/madsmtm/objc2
   objc2-foundation 0.3.2 – https://github.com/madsmtm/objc2
@@ -369,6 +440,7 @@ MIT (99)
   plist 1.10.1 – https://github.com/ebarnard/rust-plist/
   precomputed-hash 0.1.1 – https://github.com/emilio/precomputed-hash
   pulldown-cmark 0.13.6 – https://github.com/raphlinus/pulldown-cmark
+  quick_cache 0.6.24 – https://github.com/arthurprs/quick-cache
   quick-xml 0.42.0 – https://github.com/tafia/quick-xml
   redox_syscall 0.5.18 – https://gitlab.redox-os.org/redox-os/syscall
   redox_users 0.5.3 – https://gitlab.redox-os.org/redox-os/users
@@ -378,23 +450,29 @@ MIT (99)
   schemars 0.8.22 – https://github.com/GREsau/schemars
   schemars 0.9.0 – https://github.com/GREsau/schemars
   schemars 1.2.3 – https://github.com/GREsau/schemars
+  sharded-slab 0.1.7 – https://github.com/hawkw/sharded-slab
   simd-adler32 0.3.10 – https://github.com/mcountryman/simd-adler32
   slab 0.4.12 – https://github.com/tokio-rs/slab
   soup3 0.5.0 – https://gitlab.gnome.org/World/Rust/soup3-rs
   soup3-sys 0.5.0 – https://gitlab.gnome.org/World/Rust/soup3-rs
+  spin 0.9.9 – https://github.com/mvdnes/spin-rs.git
   strsim 0.11.1 – https://github.com/rapidfuzz/strsim-rs
   tokio-macros 2.7.2 – https://github.com/tokio-rs/tokio
+  tokio-tungstenite 0.29.0 – https://github.com/snapview/tokio-tungstenite
   tokio-util 0.7.20 – https://github.com/tokio-rs/tokio
   tower 0.5.3 – https://github.com/tower-rs/tower
   tower-http 0.6.11 – https://github.com/tower-rs/tower-http
   tower-layer 0.3.3 – https://github.com/tower-rs/tower
   tower-service 0.3.3 – https://github.com/tower-rs/tower
   tracing-core 0.1.36 – https://github.com/tokio-rs/tracing
+  tracing-log 0.2.0 – https://github.com/tokio-rs/tracing
   try-lock 0.2.5 – https://github.com/seanmonstar/try-lock
   ts-rs 12.0.1 – https://github.com/Aleph-Alpha/ts-rs
   ts-rs-macros 12.0.1 – https://github.com/Aleph-Alpha/ts-rs
+  twox-hash 2.1.5 – https://github.com/shepmaster/twox-hash
   uds_windows 1.2.1 – https://github.com/haraldh/rust_uds_windows
   urlpattern 0.6.0 – https://github.com/denoland/rust-urlpattern
+  valuable 0.1.1 – https://github.com/tokio-rs/valuable
   want 0.3.2 – https://github.com/seanmonstar/want
   webkit2gtk 2.0.2 – https://github.com/tauri-apps/webkit2gtk-rs
   webkit2gtk-sys 2.0.2 – https://github.com/tauri-apps/webkit2gtk-rs
@@ -407,10 +485,10 @@ MIT (99)
   x11-dl 2.21.0 – https://github.com/AltF02/x11-rs.git
   xdg-home 1.3.0 – https://github.com/zeenix/xdg-home
   zbus 4.4.0 – https://github.com/dbus2/zbus/
-  zbus_names 3.0.0 – https://github.com/dbus2/zbus/
+  zbus 5.19.0 – https://github.com/z-galaxy/zbus/
+  zcheapstr 1.4.0 – https://github.com/z-galaxy/zcheapstr/
   zip 9.0.3 – https://github.com/zip-rs/zip2
   zmij 1.0.23 – https://github.com/dtolnay/zmij
-  zvariant 4.2.0 – https://github.com/dbus2/zbus/
 
 Apache-2.0 OR MIT OR Zlib (20)
   bytemuck 1.25.2 – https://github.com/Lokathor/bytemuck
@@ -474,6 +552,14 @@ MPL-2.0 (7)
   option-ext 0.2.0 – https://github.com/soc/option-ext.git
   selectors 0.38.0 – https://github.com/servo/stylo
 
+BSD-3-Clause (6)
+  alloc-no-stdlib 3.0.0 – https://github.com/dropbox/rust-alloc-no-stdlib
+  alloc-stdlib 0.3.0 – https://github.com/dropbox/rust-alloc-no-stdlib
+  curve25519-dalek 4.1.3 – https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek
+  ed25519-dalek 2.2.0 – https://github.com/dalek-cryptography/curve25519-dalek/tree/main/ed25519-dalek
+  subtle 2.6.1 – https://github.com/dalek-cryptography/subtle
+  x25519-dalek 2.0.1 – https://github.com/dalek-cryptography/curve25519-dalek/tree/main/x25519-dalek
+
 Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT (5)
   linux-raw-sys 0.12.1 – https://github.com/sunfishcode/linux-raw-sys
   rustix 1.1.5 – https://github.com/bytecodealliance/rustix
@@ -481,25 +567,28 @@ Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT (5)
   wasip2 1.0.4+wasi-0.2.12 – https://github.com/bytecodealliance/wasi-rs
   wit-bindgen 0.57.1 – https://github.com/bytecodealliance/wit-bindgen
 
-Apache-2.0 (3)
-  sync_wrapper 1.0.2 – https://github.com/Actyx/sync_wrapper
-  tao 0.37.1 – https://github.com/tauri-apps/tao
-  zopfli 0.8.4 – https://github.com/zopfli-rs/zopfli
-
 Apache-2.0 OR ISC OR MIT (3)
   hyper-rustls 0.27.10 – https://github.com/rustls/hyper-rustls
   rustls 0.23.46 – https://github.com/rustls/rustls
   rustls-native-certs 0.8.5 – https://github.com/rustls/rustls-native-certs
 
-BSD-3-Clause (3)
-  alloc-no-stdlib 3.0.0 – https://github.com/dropbox/rust-alloc-no-stdlib
-  alloc-stdlib 0.3.0 – https://github.com/dropbox/rust-alloc-no-stdlib
-  subtle 2.6.1 – https://github.com/dalek-cryptography/subtle
-
 ISC (3)
   libloading 0.7.4 – https://github.com/nagisa/rust_libloading/
   rustls-webpki 0.103.15 – https://github.com/rustls/webpki
   untrusted 0.9.0 – https://github.com/briansmith/untrusted
+
+MPL-2.0+ (3)
+  bitmaps 2.1.0 – https://github.com/bodil/bitmaps
+  im 15.1.0 – https://github.com/bodil/im-rs
+  sized-chunks 0.6.5 – https://github.com/bodil/sized-chunks
+
+(Apache-2.0 OR MIT) AND Unicode-3.0 (2)
+  unicode-ident 1.0.27 – https://github.com/dtolnay/unicode-ident
+  unicode-normalization 0.1.26 – https://github.com/unicode-rs/unicode-normalization
+
+Apache-2.0 (2)
+  sync_wrapper 1.0.2 – https://github.com/Actyx/sync_wrapper
+  tao 0.37.1 – https://github.com/tauri-apps/tao
 
 Apache-2.0 OR BSD-2-Clause OR MIT (2)
   zerocopy 0.8.63 – https://github.com/google/zerocopy
@@ -520,9 +609,6 @@ Zlib (2)
 (Apache-2.0 OR MIT) AND BSD-3-Clause (1)
   encoding_rs 0.8.44 – https://github.com/hsivonen/encoding_rs
 
-(Apache-2.0 OR MIT) AND Unicode-3.0 (1)
-  unicode-ident 1.0.27 – https://github.com/dtolnay/unicode-ident
-
 0BSD OR Apache-2.0 OR MIT (1)
   adler2 2.0.1 – https://github.com/oyvindln/adler2
 
@@ -531,6 +617,9 @@ Apache-2.0 AND ISC (1)
 
 Apache-2.0 AND MIT (1)
   dpi 0.1.2 – https://github.com/rust-windowing/winit
+
+Apache-2.0 OR BSD-1-Clause OR MIT (1)
+  fiat-crypto 0.2.9 – https://github.com/mit-plv/fiat-crypto
 
 Apache-2.0 OR BSD-3-Clause OR MIT (1)
   num_enum 0.7.6 – https://github.com/illicitonion/num_enum
@@ -541,13 +630,16 @@ Apache-2.0 OR CC0-1.0 OR MIT-0 (1)
 BSD-3-Clause OR MIT (1)
   brotli-decompressor 6.0.1 – https://github.com/dropbox/rust-brotli-decompressor
 
+BSL-1.0 (1)
+  xxhash-rust 0.8.19 – https://github.com/DoumanAsh/xxhash-rust
+
 CDLA-Permissive-2.0 (1)
   webpki-root-certs 1.0.9 – https://github.com/rustls/webpki-roots
 
-npm packages (63)
+npm packages (67)
 -----------------
 
-MIT (62)
+MIT (66)
   @tiptap/core 3.31.3 – https://tiptap.dev
   @tiptap/extension-blockquote 3.31.3 – https://tiptap.dev
   @tiptap/extension-bold 3.31.3 – https://tiptap.dev
@@ -583,11 +675,15 @@ MIT (62)
   csstype 3.2.3 – https://github.com/frenic/csstype#readme
   fast-equals 5.4.4 – https://github.com/planttheidea/fast-equals#readme
   html-to-image 1.11.13 – https://github.com/bubkoo/html-to-image#readme
+  isomorphic.js 0.2.5 – https://github.com/dmonad/isomorphic.js#readme
   its-fine 1.2.5 – https://github.com/pmndrs/its-fine
   js-tokens 4.0.0 – https://github.com/lydell/js-tokens#readme
   konva 10.7.0 – https://konvajs.org/
+  lib0 0.2.120 – https://github.com/dmonad/lib0#readme
   linkifyjs 4.3.3 – https://linkify.js.org
   loose-envify 1.4.0 – https://github.com/zertosh/loose-envify
+  loro-crdt 1.17.1 – https://loro.dev
+  loro-prosemirror 0.4.4 – https://github.com/loro-dev/loro-prosemirror#readme
   orderedmap 2.1.1 – https://github.com/marijnh/orderedmap#readme
   prosemirror-changeset 2.4.4
   prosemirror-commands 1.7.2
