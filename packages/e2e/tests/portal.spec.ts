@@ -90,15 +90,15 @@ test.describe("Portal", () => {
     await page.goto("./");
     const fresh = page.locator("#new");
     await expect(fresh.getByRole("heading", { name: "New in 3.14159" })).toBeVisible();
-    await expect(fresh.locator("li:visible")).toHaveCount(5);
+    await expect(fresh.locator("li:visible")).toHaveCount(6); // incl. Rusuite Notes (flag on since 2026-11-27)
     await expect(fresh).toContainText("Double-click a document in Finder or Explorer");
-    await expect(fresh.locator("li:visible").filter({ hasText: "Notes" })).toHaveCount(0);
+    await expect(fresh.locator("li:visible").filter({ hasText: "Rusuite Notes" })).toHaveCount(1);
     await expect(fresh).toContainText("Calc, Write and Show for Android and iOS");
     await expect(fresh.getByRole("link", { name: "release notes" })).toHaveAttribute("href", /docs\/release-notes\/3\.14159\.md$/);
     const soon = page.locator("#soon");
     await expect(soon.getByRole("heading", { name: "Coming soon" })).toBeVisible();
-    await expect(soon.locator("li:visible")).toHaveCount(2);
-    await expect(soon.locator("li:visible").filter({ hasText: "Notes" })).toHaveCount(0);
+    await expect(soon.locator("li:visible")).toHaveCount(3);
+    await expect(soon.locator("li:visible").filter({ hasText: "Notes on phones" })).toHaveCount(1);
     await expect(soon.locator("li").first()).toContainText("Google Drive");
     await expect(soon).toContainText("Signed Windows builds");
     await expect(soon).not.toContainText("Android and iOS apps for Calc, Write and Show are planned");
