@@ -1,4 +1,4 @@
-Kas naujo versijoje 3.1415
+Kas naujo versijoje 3.14159
 • Programėlės telefonui ir planšetei su prisilietimui pritaikytu išdėstymu
 • Redagavimas prisilietimu: pasirinkimo rankenėlės, mastelio keitimas dviem pirštais, gestai
 • Eksportavimas į PDF

@@ -1,4 +1,4 @@
-Uut versioonis 3.1415
+Uut versioonis 3.14159
 • Rakendused telefonile ja tahvelarvutile puutetundliku paigutusega
 • Muutmine puudutusega: valikukäepidemed, suumimine kahe sõrmega, žestid
 • Eksport PDF-ina

@@ -1,4 +1,4 @@
-Nyt i 3.1415
+Nyt i 3.14159
 • Apps til telefon og tablet med et touchvenligt layout
 • Redigering med berøring: markeringshåndtag, zoom med to fingre, bevægelser
 • Eksport som PDF

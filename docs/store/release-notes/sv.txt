@@ -1,4 +1,4 @@
-Nytt i 3.1415
+Nytt i 3.14159
 • Appar för mobil och surfplatta med en pekvänlig layout
 • Redigera med beröring: markeringshandtag, nypzoomning, gester
 • Exportera som PDF

@@ -1,4 +1,4 @@
-Novosti u verziji 3.1415
+Novosti u verziji 3.14159
 • Aplikacije za mobitel i tablet s rasporedom prilagođenim dodiru
 • Uređivanje dodirom: ručke za odabir, zumiranje s dva prsta, geste
 • Izvoz u PDF

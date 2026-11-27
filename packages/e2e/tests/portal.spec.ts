@@ -59,27 +59,52 @@ test.describe("Portal", () => {
     await expect(page.locator(".opensource").getByRole("heading", { name: "Quelloffen, kostenlos – und das bleibt so" })).toBeVisible();
     await page.getByTestId("portal-language").selectOption("en");
     // Only the portal's own static files, as before.
-    expect(requests.filter((u) => !/^\/(|index\.html|privacy\.html|downloads\.html|styles\.css|i18n\.js|version\.js|downloads\.js|version\.json|favicon\.ico|logos\/[\w.-]+|locales\/(en|de)\.json)$/.test(u))).toEqual([]);
+    expect(requests.filter((u) => !/^\/(|index\.html|privacy\.html|downloads\.html|styles\.css|i18n\.js|version\.js|downloads\.js|version\.json|flags\.json|favicon\.ico|logos\/[\w.-]+|locales\/(en|de)\.json)$/.test(u))).toEqual([]);
     errors.expectNone();
   });
 
-  test("P8-49/P10-R1: New in 3.1415 and Coming soon sections (EN, DE, English for pending keys) and the footer link on the Downloads page", async ({ page }) => {
+  test("P11-R1: the launch flag in flags.json shows the Notes tile and its New / Coming soon items, in every language", async ({ page }) => {
+    // The committed file says false (the other tests); the flag is the only switch (docs/release.md "Showing Rusuite Notes").
+    const flags = await page.request.get("flags.json");
+    expect(await flags.json()).toEqual({ notes: false });
+    await page.route("**/flags.json", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ notes: true }) }));
+    await page.goto("./");
+    await expect(page.getByTestId("portal-notes")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Notes in browser" })).toHaveAttribute("href", "/notes/");
+    await expect(page.locator(".card:visible")).toHaveCount(4);
+    await expect(page.getByTestId("new-notes")).toContainText("Rusuite Notes");
+    await expect(page.getByTestId("soon-notes")).toContainText("Notes for Android and iOS is planned");
+    for (const lang of ["de", "fr", "mt"]) {
+      await page.getByTestId("portal-language").selectOption(lang);
+      await expect(page.getByTestId("new-notes")).toContainText("Rusuite Notes");
+      expect(await page.getByTestId("soon-notes").innerText()).not.toMatch(/\bportal\./);
+    }
+    await page.unroute("**/flags.json");
+    await page.route("**/flags.json", (route) => route.fulfill({ status: 404, body: "" }));
+    await page.goto("./");
+    await expect(page.getByTestId("portal-notes")).toBeHidden(); // a missing flags file never shows Notes
+  });
+
+  test("P8-49/P10-R1: New in 3.14159 and Coming soon sections (EN, DE, English for pending keys) and the footer link on the Downloads page", async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto("./");
     const fresh = page.locator("#new");
-    await expect(fresh.getByRole("heading", { name: "New in 3.1415" })).toBeVisible();
-    await expect(fresh.locator("li")).toHaveCount(4);
+    await expect(fresh.getByRole("heading", { name: "New in 3.14159" })).toBeVisible();
+    await expect(fresh.locator("li:visible")).toHaveCount(5);
+    await expect(fresh).toContainText("Double-click a document in Finder or Explorer");
+    await expect(fresh.locator("li:visible").filter({ hasText: "Notes" })).toHaveCount(0);
     await expect(fresh).toContainText("Calc, Write and Show for Android and iOS");
-    await expect(fresh.getByRole("link", { name: "release notes" })).toHaveAttribute("href", /docs\/release-notes\/3\.1415\.md$/);
+    await expect(fresh.getByRole("link", { name: "release notes" })).toHaveAttribute("href", /docs\/release-notes\/3\.14159\.md$/);
     const soon = page.locator("#soon");
     await expect(soon.getByRole("heading", { name: "Coming soon" })).toBeVisible();
-    await expect(soon.locator("li")).toHaveCount(2);
+    await expect(soon.locator("li:visible")).toHaveCount(2);
+    await expect(soon.locator("li:visible").filter({ hasText: "Notes" })).toHaveCount(0);
     await expect(soon.locator("li").first()).toContainText("Google Drive");
     await expect(soon).toContainText("Signed Windows builds");
     await expect(soon).not.toContainText("Android and iOS apps for Calc, Write and Show are planned");
     await expect(soon).toContainText("Your feedback shapes the order");
     await page.getByTestId("portal-language").selectOption("de");
-    await expect(fresh.getByRole("heading", { name: "Neu in 3.1415" })).toBeVisible();
+    await expect(fresh.getByRole("heading", { name: "Neu in 3.14159" })).toBeVisible();
     await expect(fresh).toContainText("Calc, Write und Show für Android und iOS");
     await expect(soon.getByRole("heading", { name: "Demnächst" })).toBeVisible();
     await expect(soon).toContainText("Signierte Windows-Versionen");

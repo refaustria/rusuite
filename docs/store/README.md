@@ -29,7 +29,7 @@ message (403/404 point to the checklist), 429/5xx are retried with backoff. They
 Prerequisite once: the checklists up to "the apps exist, the API sees them" (`play.mjs validate` → 3/3,
 `asc.mjs apps list` → 3 apps) and the first Android bundle uploaded by hand ([checklist-play.md](checklist-play.md) § 3).
 
-1. **Tag** – `git tag -a v3.1415.0 -m "Rusuite 3.1415" && git push origin v3.1415.0` ([release.md](../release.md)).
+1. **Tag** – `git tag -a v3.14159.0 -m "Rusuite 3.14159" && git push origin v3.14159.0` ([release.md](../release.md)).
    `release.yml` builds the desktop apps, **`mobile-release.yml`** the mobile ones: AABs to the Play **internal**
    track (`play.mjs upload --track internal`, release notes from `release-notes/<lang>.txt`), IPAs to TestFlight.
    Without the secrets: download the artifacts `android-<app>` / `ios-<app>` and upload by hand.
@@ -37,21 +37,21 @@ Prerequisite once: the checklists up to "the apps exist, the API sees them" (`pl
    ```sh
    node scripts/store/play.mjs listing push --app calc --dry-run && node scripts/store/play.mjs listing push --app calc
    node scripts/store/asc.mjs app-info push --app calc
-   node scripts/store/asc.mjs version ensure --app calc --version 3.1415
-   node scripts/store/asc.mjs version push --app calc --version 3.1415
+   node scripts/store/asc.mjs version ensure --app calc --version 3.14159
+   node scripts/store/asc.mjs version push --app calc --version 3.14159
    ```
 3. **Attach + review details (App Store)** –
-   `asc.mjs build attach --app calc --version 3.1415 --build 4415000` (waits until TestFlight processed it),
-   `asc.mjs review notes --app calc --version 3.1415 --file docs/store/review-notes.txt`.
+   `asc.mjs build attach --app calc --version 3.14159 --build 17159000` (waits until TestFlight processed it),
+   `asc.mjs review notes --app calc --version 3.14159 --file docs/store/review-notes.txt`.
 4. **Test** – internal testers install from the Play internal track and TestFlight (group *Internal*). Personal Play
    accounts: the closed test of 12 testers × 14 days comes first ([checklist-play.md](checklist-play.md) § 8).
 5. **Submit** (only with the owner's go per store) –
-   Play: `play.mjs upload --app calc --aab dist/rusuite-calc-3.1415.0-android.aab --track production --rollout 0.2`
-   (or promote in the console); App Store: `asc.mjs submit --app calc --version 3.1415` (shows), then `--yes`.
+   Play: `play.mjs upload --app calc --aab dist/rusuite-calc-3.14159.0-android.aab --track production --rollout 0.2`
+   (or promote in the console); App Store: `asc.mjs submit --app calc --version 3.14159` (shows), then `--yes`.
    After approval: Play rolls out by itself (unless managed publishing), App Store needs *Release This Version*.
 6. `play.mjs status` / `asc.mjs app info --app calc` to follow the state.
 
-Workflow by hand: *Actions › Mobile release › Run workflow* – *Use workflow from* `main`, *tag* `v3.1415.0` (empty =
+Workflow by hand: *Actions › Mobile release › Run workflow* – *Use workflow from* `main`, *tag* `v3.14159.0` (empty =
 the branch), *track* `internal|closed|open|production`. (`workflow_dispatch` needs the workflow on the default
 branch; the agents' token cannot dispatch – the PM/owner clicks.)
 
@@ -91,7 +91,7 @@ See `node scripts/store/asc.mjs --help`. Notes:
   until delivered. `--images own|all|none` as for Play (the App Store shows the primary locale's screenshots where a
   locale has none). A locale Apple refuses is reported; the others go on (exit 1 at the end).
 - `build attach --build <number>|latest`: polls (`--interval 30` s, `--timeout 60` min) until the build is `VALID`,
-  checks that its version train (`CFBundleShortVersionString`, e.g. `3.1415.0`) is the App Store version (`3.1415`;
+  checks that its version train (`CFBundleShortVersionString`, e.g. `3.14159.0`) is the App Store version (`3.14159`;
   trailing `.0` ignored), then sets `appStoreVersions/<id>/relationships/build`.
 - `submit` without `--yes` only prints the state; with `--yes` it reuses an open `reviewSubmission` or creates one,
   adds the version (`reviewSubmissionItems`) and submits.

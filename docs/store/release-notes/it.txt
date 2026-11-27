@@ -1,4 +1,4 @@
-Novità della versione 3.1415
+Novità della versione 3.14159
 • App per smartphone e tablet con un layout pensato per il tocco
 • Modifica al tocco: maniglie di selezione, zoom con due dita, gesti
 • Esportazione in PDF

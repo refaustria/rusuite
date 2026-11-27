@@ -11,7 +11,7 @@
 // release.json: { tagName, name, url, publishedAt, isDraft, isPrerelease, assets: [{ name, size, url, digest? }],
 // signing? } (`digest` = "sha256:<hex>"; `signing` = the release's `signing.json` asset, P10-S1 – gen-downloads.sh
 // fetches it; absent means every build is unsigned, as up to 3.141). The "Phones and tablets" section takes the store
-// links from docs/store/links.json (P10-R1; `--links <file>` overrides): { "calc": { "play": "", "appstore": "" }, … },
+// links from docs/store/links.json (P10-R1; `--links <file>` overrides); `apps/portal/flags.json` (`--flags <file>`) says whether Rusuite Notes is listed: { "calc": { "play": "", "appstore": "" }, … },
 // an empty string = "coming soon" for that store. Texts are portal catalog keys (`portal.dl.*`, apps/portal/locales); downloads.js
 // formats sizes/dates for the chosen language and puts the visitor's OS first.
 
@@ -47,13 +47,28 @@ const APPS = [
   { id: "calc", name: "Rusuite Calc", kind: "portal.calc.kind" },
   { id: "write", name: "Rusuite Write", kind: "portal.write.kind" },
   { id: "show", name: "Rusuite Show", kind: "portal.show.kind" },
-  // Rusuite Notes (P11-N7): desktop only (no phone app yet); `hidden` until the public launch (P11-R1) – its release
-  // files are built and signed but not listed. Remove `hidden` to show it (docs/release.md, "Rusuite Notes launch").
-  { id: "notes", name: "Rusuite Notes", kind: "portal.notes.kind", hidden: true, mobile: false },
+  // Rusuite Notes (P11-N7): desktop only (no phone app yet); listed only when the launch flag `notes` in
+  // apps/portal/flags.json is true (P11-R1, docs/release.md "Showing Rusuite Notes"): until then its release files are
+  // built and signed but neither listed nor checksummed.
+  { id: "notes", name: "Rusuite Notes", kind: "portal.notes.kind", flag: "notes", mobile: false },
 ];
 
-/** The apps the page lists (`hidden` ones are left out, files and checksums included). */
-const SHOWN = APPS.filter((a) => !a.hidden);
+/**
+ * The launch flags of the portal (apps/portal/flags.json, `{ "notes": false }`): the one place that switches Rusuite
+ * Notes on – the tile on the start page (apps/portal/version.js) and its downloads here. Anything but `true` is off;
+ * a missing or broken file means "all off", so a bad file never publishes an app.
+ */
+export function loadFlags(file = path.join(ROOT, "apps/portal/flags.json")) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Object.fromEntries(Object.entries(raw ?? {}).map(([k, v]) => [k, v === true]));
+  } catch {
+    return {};
+  }
+}
+
+/** The apps the page lists (flagged ones only with their flag on, files and checksums included). */
+export const shownApps = (flags = loadFlags()) => APPS.filter((a) => !a.flag || flags[a.flag] === true);
 
 /** Per OS the package kinds in display order; the first is the main button. */
 export const OSES = [
@@ -152,13 +167,13 @@ function i18n(cat, key, { params, html = false } = {}) {
 }
 
 /** The "how to open it" step lists of one OS (catalog keys); macOS adds a copyable Terminal line per app. */
-function stepsHtml(cat, os) {
+function stepsHtml(cat, os, shown) {
   const blocks = os.steps.map((st) => {
     const items = st.items.map((k) => `\n            <li ${i18n(cat, k, { html: true })}</li>`).join("");
     const terminal = st.terminal
       ? `
           <p class="term-intro" ${i18n(cat, st.terminal)}</p>
-          <ul class="term">${SHOWN.map((app) => {
+          <ul class="term">${shown.map((app) => {
             const cmd = `xattr -dr com.apple.quarantine "/Applications/${app.name}.app"`;
             return `
             <li><code>${esc(cmd)}</code><button type="button" class="copy" data-copy="${esc(cmd)}" data-i18n-aria-label="portal.dl.copy.aria" aria-label="${esc(cat["portal.dl.copy.aria"])}" ${i18n(cat, "portal.dl.copy")}</button></li>`;
@@ -282,8 +297,8 @@ const STORES = [
 ];
 
 /** "Phones and tablets" (P10-R1): per app a Google Play and an App Store button, or "coming soon" where there is no link. */
-function mobileSection(cat, links) {
-  const rows = SHOWN.filter((a) => a.mobile !== false).map((app) => {
+function mobileSection(cat, links, shown) {
+  const rows = shown.filter((a) => a.mobile !== false).map((app) => {
     const buttons = STORES.map((store, i) => {
       const href = links?.[app.id]?.[store.id] ?? "";
       return href
@@ -312,11 +327,12 @@ function mobileSection(cat, links) {
 }
 
 /** The page for one release. `links` = the store links (default: docs/store/links.json). */
-export function render(release, cat = loadCatalog(), { links = loadStoreLinks() } = {}) {
+export function render(release, cat = loadCatalog(), { links = loadStoreLinks(), flags = loadFlags() } = {}) {
+  const shown = shownApps(flags);
   const tag = String(release.tagName ?? "");
   const version = publicName(tag);
   const date = String(release.publishedAt ?? "").slice(0, 10);
-  const assets = (release.assets ?? []).map((a) => ({ ...a, info: classify(a.name) })).filter((a) => a.info && SHOWN.some((x) => x.id === a.info.app));
+  const assets = (release.assets ?? []).map((a) => ({ ...a, info: classify(a.name) })).filter((a) => a.info && shown.some((x) => x.id === a.info.app));
   const find = (app, os, kind) => assets.find((a) => a.info.app === app && a.info.os === os && a.info.kind === kind);
   const prerelease = Boolean(release.isPrerelease) || tag.includes("-");
   const signing = signingOf(release.signing);
@@ -324,7 +340,7 @@ export function render(release, cat = loadCatalog(), { links = loadStoreLinks() 
   const unsigned = OSES.filter((os) => !signing[os.id]);
 
   const sections = OSES.map((os) => {
-    const rows = SHOWN.map((app) => {
+    const rows = shown.map((app) => {
       const buttons = os.kinds
         .map((kind, i) => {
           const a = find(app.id, os.id, kind.id);
@@ -356,7 +372,7 @@ export function render(release, cat = loadCatalog(), { links = loadStoreLinks() 
     const signedLine = signing[os.id]
       ? `<p class="steps-block signed" data-signed="${os.id}" ${i18n(cat, os.signed, { html: true, params: os.id === "linux" ? { fingerprint: signing.fingerprint } : undefined })}</p>`
       : "";
-    const guide = signing[os.id] && !os.keepSteps ? signedLine : `${stepsHtml(cat, os)}${signedLine ? `\n        ${signedLine}` : ""}`;
+    const guide = signing[os.id] && !os.keepSteps ? signedLine : `${stepsHtml(cat, os, shown)}${signedLine ? `\n        ${signedLine}` : ""}`;
     const warning = signing[os.id] && os.warningSigned ? os.warningSigned : os.warning;
     return `
       <section class="os" data-os="${os.id}">
@@ -384,7 +400,7 @@ export function render(release, cat = loadCatalog(), { links = loadStoreLinks() 
     </header>
     <main data-testid="downloads" data-release="${esc(tag)}" data-version="${esc(version)}">${unsignedAside(cat, unsigned)}
       <div id="os-list">${sections}
-      </div>${mobileSection(cat, links)}${sumsAside(cat, signing, assetUrl)}
+      </div>${mobileSection(cat, links, shown)}${sumsAside(cat, signing, assetUrl)}
       <template id="dl-badge"><span class="badge" ${i18n(cat, "portal.dl.recommended")}</span></template>
     </main>${foot(cat)}`;
 }
@@ -400,11 +416,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
   const out = opt("--out");
   const input = opt("--in") ?? opt("--release");
   if (!out || (!input && !args.includes("--none"))) {
-    console.error("usage: gen-downloads.mjs (--in|--release release.json | --none) [--links links.json] --out downloads.html");
+    console.error("usage: gen-downloads.mjs (--in|--release release.json | --none) [--links links.json] [--flags flags.json] --out downloads.html");
     process.exit(2);
   }
   const links = opt("--links") ? loadStoreLinks(opt("--links")) : undefined;
-  const html = input ? render(JSON.parse(fs.readFileSync(input, "utf8")), loadCatalog(), links && { links }) : renderNone();
+  const flags = opt("--flags") ? loadFlags(opt("--flags")) : undefined;
+  const html = input ? render(JSON.parse(fs.readFileSync(input, "utf8")), loadCatalog(), { ...(links && { links }), ...(flags && { flags }) }) : renderNone();
   fs.writeFileSync(out, html);
   console.log(`gen-downloads: wrote ${out}`);
 }

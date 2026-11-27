@@ -1,4 +1,4 @@
-Novosti v različici 3.1415
+Novosti v različici 3.14159
 • Aplikacije za telefon in tablico z razporeditvijo za dotik
 • Urejanje z dotikom: ročice izbora, povečava z dvema prstoma, kretnje
 • Izvoz v PDF

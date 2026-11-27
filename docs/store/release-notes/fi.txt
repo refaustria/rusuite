@@ -1,4 +1,4 @@
-Uutta versiossa 3.1415
+Uutta versiossa 3.14159
 • Puhelin- ja tablet-sovellukset kosketukselle sopivalla asettelulla
 • Muokkaus kosketuksella: valintakahvat, zoomaus kahdella sormella, eleet
 • Vienti PDF-muotoon

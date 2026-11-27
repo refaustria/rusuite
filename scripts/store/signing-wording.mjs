@@ -2,7 +2,7 @@
 // Rewrites the "desktop apps" bullet of the store texts in all 24 languages (P10-R2).
 // Usage: node scripts/store/signing-wording.mjs macLinux|all|none
 //   all       macOS, Windows and Linux signed
-//   macLinux  macOS (notarized) and Linux (GPG) signed, Windows not yet (default for 3.1415)
+//   macLinux  macOS (notarized) and Linux (GPG) signed, Windows not yet (default for 3.14159)
 //   none      nothing signed
 // Touches docs/store/listing/<lang>.json (whatsNew, fullDescription, description of every app) and
 // docs/store/release-notes/<lang>.txt.

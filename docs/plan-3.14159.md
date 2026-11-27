@@ -49,11 +49,21 @@ export), `514n` (languages/polish). Briefs in `docs/tasks/P11-*.md`.
 | **P11-N7** | Desktop: Tauri shell with folder notebooks (open/create folder, recent, file watcher not needed – sync via relay), relay URL setting (self-hosted), `release.yml`/signing/bundles include Notes, Downloads page entry, AI assistant panel (desktop only, like the other apps), portal tile + logo (hidden flag until R1) | Opus | N5, N6 |
 | **P11-L1** | 22 more languages for the Notes catalog (from the glossaries), strict i18n gate green | Sonnet | N7 |
 | **P11-X1** | Polish + e2e stability pass after an owner-style walkthrough (screenshots), compact layout sanity (no touch work – mobile later) | Opus | L1 |
-| **P11-R1** | Release prep 3.14159: versions, notes, portal tile visible, CHANGELOG | Sonnet | X1 |
+| **P11-R1** | Release prep 3.14159: versions, notes, portal "New in" texts, CHANGELOG, NOTICE, release steps; the Notes tile and Notes downloads stay behind `apps/portal/flags.json` until the PM flips it | Sonnet | X1 |
 
 ## Order
 N0 ∥ O1 → N1 ∥ N5a → N2 → N3 ∥ N4 → N5 → N6 → N7 → L1 → X1 → R1 → owner checks (OneNote import with real notebooks,
 two-person sharing test) → release.
+
+## Closing status (P11-R1, prepare only)
+| Block | State |
+|---|---|
+| N0, O1, N1-N7, L1, X1 | merged on `main` (see git log) |
+| D1 file associations, D2 one window per document | merged on `main` |
+| R1 release prep | versions `3.14159.0`, release notes, CHANGELOG, NOTICE, store texts, portal texts (24 languages), launch flag, `docs/release.md` steps: done on `p11/r1-release-314159`, to be merged by the PM |
+| Tag `v3.14159.0`, `release.yml`, `mobile-release.yml`, stores | open: PM, ordered steps in `docs/release.md` "Release 3.14159" |
+| Notes tile and Notes downloads on the portal | hidden (`flags.json`: `"notes": false`); flip per `docs/release.md` "Showing Rusuite Notes" |
+| Owner checks | OneNote import with real notebooks, two-person sharing, D2 checks on a Mac |
 
 ## Parked for the owner (essential only)
 _none yet_
