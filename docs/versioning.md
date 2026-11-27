@@ -6,8 +6,8 @@ release whose public name has one more digit than the previous one:
 | Cycle | Public name | Semver used in the files | Git tag |
 | --- | --- | --- | --- |
 | first "π" cycle (this one) | **3.141** | `3.141.0` | `v3.141.0` |
-| next | 3.1415 | `3.1415.0` | `v3.1415.0` |
-| then | 3.14159 | `3.14159.0` | `v3.14159.0` |
+| next | 3.1415 | `3.1415.0` | never tagged: folded into 3.14159 |
+| then | **3.14159** | `3.14159.0` | `v3.14159.0` |
 
 - **Why a semver behind the name:** Cargo, Tauri and npm require `MAJOR.MINOR.PATCH`. The digits after "3." form the
   MINOR number, which grows monotonically (141 < 1415 < 14159), so dependency ordering and `check-versions.sh` keep
@@ -24,5 +24,5 @@ release whose public name has one more digit than the previous one:
   compares MAJOR.MINOR.BUILD, so the MSI of 3.1415 (MINOR 14) is **not** an upgrade of the MSI of 3.141 (MINOR 141):
   accepted once (PM decision); the NSIS `.exe` installer upgrades fine, MSI users uninstall 3.141 first.
 - Android `versionCode` and the iOS build number use `major·10⁶ + minor·10³ + patch` (3.141.0 → 3141000, 3.1415.0 →
-  4415000) and stay monotonic; `scripts/check-versions.sh` asserts it against the earlier releases' notes.
+  4415000, 3.14159.0 → 17159000) and stay monotonic; `scripts/check-versions.sh` asserts it against the earlier releases' notes.
 - `scripts/set-version.sh 3.141.0` sets every version string; `scripts/check-versions.sh` (CI) verifies them.

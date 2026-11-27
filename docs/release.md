@@ -11,7 +11,43 @@ everywhere: ui-shared `publicVersion`, `scripts/gen-downloads.mjs` `publicName`,
 `public_version`, apps/portal/version.js and the `tag` step of release.yml. A hotfix inside a cycle bumps the patch
 (`3.141.1`, shown as "3.141.1").
 
-## Release 3.1415 – the steps of this cycle
+## Release 3.14159 – the steps of this cycle
+Prepared by P11-R1 on `p11/r1-release-314159` (**prepare only**: nothing is tagged, built or published yet).
+Versions `3.14159.0` (MSI `3.14.159.0`, Android versionCode / iOS
+build `17159000`), notes `docs/release-notes/3.14159.md` (3.1415 was never tagged: its notes stay as
+`docs/release-notes/3.1415.md`, marked "not released separately", and the 3.14159 notes carry its content under "Also
+in this release"), CHANGELOG, NOTICE (620 components), portal "New in 3.14159", store texts (Calc, Write, Show on
+phones; Notes has no phone app). The Office check pack (section 1, step 4) is not rebuilt by this prep: do it if you want it. After that branch is merged, in this order:
+1. `pnpm i18n:check --strict`, `scripts/check-versions.sh 3.14159.0`, `scripts/versions-lib.test.sh`, and CI green on
+   `main` (or run `cargo fmt/clippy/test`, `pnpm typecheck/test` and the e2e locally). Put the **public** GPG key into `keys/rusuite-release-key.asc` ([signing.md](signing.md)) so
+   `deploy-web.sh` ships `https://rusuit.es/rusuite-release-key.asc`.
+2. Deploy the web from `main` (`scripts/deploy-web.sh --e2e`): the portal then says "New in 3.14159" (open files,
+   one window per document, phones, signing, PDF, languages). **The Notes tile, its "New" and "Coming soon" lines and the
+   Notes downloads stay hidden** (`apps/portal/flags.json` = `{ "notes": false }`); `/notes/` itself is live as before.
+3. Secrets present? (`gh secret list -R refaustria/rusuite`; [signing.md](signing.md), [store/README.md](store/README.md)).
+   Trim the three signing lines of `docs/release-notes/3.14159.md` (and the "Coming soon: Windows signing" item of the
+   portal, `portal.soon.item8`) to what the run will really sign.
+4. Owner: the remaining desktop checks of D2 (titles "<name> — Edited", Cmd+W / Cmd+Q, Dock reopen, Window menu) on the
+   Mac, and the checks of [testing.md › Before tagging](testing.md#before-tagging-owner-checklist).
+5. Optional test run of `release.yml` with `v0.0.0-test` (section 2; now 4 apps: Calc, Write, Show, Notes), then delete
+   the draft.
+6. Tag and push: `git tag -a v3.14159.0 -m "Rusuite 3.14159" && git push origin v3.14159.0`. This starts **both**
+   `release.yml` (desktop draft "Rusuite 3.14159", `signing.json`) and `mobile-release.yml` (signed AAB → Play internal
+   track, IPA → TestFlight, Calc/Write/Show only; skipped with a notice where secrets are missing).
+7. Review the desktop draft (section 4): `signing.json` says what you expect, the Notes assets are present; paste
+   `docs/release-notes/3.14159.md`. If Notes stays hidden for now, delete the Notes sections and the "PM" comment lines
+   of the text first; untick the pre-release box, *Publish release*.
+8. **Showing Rusuite Notes** (when you want it public – can be the same day, after the release is published so that the
+   downloads exist): see "Showing Rusuite Notes" below – one line in `apps/portal/flags.json`, two test expectations, deploy.
+9. Redeploy the web from `main` (`scripts/deploy-web.sh --e2e`): Downloads lists 3.14159 with the per-OS signed state.
+10. Store work (section 6, [store/README.md](store/README.md)): `play.mjs status` / `validate`,
+    `play.mjs listing push --app <app>`, `asc.mjs app-info push`, `asc.mjs version ensure|push --version 3.14159`,
+    `asc.mjs build attach --version 3.14159 --build 17159000`, review notes; testers on Play internal and TestFlight.
+11. Submit with the owner's go per store (`play.mjs upload --track production --rollout 0.2`, `asc.mjs submit … --yes`).
+    After approval: put the store URLs into `docs/store/links.json`, replace `<Play Store link>` / `<App Store link>` in
+    the published release text, merge and redeploy the web.
+
+## Release 3.1415 – never tagged, superseded by 3.14159 (steps kept for reference)
 Prepared by P10-R1 on `p10/r1-release-31415` (versions `3.1415.0`, MSI `3.14.15.0`, notes `docs/release-notes/3.1415.md`,
 CHANGELOG, NOTICE, portal "New in 3.1415", Downloads "Phones and tablets", Office check pack in
 `/home/bojan/rusuite-office-check/rusuite-office-check-3.1415.0.zip`). After that branch is merged:
@@ -137,7 +173,7 @@ instead of `documentState` and has the start check only (no WebDriver scenarios)
    `true` for every OS whose secrets are set ([signing.md](signing.md)).
 2. Replace the release text with `docs/release-notes/<public name>.md` (adapt the heading for an rc). Keep **Set as a
    pre-release** ticked for alpha/rc builds; untick it for a cycle release such as 3.141.
-3. **Trim the signing lines before publishing.** `docs/release-notes/3.1415.md` keeps one line per OS under "Signing
+3. **Trim the signing lines before publishing.** `docs/release-notes/3.14159.md` keeps one line per OS under "Signing
    and trust" (marked "PM"). After the release run: open `signing.json` from the draft, delete the OS lines that say
    unsigned, keep the Gatekeeper/SmartScreen hint for them (the "Upgrade notes" and the Downloads page explain the
    warning), and keep the signed lines as they are. If the signed state changed against the store texts, switch them
@@ -156,17 +192,24 @@ also the committed `apps/portal/downloads.html`). Preview locally:
 Windows, macOS and Linux") (drafts work for the PM's token, but
 their download links work only for repository members).
 
-## Rusuite Notes launch (P11-N7 → P11-R1)
+## Showing Rusuite Notes (P11-N7 → P11-R1)
 From P11-N7 every release builds, signs and smoke-tests **Rusuite Notes** as a fourth desktop app (matrix `app:
 notes`; assets `Rusuite.Notes_*`; it counts in `signing.json`: 8 macOS and 4 Windows legs, `scripts/signing/manifest.mjs`).
-Until the public launch it stays out of sight:
-- **Portal tile:** `apps/portal/index.html` has the Notes card with the `hidden` attribute (`data-testid="portal-notes"`).
-- **Downloads page:** `scripts/gen-downloads.mjs` lists Notes with `hidden: true` – its files and checksums are left
-  out of the page. Notes has no phone app (`mobile: false`; `mobile.yml` builds Calc, Write and Show only).
+It stays out of sight until one flag is switched on – **`apps/portal/flags.json`**, currently `{ "notes": false }`:
+- **Portal:** with `"notes": true` `apps/portal/version.js` un-hides everything marked `data-flag="notes"` in
+  `index.html`: the Notes tile (`data-testid="portal-notes"`), the "Rusuite Notes" line of "New in 3.14159" and the
+  "Notes on phones" line of "Coming soon" (all 24 languages are in the catalogs already). A missing or broken file keeps
+  them hidden.
+- **Downloads page:** `scripts/gen-downloads.mjs` reads the same file at deploy time and then lists the Notes files,
+  checksums and its macOS Terminal line (otherwise they are left out). Notes has no phone app (`mobile: false`;
+  `mobile.yml` builds Calc, Write and Show only).
 
-The switch at the launch (P11-R1), in one commit: remove `hidden` from the portal card, remove `hidden: true` from the
-`notes` entry in `gen-downloads.mjs`, update the e2e expectations (`portal.spec.ts`: four cards;
-`gen-downloads.test.mjs`: the hidden-Notes test), then redeploy (`scripts/deploy-web.sh`).
+The switch, in one commit: set `"notes": true` in `apps/portal/flags.json`; flip the two tests that pin the committed
+state – `scripts/gen-downloads.test.mjs` ("hidden by the committed flag": expects `{ notes: false }` and no Notes text)
+and `packages/e2e/tests/portal.spec.ts` (the root test expects three visible cards and the flag test expects the file to
+say `false`; the flag test already covers the visible state by mocking the file) – then redeploy
+(`scripts/deploy-web.sh --e2e`). Do it after the release that contains the Notes assets is published, so the page has
+files to list. Reverting is the same one line.
 
 ## 6. Mobile stores (from 3.1415, P10-M8)
 The same tag also starts **`mobile-release.yml`**: signed Android App Bundles → Google Play **internal** track and

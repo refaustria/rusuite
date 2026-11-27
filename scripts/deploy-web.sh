@@ -24,7 +24,7 @@ done
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 commit="$(git rev-parse --short HEAD)"
 
-# Notes is deployed to /notes/ but not linked from the portal until its release (P11-N2, plan-3.14159).
+# Notes is deployed to /notes/ but not linked from the portal until apps/portal/flags.json says "notes": true (docs/release.md).
 apps=(calc write show notes)
 
 if [ "$build" = 1 ]; then
