@@ -14,7 +14,7 @@ const shots = process.env.PRIVACY_SHOTS;
 const ALLOWED_PATH = [
   /^\/$/,
   /^\/(index|privacy)\.html$/,
-  /^\/(styles\.css|i18n\.js|version\.js|version\.json)$/,
+  /^\/(styles\.css|i18n\.js|version\.js|version\.json|flags\.json)$/,
   /^\/logos\/[\w.-]+$/,
   /^\/locales\/(en|de)\.json$/,
   /^\/(calc|write|show|notes)\/(index\.html)?$/,

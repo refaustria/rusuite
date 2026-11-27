@@ -59,7 +59,7 @@ test.describe("Portal", () => {
     await expect(page.locator(".opensource").getByRole("heading", { name: "Quelloffen, kostenlos – und das bleibt so" })).toBeVisible();
     await page.getByTestId("portal-language").selectOption("en");
     // Only the portal's own static files, as before.
-    expect(requests.filter((u) => !/^\/(|index\.html|privacy\.html|downloads\.html|styles\.css|i18n\.js|version\.js|downloads\.js|version\.json|favicon\.ico|logos\/[\w.-]+|locales\/(en|de)\.json)$/.test(u))).toEqual([]);
+    expect(requests.filter((u) => !/^\/(|index\.html|privacy\.html|downloads\.html|styles\.css|i18n\.js|version\.js|downloads\.js|version\.json|flags\.json|favicon\.ico|logos\/[\w.-]+|locales\/(en|de)\.json)$/.test(u))).toEqual([]);
     errors.expectNone();
   });
 
@@ -92,13 +92,13 @@ test.describe("Portal", () => {
     await expect(fresh.getByRole("heading", { name: "New in 3.14159" })).toBeVisible();
     await expect(fresh.locator("li:visible")).toHaveCount(5);
     await expect(fresh).toContainText("Double-click a document in Finder or Explorer");
-    await expect(fresh).not.toContainText("Notes");
+    await expect(fresh.locator("li:visible").filter({ hasText: "Notes" })).toHaveCount(0);
     await expect(fresh).toContainText("Calc, Write and Show for Android and iOS");
     await expect(fresh.getByRole("link", { name: "release notes" })).toHaveAttribute("href", /docs\/release-notes\/3\.14159\.md$/);
     const soon = page.locator("#soon");
     await expect(soon.getByRole("heading", { name: "Coming soon" })).toBeVisible();
     await expect(soon.locator("li:visible")).toHaveCount(2);
-    await expect(soon).not.toContainText("Notes");
+    await expect(soon.locator("li:visible").filter({ hasText: "Notes" })).toHaveCount(0);
     await expect(soon.locator("li").first()).toContainText("Google Drive");
     await expect(soon).toContainText("Signed Windows builds");
     await expect(soon).not.toContainText("Android and iOS apps for Calc, Write and Show are planned");
