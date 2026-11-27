@@ -6,7 +6,43 @@ versions follow [Semantic Versioning](https://semver.org/). One section per app;
 
 ## [Unreleased]
 
-## [3.1415] – tag `v3.1415.0`
+## [3.14159] – tag `v3.14159.0`
+
+Third release with π version numbers (docs/versioning.md): public name **3.14159**, semver `3.14159.0`. Release text:
+[docs/release-notes/3.14159.md](docs/release-notes/3.14159.md). **3.1415 was never tagged or published separately; it is
+folded into this release** – everything listed under [3.1415] below ships here for the first time.
+
+### Rusuite Notes (new app, web and desktop)
+- `apps/notes` (`/notes/`, Tauri shell `app-notes`): notebooks of section groups, sections and pages (movable tree),
+  rich text (Tiptap 3 on a Loro document), checklists, tables, pictures, attachments, tags and tasks view, `[[page
+  links]]` with backlinks, canvas pages with ink, search, page history, recycle bin, print and PDF; 24 languages.
+- Crates: `model-notes`, `notes-core` (WASM), `notes-convert` (OneNote, Markdown, HTML, `.docx` import; Markdown, HTML,
+  `.docx` export), `fmt-onenote` (`.one`, `.onepkg`), `notes-sync` (XChaCha20-Poly1305 envelopes, per-device keys, signed
+  member lists) and `services/notes-relay` (axum WebSocket, encrypted log/blobs/snapshots, quotas); ADR 0010.
+- **Live sharing, end-to-end encrypted:** invites, members, owner/co-owner, presence and remote cursors, offline queue
+  and conflict-free merge, remove member / stop sharing; the relay never sees plaintext; unshared notebooks never
+  contact the server. Converters run in a Web Worker with Cancel; the first share is chunked.
+- Desktop: notebooks as folders, relay URL setting, device keys in the OS keyring, "Join with link", AI panel, PDF export
+  through the print dialog, `.rnotes` / `.one` / `.onepkg` / Markdown file associations; release workflow, signing and
+  bundles include Notes. The portal tile and the Notes downloads stay hidden until `apps/portal/flags.json`
+  switches them on (docs/release.md).
+
+### Calc, Write, Show (desktop)
+- **Open from the system (P11-D1):** Finder/Explorer double-click and "Open with" (`bundle.fileAssociations`, macOS
+  `RunEvent::Opened`), a file dropped on the window or the Dock icon, second start hands its files to the running app
+  (`tauri-plugin-single-instance`), recent files are recorded. Before this a Finder double-click on macOS opened an
+  empty document.
+- **One window per document (P11-D2):** Open, the recent list and a second start open a new window (or the empty one),
+  New is Cmd/Ctrl+N, Close window and Quit ask per document, a file already open is focused; localized menus. Tauri
+  limits: no proxy icon, Dock *Quit* skips the per-window save check.
+
+### Other
+- Zip writing without zopfli (-40 KB gzip in every WASM module that writes zips); Write `ai.spec` flake fixed.
+- Versions `3.14159.0` everywhere (MSI `3.14.159.0`, Android versionCode / iOS build 17159000); store listings, store
+  release notes and review notes name 3.14159; `NOTICE` regenerated (Loro, loro-prosemirror, Tiptap, the crypto crates,
+  `tauri-plugin-single-instance` …).
+
+## [3.1415] – not released separately, folded into 3.14159
 
 Second release with π version numbers (docs/versioning.md): public name **3.1415**, semver `3.1415.0`. Release text:
 [docs/release-notes/3.1415.md](docs/release-notes/3.1415.md). No new file features: the cycle is about phones, tablets
