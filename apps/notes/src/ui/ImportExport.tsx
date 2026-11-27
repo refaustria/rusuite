@@ -222,9 +222,9 @@ export function BusyCard({ ctl }: { ctl: NotesController }) {
   if (!busy) return null;
   const pct = busy.total > 0 ? Math.round((busy.done / busy.total) * 100) : null;
   return (
-    <div role="status" aria-live="polite" data-testid="notes-busy" className="fixed bottom-10 left-1/2 z-50 flex w-80 max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-ui-border bg-ui-panel px-4 py-3 text-sm shadow-lg">
+    <div role="status" aria-live="polite" data-testid="notes-busy" className="fixed bottom-10 left-1/2 z-50 flex w-[26rem] max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-ui-border bg-ui-panel px-4 py-3 text-sm shadow-lg">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate">{busy.label}</span>
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{busy.label}</span>
         {busy.cancellable && (
           <button type="button" className={`shrink-0 rounded border border-ui-border px-2 py-0.5 text-xs hover:bg-ui-hover ${FOCUS_RING}`} data-testid="notes-busy-cancel" onClick={() => ctl.cancelBusy()}>
             {t("notes.cancel")}
