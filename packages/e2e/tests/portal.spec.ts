@@ -18,10 +18,10 @@ test.describe("Portal", () => {
       await expect(link).toHaveAttribute("href", `/${app.toLowerCase()}/`);
       await expect(page.getByRole("img", { name: `Rusuite ${app} logo` })).toBeVisible();
     }
-    // P11-N7: the Notes tile is in the page but hidden until the launch (P11-R1, docs/release.md).
-    await expect(page.getByTestId("portal-notes")).toBeHidden();
-    await expect(page.getByRole("link", { name: "Open Notes in browser" })).toHaveCount(0);
-    await expect(page.locator(".card:visible")).toHaveCount(3);
+    // P11-R1: the launch flag is on (owner 2026-11-27) – the Notes tile is shown (docs/release.md).
+    await expect(page.getByTestId("portal-notes")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Notes in browser" })).toHaveAttribute("href", "/notes/");
+    await expect(page.locator(".card:visible")).toHaveCount(4);
     const logos = await page.locator("img:visible").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).naturalWidth));
     expect(logos.every((w) => w > 0)).toBe(true);
     await expect(page.getByTestId("version")).toHaveText(/^Rusuite \d+\.\d+(\.\d+)?(-\S+)? · Build \S+ · \d{4}-\d{2}-\d{2}$/);
@@ -64,9 +64,9 @@ test.describe("Portal", () => {
   });
 
   test("P11-R1: the launch flag in flags.json shows the Notes tile and its New / Coming soon items, in every language", async ({ page }) => {
-    // The committed file says false (the other tests); the flag is the only switch (docs/release.md "Showing Rusuite Notes").
+    // The committed file says true since the owner's go (2026-11-27); the flag is the only switch (docs/release.md "Showing Rusuite Notes").
     const flags = await page.request.get("flags.json");
-    expect(await flags.json()).toEqual({ notes: false });
+    expect(await flags.json()).toEqual({ notes: true });
     await page.route("**/flags.json", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ notes: true }) }));
     await page.goto("./");
     await expect(page.getByTestId("portal-notes")).toBeVisible();

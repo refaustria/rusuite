@@ -357,10 +357,14 @@ const notesAssets = (v) => [
   { name: `Rusuite.Notes_${v}_aarch64.dmg`, size: 1e6, url: "https://example.org/n.dmg", digest: "sha256:" + "c".repeat(64) },
 ];
 
-test("P11-N7/P11-R1: Rusuite Notes is classified but hidden by the committed flag – no row, no file, no checksum, no xattr line", () => {
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(ROOT, "apps/portal/flags.json"), "utf8")), { notes: false });
-  assert.deepEqual(loadFlags(), { notes: false });
-  const html = render({ tagName: "v3.14159.0", publishedAt: "2026-12-01T00:00:00Z", assets: notesAssets("3.14159.0") });
+test("P11-N7/P11-R1: the committed flag shows Rusuite Notes (owner go 2026-11-27); with the flag off it has no row, no file, no checksum, no xattr line", () => {
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(ROOT, "apps/portal/flags.json"), "utf8")), { notes: true });
+  assert.deepEqual(loadFlags(), { notes: true });
+  const release = { tagName: "v3.14159.0", publishedAt: "2026-12-01T00:00:00Z", assets: notesAssets("3.14159.0") };
+  assert.match(render(release), /Rusuite\.Notes_3\.14159\.0_amd64\.deb/);
+  // A release without Notes files (v3.141.0) gets no Notes row or Terminal line even with the flag on.
+  assert.doesNotMatch(render(fixture()), /Notes/);
+  const html = render(release, loadCatalog(), { flags: { notes: false } });
   assert.match(html, /Rusuite\.Calc_3\.14159\.0_amd64\.deb/);
   assert.match(html, /data-version="3\.14159"/);
   assert.doesNotMatch(html, /Notes/);

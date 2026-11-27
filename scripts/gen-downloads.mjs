@@ -328,7 +328,8 @@ function mobileSection(cat, links, shown) {
 
 /** The page for one release. `links` = the store links (default: docs/store/links.json). */
 export function render(release, cat = loadCatalog(), { links = loadStoreLinks(), flags = loadFlags() } = {}) {
-  const shown = shownApps(flags);
+  // A flagged app (Notes) is only listed once the release carries its files – the flag alone never adds empty rows.
+  const shown = shownApps(flags).filter((app) => !app.flag || (release.assets ?? []).some((a) => classify(a.name)?.app === app.id));
   const tag = String(release.tagName ?? "");
   const version = publicName(tag);
   const date = String(release.publishedAt ?? "").slice(0, 10);

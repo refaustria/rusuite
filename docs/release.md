@@ -195,7 +195,8 @@ their download links work only for repository members).
 ## Showing Rusuite Notes (P11-N7 → P11-R1)
 From P11-N7 every release builds, signs and smoke-tests **Rusuite Notes** as a fourth desktop app (matrix `app:
 notes`; assets `Rusuite.Notes_*`; it counts in `signing.json`: 8 macOS and 4 Windows legs, `scripts/signing/manifest.mjs`).
-It stays out of sight until one flag is switched on – **`apps/portal/flags.json`**, currently `{ "notes": false }`:
+It stays out of sight until one flag is switched on – **`apps/portal/flags.json`**, switched to `{ "notes": true }` on
+2026-11-27 (owner): the portal shows the Notes tile; the Downloads page lists Notes only once a release carries its files:
 - **Portal:** with `"notes": true` `apps/portal/version.js` un-hides everything marked `data-flag="notes"` in
   `index.html`: the Notes tile (`data-testid="portal-notes"`), the "Rusuite Notes" line of "New in 3.14159" and the
   "Notes on phones" line of "Coming soon" (all 24 languages are in the catalogs already). A missing or broken file keeps
