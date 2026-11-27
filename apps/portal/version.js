@@ -27,3 +27,13 @@ fetch("/version.json", { cache: "no-cache" })
     showVersion();
   })
   .catch(() => {});
+
+// Launch flags (apps/portal/flags.json, docs/release.md "Showing Rusuite Notes"): elements with `data-flag="<name>"`
+// stay `hidden` in the HTML until their flag is true. Anything else – a missing or broken file, a failed request –
+// leaves them hidden. The same file decides the Notes downloads (scripts/gen-downloads.mjs).
+fetch("flags.json", { cache: "no-cache" })
+  .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+  .then((flags) => {
+    for (const el of document.querySelectorAll("[data-flag]")) if (flags?.[el.dataset.flag] === true) el.hidden = false;
+  })
+  .catch(() => {});

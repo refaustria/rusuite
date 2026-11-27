@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { classify, loadCatalog, loadStoreLinks, publicName, render, renderNone, signingOf } from "./gen-downloads.mjs";
+import { classify, loadCatalog, loadFlags, loadStoreLinks, publicName, render, renderNone, shownApps, signingOf } from "./gen-downloads.mjs";
 import { buildManifest, LEGS } from "./signing/manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -170,12 +170,12 @@ export const signingManifest = ({ macos = false, windows = false, linux = false,
 });
 /** A release with signing.json and, when GPG-signed, the .asc files and SHA256SUMS(.asc) next to the installers. */
 export const signedFixture = (flags) => {
-  const r = fixture("v3.1415.0", NAMES.map((n) => n.replace("0.1.0", "3.1415.0")));
+  const r = fixture("v3.14159.0", NAMES.map((n) => n.replace("0.1.0", "3.14159.0")));
   const extra = flags.linux
     ? [...r.assets.filter((a) => classify(a.name)?.os === "linux").map((a) => `${a.name}.asc`), "SHA256SUMS", "SHA256SUMS.asc"]
     : [];
   for (const name of [...extra, "signing.json"]) {
-    r.assets.push({ name, size: 900, url: `https://github.com/refaustria/rusuite/releases/download/v3.1415.0/${name}`, digest: null });
+    r.assets.push({ name, size: 900, url: `https://github.com/refaustria/rusuite/releases/download/v3.14159.0/${name}`, digest: null });
   }
   r.signing = signingManifest(flags);
   return r;
@@ -209,9 +209,9 @@ test("all signed: no unsigned notice, signed lines instead of the Gatekeeper/Sma
     assert.match(html, /data-steps="linux"/, "Linux install steps stay");
     for (const os of ["windows", "macos", "linux"]) assert.match(section(html, os), new RegExp(`<p class="steps-block signed" data-signed="${os}"`), locale);
     assert.equal(html.match(/<a class="button/g).length, 21, locale);
-    assert.equal(html.match(/<a class="asc" href="https:\/\/github\.com\/refaustria\/rusuite\/releases\/download\/v3\.1415\.0\/Rusuite\.\w+[^"]*\.asc"/g).length, 9, locale);
+    assert.equal(html.match(/<a class="asc" href="https:\/\/github\.com\/refaustria\/rusuite\/releases\/download\/v3\.14159\.0\/Rusuite\.\w+[^"]*\.asc"/g).length, 9, locale);
     assert.match(html, /data-testid="sha256sums"/, locale);
-    assert.ok(html.includes('href="https://github.com/refaustria/rusuite/releases/download/v3.1415.0/SHA256SUMS.asc"'), locale);
+    assert.ok(html.includes('href="https://github.com/refaustria/rusuite/releases/download/v3.14159.0/SHA256SUMS.asc"'), locale);
     assert.ok(html.includes("0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567"), locale);
     assert.doesNotMatch(html, /xattr -dr/, locale);
   }
@@ -270,7 +270,7 @@ test("signingOf reads the real manifest.mjs output: every combination of signed 
   const all = [...rec("macos", LEGS.macos, { notarized: true }), ...rec("windows", LEGS.windows, { method: "azure" })];
   const full = JSON.parse(JSON.stringify(buildManifest(all, { fingerprint: FPR, linuxResult: "success" })));
   assert.deepEqual(signingOf(full), { macos: true, windows: true, linux: true, fingerprint: "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567", sha256sums: true });
-  // 3.1415 as it may ship: macOS + Linux signed, Windows still unsigned (Azure pending).
+  // 3.14159 as it may ship: macOS + Linux signed, Windows still unsigned (Azure pending).
   const partial = JSON.parse(JSON.stringify(buildManifest(rec("macos", LEGS.macos, { notarized: true }), { fingerprint: FPR, linuxResult: "success" })));
   assert.deepEqual(signingOf(partial), { macos: true, windows: false, linux: true, fingerprint: "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567", sha256sums: true });
   const html = render({ ...signedFixture({ macos: true, linux: true }), signing: partial });
@@ -282,8 +282,8 @@ test("signingOf reads the real manifest.mjs output: every combination of signed 
   const none = JSON.parse(JSON.stringify(buildManifest([], {})));
   assert.deepEqual(signingOf(none), signingOf(undefined));
   // The release version renders as the public name.
-  assert.match(render(signedFixture({ macos: true })), /Rusuite 3\.1415 for Windows, macOS and Linux/);
-  assert.match(render(signedFixture({ macos: true })), /data-version="3\.1415"/);
+  assert.match(render(signedFixture({ macos: true })), /Rusuite 3\.14159 for Windows, macOS and Linux/);
+  assert.match(render(signedFixture({ macos: true })), /data-version="3\.14159"/);
 });
 
 // P10-R1: "Phones and tablets" from docs/store/links.json; empty strings = coming soon.
@@ -296,7 +296,7 @@ test("the committed docs/store/links.json has empty strings for all six store li
 });
 
 test("Phones and tablets without links: 'coming soon' for every store, no store anchors", () => {
-  const html = mobileOf(render(fixture("v3.1415.0", NAMES.map((n) => n.replace("0.1.0-rc.1", "3.1415.0"))), loadCatalog(), { links: EMPTY }));
+  const html = mobileOf(render(fixture("v3.14159.0", NAMES.map((n) => n.replace("0.1.0-rc.1", "3.14159.0"))), loadCatalog(), { links: EMPTY }));
   assert.match(html, /<h2 data-i18n="portal\.dl\.mobile\.title">Phones and tablets<\/h2>/);
   assert.equal([...html.matchAll(/data-soon="true"/g)].length, 6);
   assert.equal([...html.matchAll(/coming soon/g)].length, 6);
@@ -335,7 +335,7 @@ test("loadStoreLinks accepts https URLs only and survives a missing or broken fi
   assert.deepEqual(loadStoreLinks(path.join(dir, "missing.json")), EMPTY);
 });
 
-test("the generator CLI reads --links and renders the 3.1415 page with the mobile section", async () => {
+test("the generator CLI reads --links and renders the 3.14159 page with the mobile section", async () => {
   const { execFileSync } = await import("node:child_process");
   const os = await import("node:os");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "p10-r1-dl-"));
@@ -346,20 +346,50 @@ test("the generator CLI reads --links and renders the 3.1415 page with the mobil
     return fs.readFileSync(path.join(dir, "d.html"), "utf8");
   };
   const withLinks = run("--links", path.join(dir, "links.json"));
-  assert.match(withLinks, /data-version="3\.1415"/);
+  assert.match(withLinks, /data-version="3\.14159"/);
   assert.match(withLinks, /dev\.rusuite\.calc/);
   assert.match(mobileOf(run()), /data-soon="true"/); // default: the committed (empty) links.json
 });
 
-test("P11-N7: Rusuite Notes is classified but hidden until its launch – no row, no file, no checksum, no xattr line", () => {
-  const assets = [
-    { name: "Rusuite.Calc_3.1415.0_amd64.deb", size: 1e6, url: "https://example.org/c.deb", digest: "sha256:" + "a".repeat(64) },
-    { name: "Rusuite.Notes_3.1415.0_amd64.deb", size: 1e6, url: "https://example.org/n.deb", digest: "sha256:" + "b".repeat(64) },
-    { name: "Rusuite.Notes_3.1415.0_aarch64.dmg", size: 1e6, url: "https://example.org/n.dmg", digest: "sha256:" + "c".repeat(64) },
-  ];
-  const html = render({ tagName: "v3.1415.0", publishedAt: "2026-12-01T00:00:00Z", assets });
-  assert.match(html, /Rusuite\.Calc_3\.1415\.0_amd64\.deb/);
+const notesAssets = (v) => [
+  { name: `Rusuite.Calc_${v}_amd64.deb`, size: 1e6, url: "https://example.org/c.deb", digest: "sha256:" + "a".repeat(64) },
+  { name: `Rusuite.Notes_${v}_amd64.deb`, size: 1e6, url: "https://example.org/n.deb", digest: "sha256:" + "b".repeat(64) },
+  { name: `Rusuite.Notes_${v}_aarch64.dmg`, size: 1e6, url: "https://example.org/n.dmg", digest: "sha256:" + "c".repeat(64) },
+];
+
+test("P11-N7/P11-R1: Rusuite Notes is classified but hidden by the committed flag – no row, no file, no checksum, no xattr line", () => {
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(ROOT, "apps/portal/flags.json"), "utf8")), { notes: false });
+  assert.deepEqual(loadFlags(), { notes: false });
+  const html = render({ tagName: "v3.14159.0", publishedAt: "2026-12-01T00:00:00Z", assets: notesAssets("3.14159.0") });
+  assert.match(html, /Rusuite\.Calc_3\.14159\.0_amd64\.deb/);
+  assert.match(html, /data-version="3\.14159"/);
   assert.doesNotMatch(html, /Notes/);
-  assert.doesNotMatch(html, /"b{64}"|b{64}/);
+  assert.doesNotMatch(html, /b{64}/);
   assert.doesNotMatch(renderNone(), /Notes/);
+});
+
+test("P11-R1: flipping the notes flag lists the Notes downloads with checksums and a Terminal line; a bad flags file is all off", async () => {
+  const os = await import("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "p11-r1-flags-"));
+  const on = path.join(dir, "on.json");
+  fs.writeFileSync(on, JSON.stringify({ notes: true }));
+  assert.deepEqual(loadFlags(on), { notes: true });
+  assert.deepEqual(shownApps({ notes: true }).map((a) => a.id), ["calc", "write", "show", "notes"]);
+  assert.deepEqual(shownApps({}).map((a) => a.id), ["calc", "write", "show"]);
+  const html = render({ tagName: "v3.14159.0", publishedAt: "2026-12-01T00:00:00Z", assets: notesAssets("3.14159.0") }, loadCatalog(), { flags: loadFlags(on) });
+  assert.match(html, /Rusuite\.Notes_3\.14159\.0_amd64\.deb/);
+  assert.match(html, /Rusuite\.Notes_3\.14159\.0_aarch64\.dmg/);
+  assert.match(html, /b{64}/);
+  assert.match(html, /Applications\/Rusuite Notes\.app/);
+  assert.doesNotMatch(mobileOf(html), /Notes/); // no phone app for Notes
+  for (const bad of ["{ not json", '{ "notes": "yes" }', "[]", "null"]) {
+    fs.writeFileSync(path.join(dir, "bad.json"), bad);
+    assert.equal(loadFlags(path.join(dir, "bad.json")).notes ?? false, false, bad);
+  }
+  assert.deepEqual(loadFlags(path.join(dir, "missing.json")), {});
+  // The CLI takes --flags too.
+  const { execFileSync } = await import("node:child_process");
+  fs.writeFileSync(path.join(dir, "release.json"), JSON.stringify({ tagName: "v3.14159.0", publishedAt: "2026-12-01T00:00:00Z", assets: notesAssets("3.14159.0") }));
+  execFileSync("node", [path.join(ROOT, "scripts/gen-downloads.mjs"), "--release", path.join(dir, "release.json"), "--flags", on, "--out", path.join(dir, "d.html")]);
+  assert.match(fs.readFileSync(path.join(dir, "d.html"), "utf8"), /Rusuite\.Notes_3\.14159\.0_amd64\.deb/);
 });

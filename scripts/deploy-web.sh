@@ -43,7 +43,7 @@ done
 # Portal: static files, no build step. No --delete at the root (it holds the app folders).
 [ -f apps/portal/index.html ] || { echo "missing apps/portal/index.html" >&2; exit 1; }
 mkdir -p "$TARGET/logos" "$TARGET/locales"
-rsync -a apps/portal/index.html apps/portal/privacy.html apps/portal/styles.css apps/portal/i18n.js apps/portal/version.js apps/portal/downloads.js "$TARGET/"
+rsync -a apps/portal/index.html apps/portal/privacy.html apps/portal/styles.css apps/portal/i18n.js apps/portal/version.js apps/portal/downloads.js apps/portal/flags.json "$TARGET/"
 # Downloads page: generated from the GitHub release now (gh), so the page itself fetches nothing (P8-41, ADR 0009).
 # DOWNLOADS_TAG picks the release (default: the newest published one); without gh it is the "no release yet" page.
 scripts/gen-downloads.sh --out "$TARGET/downloads.html"

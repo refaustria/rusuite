@@ -61,8 +61,8 @@
             <a class="more" href="downloads.html" data-i18n="portal.downloads">Desktop downloads</a>
           </div>
         </li>
-        <!-- Rusuite Notes: hidden until the public launch (P11-R1) – remove `hidden` to show it (docs/release.md). -->
-        <li class="card" data-app="notes" data-testid="portal-notes" hidden>
+        <!-- Rusuite Notes: hidden until `"notes": true` in apps/portal/flags.json (docs/release.md, "Showing Rusuite Notes"). -->
+        <li class="card" data-app="notes" data-testid="portal-notes" data-flag="notes" hidden>
           <img src="logos/notes.svg" width="72" height="72" data-i18n-alt="portal.notes.logo" alt="Rusuite Notes logo" />
           <h3>Notes <span data-i18n="portal.notes.kind">Notebooks</span></h3>
           <p data-i18n-html="portal.notes.text">Notebooks with sections and pages, checklists, tables and pictures – share a notebook end-to-end encrypted.</p>
@@ -85,9 +85,11 @@
         <p data-i18n-html="portal.os.report">Found a problem? Use the ? Help menu in the app (Report a problem…) or open an <a href="https://github.com/refaustria/rusuite/issues">issue on GitHub</a>.</p>
       </section>
       <section id="new" class="opensource new" aria-labelledby="new-h">
-        <h2 id="new-h" data-i18n="portal.new.h">New in 3.1415</h2>
-        <p data-i18n-html="portal.new.intro">What the current release brings – the details are in the <a href="https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.1415.md">release notes</a>:</p>
+        <h2 id="new-h" data-i18n="portal.new.h">New in 3.14159</h2>
+        <p data-i18n-html="portal.new.intro">What the current release brings – the details are in the <a href="https://github.com/refaustria/rusuite/blob/main/docs/release-notes/3.14159.md">release notes</a>:</p>
         <ul>
+          <li data-i18n-html="portal.new.item6" data-flag="notes" data-testid="new-notes" hidden><strong>Rusuite Notes</strong> – A new app for notebooks with sections, pages, tables and ink; import from OneNote and share a notebook end-to-end encrypted.</li>
+          <li data-i18n-html="portal.new.item5"><strong>Open and drop files</strong> – Double-click a document in Finder or Explorer, drop files on the window, recent files and one window per document in the desktop apps.</li>
           <li data-i18n-html="portal.new.item1"><strong>Phones and tablets</strong> – Calc, Write and Show for Android and iOS, with a compact layout and touch editing.</li>
           <li data-i18n-html="portal.new.item2"><strong>Signed apps</strong> – Signed desktop builds; the Downloads page shows which systems are signed.</li>
           <li data-i18n-html="portal.new.item3"><strong>PDF</strong> – Export as PDF in all three apps, and share or print as PDF on phones.</li>
@@ -99,6 +101,7 @@
         <p data-i18n="portal.soon.intro">What the next releases are planned to bring – no dates, and plans can change:</p>
         <ul>
           <li data-i18n-html="portal.soon.item2"><strong>Cloud</strong> – More cloud connections in the desktop apps are planned: Google Drive, OneDrive, Dropbox and S3.</li>
+          <li data-i18n-html="portal.soon.item9" data-flag="notes" data-testid="soon-notes" hidden><strong>Notes on phones</strong> – Rusuite Notes for Android and iOS is planned.</li>
           <li data-i18n-html="portal.soon.item8"><strong>Windows signing</strong> – Signed Windows builds, so that SmartScreen no longer warns before the first start, are planned.</li>
         </ul>
         <p data-i18n="portal.soon.close">Your feedback shapes the order: tell us what you need via the ? Help menu in the app (Report a problem…).</p>
