@@ -350,3 +350,5 @@ Order: P3-1 model-text ∥ P3-3 Write scaffold ∥ P3-6 reference docs → P3-2 
 
 ## Blocked
 - none
+
+- 2026-11-27: 3.14159 preview live on rusuit.es/downloads.html – unsigned builds for Windows (cross-built, untested), Mac arm + Intel, Linux (glibc 2.41), files self-hosted in /var/www/resuite/dl/3.14159/ (not in git). Main list stays v3.141.0.
