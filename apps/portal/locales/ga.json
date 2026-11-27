@@ -63,6 +63,8 @@
   "portal.dl.unsigned.some.text": "Níl na leaganacha do {oses} sínithe go fóill. Má thugann do chóras rabhadh an chéad uair a osclaíonn tú aip, táthar ag súil leis sin agus ní comhartha damáiste é; tá na céimeanna díreach os cionn na gcnaipí íoslódála. Chun a fhíorú gurb é an comhad a thóg muid é, déan comparáid idir a sheicsum SHA-256 agus an liosta thíos.",
   "portal.dl.sums.title": "Seiceáil íoslódáil",
   "portal.dl.sums.text": "Tá na seicsimí go léir in <a href=\"{sums}\">SHA256SUMS</a> freisin, sínithe le <a href=\"rusuite-release-key.asc\">heochair eisiúna Rusuite</a> (méarlorg <code>{fingerprint}</code>) in <a href=\"{sig}\">SHA256SUMS.asc</a>. Íoslódáil an dá cheann in aice le do chomhad, ansin rith <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> agus <code>sha256sum --check --ignore-missing SHA256SUMS</code>.",
+  "portal.dl.preview.title": "Nua: Rusuite {version} – réamhamharc do Mac (Apple Silicon) agus Linux",
+  "portal.dl.preview.text": "Tógálacha tástála gan síniú den chéad leagan eile. Leanfaidh Windows agus Macanna Intel leis an eisiúint iomlán. Teastaíonn dáileadh reatha ó na tógálacha Linux (glibc 2.41, e.g. Debian 13, Ubuntu 25.04, Fedora 42).",
   "portal.language": "Teanga / Language",
   "portal.languagePending": "{name} (gan aistriú go fóill)",
   "portal.nav": "Suíomh",

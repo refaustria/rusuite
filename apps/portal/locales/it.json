@@ -63,6 +63,8 @@
   "portal.dl.unsigned.some.text": "Le versioni per {oses} non sono ancora firmate. Se il tuo sistema mostra un avviso la prima volta che apri un'app, è normale e non indica alcun danno; i passaggi sono subito sopra i pulsanti di download. Per verificare che un file sia proprio quello che abbiamo creato, confronta il suo checksum SHA-256 con l'elenco qui sotto.",
   "portal.dl.sums.title": "Verifica un download",
   "portal.dl.sums.text": "Tutti i checksum si trovano anche in <a href=\"{sums}\">SHA256SUMS</a>, firmato con la <a href=\"rusuite-release-key.asc\">chiave di rilascio di Rusuite</a> (impronta digitale <code>{fingerprint}</code>) in <a href=\"{sig}\">SHA256SUMS.asc</a>. Scarica entrambi accanto al tuo file, poi esegui <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> e <code>sha256sum --check --ignore-missing SHA256SUMS</code>.",
+  "portal.dl.preview.title": "Novità: Rusuite {version} – anteprima per Mac (Apple Silicon) e Linux",
+  "portal.dl.preview.text": "Build di prova non firmate della prossima versione. Windows e i Mac Intel seguiranno con la versione completa. Le build per Linux richiedono una distribuzione recente (glibc 2.41, ad es. Debian 13, Ubuntu 25.04, Fedora 42).",
   "portal.language": "Lingua / Language",
   "portal.languagePending": "{name} (non ancora tradotto)",
   "portal.nav": "Sito",

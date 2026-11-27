@@ -190,3 +190,8 @@ a.wordmark { display: block; width: fit-content; margin: 0 auto 8px; font-size: 
 /* Language list (P9-L0): i18n.js replaces the EN/DE buttons by a list of the 24 UI languages. */
 .lang select { appearance: auto; border: 0; background: transparent; color: var(--text); font: 600 0.85rem/1.2 system-ui, sans-serif; padding: 6px 8px; cursor: pointer; max-width: 12rem; }
 .lang select:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+.preview { margin: 0 0 20px; padding: 20px 24px; background: var(--surface); border: 2px solid var(--focus); border-radius: 16px; box-shadow: var(--shadow); }
+.preview h2 { margin: 0; font-size: 1.35rem; }
+.preview .warn { margin: 8px 0 12px; color: var(--muted); font-size: 0.92rem; }
+.preview .preview-os { margin-top: 16px; }
+.preview .preview-os h3 { margin: 0 0 8px; font-size: 1.1rem; }

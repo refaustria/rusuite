@@ -58,4 +58,4 @@ node -e '
   }
   fs.writeFileSync(file, JSON.stringify(release));
 ' "$work/release.json" "$work/digests.json" "$work/signing/signing.json"
-node scripts/gen-downloads.mjs --in "$work/release.json" --out "$out"
+node scripts/gen-downloads.mjs --in "$work/release.json" --preview apps/portal/preview.json --out "$out"

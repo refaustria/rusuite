@@ -1,10 +1,12 @@
 // Tests of the Downloads page generator (P8-41): `node --test scripts/gen-downloads.test.mjs` (CI frontend job).
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { classify, loadCatalog, loadFlags, loadStoreLinks, publicName, render, renderNone, shownApps, signingOf } from "./gen-downloads.mjs";
+import { classify, loadCatalog, loadFlags, loadPreview, loadStoreLinks, publicName, render, renderNone, shownApps, signingOf } from "./gen-downloads.mjs";
 import { buildManifest, LEGS } from "./signing/manifest.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -396,4 +398,93 @@ test("P11-R1: flipping the notes flag lists the Notes downloads with checksums a
   fs.writeFileSync(path.join(dir, "release.json"), JSON.stringify({ tagName: "v3.14159.0", publishedAt: "2026-12-01T00:00:00Z", assets: notesAssets("3.14159.0") }));
   execFileSync("node", [path.join(ROOT, "scripts/gen-downloads.mjs"), "--release", path.join(dir, "release.json"), "--flags", on, "--out", path.join(dir, "d.html")]);
   assert.match(fs.readFileSync(path.join(dir, "d.html"), "utf8"), /Rusuite\.Notes_3\.14159\.0_amd64\.deb/);
+});
+
+// Preview box (owner decision 2026-11-27): unsigned macOS Apple Silicon builds of the next version, hosted locally.
+const previewFile = (content) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rusuite-preview-"));
+  const file = path.join(dir, "preview.json");
+  if (content !== undefined) fs.writeFileSync(file, typeof content === "string" ? content : JSON.stringify(content));
+  return file;
+};
+const cap = (app) => app[0].toUpperCase() + app.slice(1);
+const asset = (app, os, kind, file, n) => ({ app, os, kind, name: file, url: `/dl/3.14159/${file}`, size: 5_000_000 + n, sha256: n.toString(16).repeat(64) });
+const APPS4 = ["calc", "write", "show", "notes"];
+const PREVIEW = {
+  version: "3.14159",
+  date: "2026-11-27",
+  assets: [
+    ...APPS4.map((app, i) => asset(app, "macos-arm", "dmg", `Rusuite.${cap(app)}_3.14159.0_aarch64.dmg`, i)),
+    ...APPS4.flatMap((app, i) => [
+      asset(app, "linux", "appimage", `Rusuite.${cap(app)}_3.14159.0_amd64.AppImage`, 4 + i),
+      asset(app, "linux", "deb", `Rusuite.${cap(app)}_3.14159.0_amd64.deb`, 8 + i),
+      asset(app, "linux", "rpm", `Rusuite.${cap(app)}-3.14159.0-1.x86_64.rpm`, 12 + i % 4),
+    ]),
+  ],
+};
+const boxOf = (html) => html.slice(html.indexOf('<section class="preview"'), html.indexOf("</section>", html.indexOf('<section class="preview"')));
+
+test("preview box: per OS buttons, checksums and first-open steps, above the OS sections, nothing external", () => {
+  const preview = loadPreview(previewFile(PREVIEW));
+  const html = render(fixture(), loadCatalog(), { flags: { notes: true }, preview });
+  const box = boxOf(html);
+  assert.ok(box.length > 0 && html.indexOf('class="preview"') < html.indexOf('id="os-list"'));
+  assert.match(box, /New: Rusuite 3\.14159 – preview for Mac \(Apple Silicon\) and Linux/);
+  assert.match(box, /Unsigned test builds of the next version\. Windows and Intel Macs follow/);
+  assert.match(box, /glibc 2\.41/);
+  const mac = box.slice(box.indexOf('data-os="macos-arm"'), box.indexOf('data-os="linux"'));
+  const linux = box.slice(box.indexOf('data-os="linux"'));
+  for (const [i, app] of ["Calc", "Write", "Show", "Notes"].entries()) {
+    assert.ok(mac.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_aarch64.dmg"`), app);
+    assert.ok(mac.includes(`<code>${i.toString(16).repeat(64)}</code>`), app);
+    assert.ok(mac.includes(`xattr -dr com.apple.quarantine &quot;/Applications/Rusuite ${app}.app&quot;`), app);
+    assert.ok(linux.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_amd64.AppImage"`), app);
+    assert.ok(linux.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_amd64.deb"`), app);
+  }
+  assert.match(mac, /data-steps="macos15"/);
+  assert.match(linux, /data-steps="linux"/);
+  assert.doesNotMatch(linux, /xattr/);
+  // AppImage is the main button of a Linux row.
+  assert.match(linux, /<a class="button" href="[^"]*AppImage"/);
+  assert.match(linux, /<a class="button secondary" href="[^"]*\.deb"/);
+  assert.doesNotMatch(box, /https?:\/\//);
+  // The OS sections still show the GitHub release.
+  assert.equal(html.match(/<a class="button/g).length, 16 + 21);
+});
+
+test("preview box: only the OSes present show; Notes only with its flag on; no box for empty, missing or malformed files", () => {
+  const macOnly = loadPreview(previewFile({ ...PREVIEW, assets: PREVIEW.assets.filter((a) => a.os === "macos-arm") }));
+  const m = boxOf(render(fixture(), loadCatalog(), { preview: macOnly }));
+  assert.ok(m.includes('data-os="macos-arm"') && !m.includes('data-os="linux"') && !m.includes('data-steps="linux"'));
+  const preview = loadPreview(previewFile(PREVIEW));
+  const box = boxOf(render(fixture(), loadCatalog(), { flags: { notes: false }, preview }));
+  assert.ok(box.includes("Rusuite Calc.app") && !box.includes("Notes"));
+  for (const file of [previewFile({ ...PREVIEW, assets: [] }), previewFile(), previewFile("{not json"), previewFile("[]"), previewFile({ version: "3.14159" })]) {
+    const p = loadPreview(file);
+    assert.equal(p, null, file);
+    assert.doesNotMatch(render(fixture(), loadCatalog(), { preview: p }), /class="preview"/);
+  }
+  assert.doesNotMatch(render(fixture(), loadCatalog()), /class="preview"/);
+  // Assets pointing to other hosts, unknown apps or a kind that does not fit the OS are dropped.
+  const [a0, a1] = PREVIEW.assets;
+  assert.equal(loadPreview(previewFile({ ...PREVIEW, assets: [{ ...a0, url: "https://evil.example/x.dmg" }, { ...a1, app: "x" }, { ...a1, kind: "deb" }, { ...a1, os: "windows" }] })), null);
+});
+
+test("preview box: the committed apps/portal/preview.json is valid and has no assets yet", () => {
+  const file = path.join(ROOT, "apps/portal/preview.json");
+  const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(raw.version, "3.14159");
+  assert.deepEqual(raw.assets, []);
+  assert.equal(loadPreview(file), null);
+});
+
+test("preview box: the CLI reads --preview", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rusuite-preview-cli-"));
+  fs.writeFileSync(path.join(dir, "release.json"), JSON.stringify(fixture()));
+  const run = (preview) => {
+    execFileSync("node", [path.join(ROOT, "scripts/gen-downloads.mjs"), "--in", path.join(dir, "release.json"), "--preview", preview, "--out", path.join(dir, "out.html")]);
+    return fs.readFileSync(path.join(dir, "out.html"), "utf8");
+  };
+  assert.match(run(previewFile(PREVIEW)), /<section class="preview"/);
+  assert.doesNotMatch(run(path.join(dir, "missing.json")), /class="preview"/);
 });

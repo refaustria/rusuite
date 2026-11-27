@@ -41,6 +41,56 @@ export function loadStoreLinks(file = path.join(ROOT, "docs/store/links.json")) 
   return Object.fromEntries(APPS.filter((a) => a.mobile !== false).map((a) => [a.id, { play: url(raw?.[a.id]?.play), appstore: url(raw?.[a.id]?.appstore) }]));
 }
 
+/** The OSes of the preview box (per asset `os`) with their package kinds in display order (first = main button). */
+const PREVIEW_OSES = [
+  { id: "macos-arm", os: "macos", title: "macOS (Apple Silicon)", kinds: [{ id: "dmg", label: "portal.dl.kind.arm64" }] },
+  {
+    id: "linux",
+    os: "linux",
+    title: "Linux (x86_64)",
+    kinds: [
+      { id: "appimage", label: "portal.dl.kind.appimage" },
+      { id: "deb", label: "portal.dl.kind.deb" },
+      { id: "rpm", label: "portal.dl.kind.rpm" },
+    ],
+  },
+];
+
+/**
+ * The preview box (owner decision 2026-11-27): unsigned builds of the next version (macOS Apple Silicon, Linux x86_64),
+ * hosted on this server (`apps/portal/preview.json`, `--preview <file>`):
+ * `{ version, date, assets: [{ app, os: "macos-arm"|"linux", kind: "dmg"|"deb"|"rpm"|"appimage", name, url, size, sha256 }] }`.
+ * Returns null (no box) for a missing, malformed or empty file; invalid assets (unknown app/os/kind, non-local URL, bad
+ * name) are skipped, so a bad file never breaks the page.
+ */
+export function loadPreview(file = path.join(ROOT, "apps/portal/preview.json")) {
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+  const version = typeof raw?.version === "string" && /^[0-9A-Za-z][0-9A-Za-z.+~-]*$/.test(raw.version) ? raw.version : "";
+  if (!version || !Array.isArray(raw.assets)) return null;
+  const assets = raw.assets
+    .filter(
+      (a) =>
+        a && APPS.some((x) => x.id === a.app) && PREVIEW_OSES.find((o) => o.id === a.os)?.kinds.some((k) => k.id === a.kind) &&
+        typeof a.name === "string" && /^[\w. ~+-]+$/.test(a.name) &&
+        typeof a.url === "string" && /^\/(?!\/)[^\s"'<>\\]*$/.test(a.url),
+    )
+    .map((a) => ({
+      app: a.app,
+      os: a.os,
+      kind: a.kind,
+      name: a.name,
+      url: a.url,
+      size: Number.isFinite(Number(a.size)) && Number(a.size) > 0 ? Number(a.size) : 0,
+      sha256: typeof a.sha256 === "string" && /^[0-9a-f]{64}$/i.test(a.sha256) ? a.sha256.toLowerCase() : "",
+    }));
+  return assets.length ? { version, date: typeof raw.date === "string" ? raw.date : "", assets } : null;
+}
+
 export const RELEASES_URL = "https://github.com/refaustria/rusuite/releases";
 
 const APPS = [
@@ -326,8 +376,58 @@ function mobileSection(cat, links, shown) {
       </section>`;
 }
 
-/** The page for one release. `links` = the store links (default: docs/store/links.json). */
-export function render(release, cat = loadCatalog(), { links = loadStoreLinks(), flags = loadFlags() } = {}) {
+/** The preview box (see loadPreview): per OS its buttons, checksums and first-open steps – only for OSes that have files. */
+function previewBox(cat, preview, shown) {
+  const assets = (preview?.assets ?? []).filter((p) => shown.some((x) => x.id === p.app));
+  const blocks = PREVIEW_OSES.map((po) => {
+    const mine = assets.filter((p) => p.os === po.id);
+    if (!mine.length) return "";
+    const apps = APPS.filter((a) => mine.some((p) => p.app === a.id));
+    const osDef = OSES.find((o) => o.id === po.os);
+    const rows = apps.map((app) => {
+      const buttons = po.kinds.map((kind, i) => {
+        const f = mine.find((p) => p.app === app.id && p.kind === kind.id);
+        if (!f) return "";
+        return `
+              <a class="button${i === 0 ? "" : " secondary"}" href="${esc(f.url)}" data-kind="${kind.id}" title="${esc(f.name)}">
+                <span ${i18n(cat, kind.label)}</span>
+                <small data-bytes="${f.size}" ${i18n(cat, "portal.dl.size", { params: { mb: (f.size / 1e6).toFixed(1) } })}</small>
+              </a>`;
+      }).join("");
+      return `
+          <li class="dl-app" data-app="${app.id}">
+            <img src="logos/${app.id}.svg" width="40" height="40" alt="" />
+            <div class="dl-name"><strong>${esc(app.name)}</strong><span ${i18n(cat, app.kind)}</span></div>
+            <div class="dl-buttons">${buttons}
+            </div>
+          </li>`;
+    }).join("");
+    const order = (f) => APPS.findIndex((a) => a.id === f.app) * 10 + po.kinds.findIndex((k) => k.id === f.kind);
+    const sums = [...mine].sort((x, y) => order(x) - order(y)).map((f) => `\n            <dt data-app="${f.app}">${esc(f.name)}</dt><dd><code>${f.sha256 || "–"}</code></dd>`).join("");
+    return `
+        <div class="preview-os" data-os="${po.id}">
+          <h3>${po.title}</h3>
+          ${stepsHtml(cat, osDef, apps)}
+          <ul class="dl-list">${rows}
+          </ul>
+          <details class="sums" open>
+            <summary ${i18n(cat, "portal.dl.checksums")}</summary>
+            <p ${i18n(cat, "portal.dl.verify", { html: true, params: { command: osDef.verify } })}</p>
+            <dl>${sums}
+            </dl>
+          </details>
+        </div>`;
+  }).join("");
+  if (!blocks) return "";
+  return `
+      <section class="preview" data-testid="preview" data-version="${esc(preview.version)}">
+        <h2 ${i18n(cat, "portal.dl.preview.title", { params: { version: preview.version } })}</h2>
+        <p class="warn" ${i18n(cat, "portal.dl.preview.text")}</p>${blocks}
+      </section>`;
+}
+
+/** The page for one release. `links` = the store links (default: docs/store/links.json); `preview` = loadPreview() result (no box when null). */
+export function render(release, cat = loadCatalog(), { links = loadStoreLinks(), flags = loadFlags(), preview = null } = {}) {
   // A flagged app (Notes) is only listed once the release carries its files – the flag alone never adds empty rows.
   const shown = shownApps(flags).filter((app) => !app.flag || (release.assets ?? []).some((a) => classify(a.name)?.app === app.id));
   const tag = String(release.tagName ?? "");
@@ -399,7 +499,7 @@ export function render(release, cat = loadCatalog(), { links = loadStoreLinks(),
       <p class="sub">${prerelease ? `<span class="pill" ${i18n(cat, "portal.dl.prerelease")}</span> ` : ""}${date ? `<span data-date="${esc(date)}" ${i18n(cat, "portal.dl.released", { params: { date } })}</span>` : ""}</p>
       ${webLinks(cat)}
     </header>
-    <main data-testid="downloads" data-release="${esc(tag)}" data-version="${esc(version)}">${unsignedAside(cat, unsigned)}
+    <main data-testid="downloads" data-release="${esc(tag)}" data-version="${esc(version)}">${unsignedAside(cat, unsigned)}${previewBox(cat, preview, shownApps(flags))}
       <div id="os-list">${sections}
       </div>${mobileSection(cat, links, shown)}${sumsAside(cat, signing, assetUrl)}
       <template id="dl-badge"><span class="badge" ${i18n(cat, "portal.dl.recommended")}</span></template>
@@ -417,12 +517,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
   const out = opt("--out");
   const input = opt("--in") ?? opt("--release");
   if (!out || (!input && !args.includes("--none"))) {
-    console.error("usage: gen-downloads.mjs (--in|--release release.json | --none) [--links links.json] [--flags flags.json] --out downloads.html");
+    console.error("usage: gen-downloads.mjs (--in|--release release.json | --none) [--links links.json] [--flags flags.json] [--preview preview.json] --out downloads.html");
     process.exit(2);
   }
   const links = opt("--links") ? loadStoreLinks(opt("--links")) : undefined;
   const flags = opt("--flags") ? loadFlags(opt("--flags")) : undefined;
-  const html = input ? render(JSON.parse(fs.readFileSync(input, "utf8")), loadCatalog(), { ...(links && { links }), ...(flags && { flags }) }) : renderNone();
+  const preview = opt("--preview") ? loadPreview(opt("--preview")) : null;
+  const html = input ? render(JSON.parse(fs.readFileSync(input, "utf8")), loadCatalog(), { ...(links && { links }), ...(flags && { flags }), preview }) : renderNone();
   fs.writeFileSync(out, html);
   console.log(`gen-downloads: wrote ${out}`);
 }
