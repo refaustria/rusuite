@@ -1,7 +1,8 @@
 // The converters (OneNote, Markdown, HTML, .docx import; Markdown/HTML/.docx export; the HTML paste sanitiser) are a
 // second wasm module, `app-notes-convert-wasm` (P11-N6b), loaded with a dynamic `import()` the first time one is
-// used – a normal page open never fetches it. Its results are frames (`notes_core::plan`): `json_len: u32 LE`, the
-// JSON, then the blobs as `{len: u32 LE, bytes}*`.
+// used – a normal page open never fetches it. On the web it runs in a Web Worker (P11-X1, `worker.ts`), so a long
+// conversion never blocks the page and Cancel can stop it. Its results are frames (`notes_core::plan`):
+// `json_len: u32 LE`, the JSON, then the blobs as `{len: u32 LE, bytes}*`.
 
 import { CoreError, rethrow } from "../backend";
 import type { ExportFormat } from "../generated/ExportFormat";
@@ -10,12 +11,17 @@ import type { ImportContextData } from "../generated/ImportContextData";
 import type { ImportKind } from "../generated/ImportKind";
 import { t } from "../i18n";
 
-/** The exports of `app-notes-convert-wasm` (wasm-pack, `--target web`). */
+type Awaitable<T> = T | Promise<T>;
+
+/** The exports of `app-notes-convert-wasm` (wasm-pack, `--target web`) – called directly (tests) or through its
+ * worker (`workerClient.ts`: promises, and `terminate` for Cancel). */
 export interface ConvertWasmModule {
   ping(): string;
-  import_file(request: string, bytes: Uint8Array): Uint8Array;
-  export_file(request: string, blobs: Uint8Array): Uint8Array;
-  paste_html(request: string): Uint8Array;
+  import_file(request: string, bytes: Uint8Array): Awaitable<Uint8Array>;
+  export_file(request: string, blobs: Uint8Array): Awaitable<Uint8Array>;
+  paste_html(request: string): Awaitable<Uint8Array>;
+  /** Stops what runs now (its calls reject with `ConvertCancelled`); the module is then gone. */
+  terminate?(): void;
 }
 
 export type ConvertLoader = () => Promise<ConvertWasmModule>;
@@ -25,6 +31,14 @@ export class ConvertLoadError extends Error {
   constructor(cause: unknown) {
     super(t("notes.convert.loadFailed", { message: cause instanceof Error ? cause.message : String(cause) }));
     this.name = "ConvertLoadError";
+  }
+}
+
+/** A conversion stopped with Cancel (P11-X1). */
+export class ConvertCancelled extends Error {
+  constructor() {
+    super("cancelled");
+    this.name = "ConvertCancelled";
   }
 }
 
@@ -87,6 +101,9 @@ export function frameJson(bytes: Uint8Array): string {
 /** The converter module behind a lazy load (loads once; a failed load can be retried). */
 export class LazyConverter {
   private pending: Promise<ConvertWasmModule> | null = null;
+  private current: ConvertWasmModule | null = null;
+  /** Bumped by `cancel()`: a module that arrives for an older load is stopped right away. */
+  private epoch = 0;
   /** The module is loaded (the e2e suite and the status check this). */
   loaded = false;
   /** Called with `true` when a load starts and `false` when it ends. */
@@ -97,10 +114,16 @@ export class LazyConverter {
   module(): Promise<ConvertWasmModule> {
     if (!this.pending) {
       this.onLoading?.(true);
+      const epoch = this.epoch;
       this.pending = this.load().then(
         (m) => {
-          this.loaded = true;
           this.onLoading?.(false);
+          if (epoch !== this.epoch) {
+            m.terminate?.();
+            throw new ConvertCancelled();
+          }
+          this.loaded = true;
+          this.current = m;
           return m;
         },
         (e: unknown) => {
@@ -113,11 +136,28 @@ export class LazyConverter {
     return this.pending;
   }
 
+  /** Whether a running conversion can be stopped (the web's worker; the desktop converts natively). */
+  get cancellable(): boolean {
+    return true;
+  }
+
+  /** Cancel: stops the running conversion or load (it rejects with `ConvertCancelled`); the next use loads the
+   * module again. A module without `terminate` (tests) finishes its call. */
+  cancel(): void {
+    const m = this.current;
+    if (m && !m.terminate) return;
+    this.epoch++;
+    this.current = null;
+    this.pending = null;
+    this.loaded = false;
+    m?.terminate?.();
+  }
+
   /** A file → an import plan frame for the main module's `apply_import`. */
   async importFile(request: ImportFileRequest, bytes: Uint8Array): Promise<Uint8Array> {
     const m = await this.module();
     try {
-      return m.import_file(JSON.stringify(request), bytes);
+      return await m.import_file(JSON.stringify(request), bytes);
     } catch (e) {
       rethrow(e);
     }
@@ -127,7 +167,7 @@ export class LazyConverter {
   async exportFile(format: ExportFormat, source: ExportSource, blobs: Uint8Array): Promise<Uint8Array> {
     const m = await this.module();
     try {
-      return m.export_file(JSON.stringify({ format, source }), blobs);
+      return await m.export_file(JSON.stringify({ format, source }), blobs);
     } catch (e) {
       rethrow(e);
     }
@@ -137,7 +177,7 @@ export class LazyConverter {
   async pasteHtml(html: string, context?: ImportContextData): Promise<Uint8Array> {
     const m = await this.module();
     try {
-      return m.paste_html(JSON.stringify({ html, ...(context ? { context } : {}) }));
+      return await m.paste_html(JSON.stringify({ html, ...(context ? { context } : {}) }));
     } catch (e) {
       rethrow(e);
     }

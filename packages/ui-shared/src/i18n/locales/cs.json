@@ -933,6 +933,7 @@
   "reader.pptx.tableStyle.diagonal": "diagonální ohraničení stylu tabulky vynechána",
   "reader.pptx.tableStyle.threeD": "prostorové efekty stylu tabulky vynechány",
   "reader.pptx.tableStyle.partDropped": "část stylu tabulky {part} vynechána",
+  "ai.settings.keyFile": "Tento počítač nemá systémovou klíčenku: klíč je uložen v souboru ve složce dat aplikace – nešifrovaný: kdokoli, kdo může číst tvé soubory, ho může přečíst. Nikdy se neposílá nikam jinam než poskytovateli.",
   "launch.notOpened": "Otevírá se vždy jen jeden dokument – {names} najdeš v části „{recent}“.",
   "launch.unsupported": "Tahle aplikace nedokáže otevřít {names}.",
   "menu.about": "O aplikaci {app}",

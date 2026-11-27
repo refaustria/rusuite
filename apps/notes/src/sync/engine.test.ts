@@ -2,9 +2,9 @@
 // subscribe order, catch-up, the outbox across reconnects, epoch changes, compaction, joining and removal.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LoroDoc } from "loro-crdt";
+import { LoroDoc, VersionVector, type PeerID } from "loro-crdt";
 import { NOTEBOOK_DOC, type RelayEvent, type ShareStatus, type SyncCrypto } from "./crypto";
-import { BACKOFF_MS, COMPACT_AFTER, emptyState, NotebookSync, type EngineState, type SocketLike, type SyncDocHost } from "./engine";
+import { BACKOFF_MS, COMPACT_AFTER, SEND_PER_SEC, UPDATE_PART_BYTES, emptyState, NotebookSync, type EngineState, type SocketLike, type SyncDocHost } from "./engine";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -106,7 +106,30 @@ function fakeHost(docs: Record<string, LoroDoc>, opts: { has?: boolean } = {}) {
     priorityDocs: () => (has ? ["pg1"] : []),
     hasNotebook: () => has,
     versionVector: async (d) => docs[d]!.oplogVersion().encode(),
-    exportSince: async (d, vv) => docs[d]!.export(vv.length ? { mode: "update", from: (await import("loro-crdt")).VersionVector.decode(vv) } : { mode: "update" }),
+    exportSince: async (d, vv) => docs[d]!.export(vv.length ? { mode: "update", from: VersionVector.decode(vv) } : { mode: "update" }),
+    // Like the core's `export_update_chunks`: per peer counter ranges, halved until a part fits.
+    exportChunks: async (d, vv, max) => {
+      const doc = docs[d]!;
+      const from = vv.length ? VersionVector.decode(vv) : new VersionVector(null);
+      const all = doc.export({ mode: "update", from });
+      if (all.length <= max) return [all];
+      const out: Uint8Array[] = [];
+      const part = (peer: PeerID, a: number, b: number) => doc.export({ mode: "updates-in-range", spans: [{ id: { peer, counter: a }, len: b - a }] });
+      const split = (peer: PeerID, a: number, b: number) => {
+        const bytes = part(peer, a, b);
+        if (bytes.length <= max || b - a <= 1) out.push(bytes);
+        else {
+          const m = Math.floor((a + b) / 2);
+          split(peer, a, m);
+          split(peer, m, b);
+        }
+      };
+      for (const [peer, end] of doc.oplogVersion().toJSON()) {
+        const start = from.get(peer) ?? 0;
+        if (end > start) split(peer, start, end);
+      }
+      return out;
+    },
     importRemote: async (_l, d, bytes) => {
       imported.push({ doc: d, bytes });
       (docs[d] ??= new LoroDoc()).import(bytes);
@@ -235,6 +258,75 @@ describe("NotebookSync", () => {
     await settle(e);
     expect(ws.of("publish").filter((p) => (p.env as FakeEnv).doc === "pg1")).toHaveLength(1);
     expect(saved.length).toBeGreaterThan(0);
+  });
+
+  it("a first share of a page over 3 MB goes out in parts below the relay's limit; together they are the page", async () => {
+    const { e, docs } = make();
+    const big = docs.pg1!;
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31);
+    for (let i = 0; i < 40; i++) {
+      const chunk = Array.from({ length: 90_000 }, () => String.fromCharCode(33 + (rnd() % 90))).join("");
+      big.getText("t").insert(big.getText("t").length, chunk);
+      big.commit();
+    }
+    expect(big.export({ mode: "update" }).length).toBeGreaterThan(3 * 1024 * 1024);
+    e.start();
+    const ws = sockets[0]!;
+    ws.push({ type: "challenge" });
+    ws.push({ type: "subscribed", docs: [], newJoins: [] });
+    await settle(e);
+    const parts = ws.of("publish").filter((p) => (p.env as FakeEnv).doc === "pg1");
+    expect(parts.length).toBeGreaterThanOrEqual(7);
+    const fresh = new LoroDoc();
+    for (const p of [...parts].reverse()) {
+      const bytes = unb64((p.env as FakeEnv).data);
+      expect(bytes.length).toBeLessThanOrEqual(UPDATE_PART_BYTES);
+      fresh.import(bytes);
+    }
+    expect(fresh.getText("t").toString()).toBe(big.getText("t").toString());
+    // Each part is its own outbox entry (acknowledged one by one).
+    expect(new Set(parts.map((p) => p.tag)).size).toBe(parts.length);
+  });
+
+  it("a first share of many pages stays under the relay's rate; a refused subscription is sent again (P11-X1)", async () => {
+    const docs: Record<string, LoroDoc> = { nb: new LoroDoc() };
+    for (let i = 0; i < 150; i++) {
+      const d = new LoroDoc();
+      edit(d, `page ${i}`);
+      docs[`pg${i}`] = d;
+    }
+    const { e } = make(member, docs);
+    e.start();
+    const ws = sockets[0]!;
+    ws.push({ type: "challenge" });
+    ws.push({ type: "subscribed", docs: [], newJoins: [] });
+    ws.push({ type: "caughtUp", doc: NOTEBOOK_DOC, last: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    await e.idle();
+    // Never more than the budget plus the refill in any second.
+    let last = 0;
+    for (let t = 0; t < 10; t++) {
+      const now = ws.sent.length;
+      // The relay allows 50 a second per connection.
+      expect(now - last).toBeLessThanOrEqual(Math.min(50, SEND_PER_SEC + 1));
+      last = now;
+      await vi.advanceTimersByTimeAsync(1000);
+      await e.idle();
+    }
+    const pages = new Set(ws.of("publish").map((p) => (p.env as FakeEnv).doc));
+    expect(pages.size).toBe(151);
+    expect(e.phase).toBe("syncing");
+    // The relay refused one request over its rate: what is still catching up is subscribed again.
+    const subs = ws.of("subscribe").length;
+    ws.push({ type: "error", code: "RateLimited" });
+    await vi.advanceTimersByTimeAsync(1100);
+    const again = ws.of("subscribe").slice(subs).flatMap((m) => (m.docs as [string, number][]).map(([d]) => d));
+    expect(again.length).toBeGreaterThanOrEqual(150);
+    for (const o of [...e.state.outbox]) ws.push({ type: "accepted", tag: o.tag, seq: 1 });
+    for (const d of new Set(again)) ws.push({ type: "caughtUp", doc: d, last: 0 });
+    await settle(e);
+    expect(e.phase).toBe("synced");
   });
 
   it("re-encrypts queued envelopes on an epoch change and on StaleEpoch", async () => {

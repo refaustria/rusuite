@@ -540,5 +540,11 @@
   "notes.welcome.task4": "Laiku pa laikam lejupielādē rezerves kopiju (Fails › Lejupielādēt rezerves kopiju)",
   "notes.welcome.title": "Laipni lūdzam Rusuite Notes",
   "notes.zoomIn": "Tuvināt",
-  "notes.zoomOut": "Tālināt"
+  "notes.zoomOut": "Tālināt",
+  "notes.import.cancelled": "Atcelts – pārējie faili netika importēti.",
+  "notes.desktop.remove": "Noņemt lokālos datus",
+  "notes.desktop.removeFolders": "Dzēst arī piezīmju grāmatiņu mapes…",
+  "notes.desktop.removeFoldersConfirm": "Notes aizmirst visas piezīmju grāmatiņas, savus iestatījumus un tavas koplietošanas atslēgas un neatgriezeniski dzēš šīs mapes ar visām lapām un attēliem. Kopijas, ko citi koplieto ar tevi, paliek pie viņiem. To nevar atsaukt.",
+  "notes.desktop.removeFoldersButton": "Dzēst neatgriezeniski",
+  "notes.desktop.aiRestart": "Restartē Notes, lai asistents varētu sasniegt tavu MI galapunktu."
 }

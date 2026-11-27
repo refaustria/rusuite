@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Page } from "@playwright/test";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const DIRS = ["packages/ui-shared/src/i18n/locales", "apps/calc/src/locales", "apps/write/src/locales", "apps/show/src/locales", "apps/portal/locales"];
+const DIRS = ["packages/ui-shared/src/i18n/locales", "apps/calc/src/locales", "apps/write/src/locales", "apps/show/src/locales", "apps/notes/src/locales", "apps/portal/locales"];
 
 const cache = new Map<string, Record<string, string>>();
 

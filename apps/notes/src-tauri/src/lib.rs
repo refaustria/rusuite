@@ -11,6 +11,7 @@
 pub mod folders;
 pub mod launch;
 pub mod relay;
+pub mod secrets;
 pub mod smoke;
 
 use std::path::{Path, PathBuf};
@@ -123,6 +124,10 @@ pub struct AppDirs {
     relay: RelayConfig,
     /// The device keys are in the fallback file (no usable OS keyring).
     keys_in_file: AtomicBool,
+    /// The custom AI origin the window's policy allows (P11-X1).
+    ai_host: Option<String>,
+    /// The secret store (the AI key's file fallback).
+    secrets: std::sync::Arc<secrets::NotesSecrets>,
 }
 
 fn now_ms() -> f64 {
@@ -172,6 +177,12 @@ struct NbDoc {
 #[derive(Deserialize)]
 struct Doc {
     doc: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocChunks {
+    doc: String,
+    max_bytes: usize,
 }
 #[derive(Deserialize)]
 struct Nb {
@@ -275,6 +286,25 @@ async fn export_updates(req: Request<'_>, state: tauri::State<'_, NotesState>) -
         .export_updates(&a.doc, &vv)
         .map_err(|e| core_err(&e))?;
     Ok(Response::new(out))
+}
+
+/// `export_updates` in parts below the relay's envelope limit (P11-X1) as `{len:u32 LE, bytes}*`.
+#[tauri::command]
+async fn export_update_chunks(
+    req: Request<'_>,
+    state: tauri::State<'_, NotesState>,
+) -> Res<Response> {
+    let (a, vv): (DocChunks, _) = args(&req)?;
+    let parts = state
+        .host()
+        .export_update_chunks(&a.doc, &vv, a.max_bytes)
+        .map_err(|e| core_err(&e))?;
+    Ok(Response::new(
+        parts
+            .iter()
+            .flat_map(|p| notes_core::log_record(p))
+            .collect::<Vec<u8>>(),
+    ))
 }
 
 #[tauri::command]
@@ -450,15 +480,32 @@ async fn store_forget(notebook: String, folders: tauri::State<'_, FolderState>) 
     Ok(folders.get().forget(&notebook)?)
 }
 
-/// "Remove local data": forgets all folders, the settings and the device keys (the folders stay).
+/// The known notebooks' folders ("Remove local data" lists them before it offers to delete them).
+#[tauri::command]
+async fn store_folders(folders: tauri::State<'_, FolderState>) -> Res<Vec<String>> {
+    Ok(folders
+        .get()
+        .folder_paths()
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
+}
+
+/// "Remove local data": forgets all folders, the settings and the device keys; with `delete_folders` (the user
+/// confirmed the listed paths, P11-X1) the notebook folders are deleted too, otherwise they stay.
 #[tauri::command]
 async fn store_clear(
+    delete_folders: Option<bool>,
     folders: tauri::State<'_, FolderState>,
     session: tauri::State<'_, SessionState>,
     connectors: tauri::State<'_, ConnectorState>,
     dirs: tauri::State<'_, AppDirs>,
 ) -> Res<()> {
-    folders.get().forget_all()?;
+    if delete_folders == Some(true) {
+        folders.get().delete_all()?;
+    } else {
+        folders.get().forget_all()?;
+    }
     {
         let mut s = session.get();
         for e in s.recent()? {
@@ -794,7 +841,44 @@ async fn save_file(req: Request<'_>, window: tauri::Window) -> Res<Option<String
     .await
 }
 
-/// File › Print: the webview's native print dialog (also the desktop's PDF export: "Save as PDF" there).
+/// File › Export PDF… (P11-X1, as Calc/Write/Show): the native save dialog, then the webview's own PDF renderer on
+/// the page's mounted print root (Linux: WebKitGTK print-to-file) → the chosen file name, `None` when cancelled.
+/// Where the platform has no dialog-free path (`DESKTOP_PDF` false; the page then never calls this) it fails.
+#[tauri::command]
+async fn export_pdf(
+    window: tauri::WebviewWindow,
+    suggested_name: String,
+    paper: tauri_plugin_rusuite_mobile::Paper,
+    dialog: Option<DialogText>,
+) -> Res<Option<String>> {
+    if !tauri_plugin_rusuite_mobile::DESKTOP_PDF {
+        return Err(ShellError::Task(
+            "PDF export is not supported on this platform".into(),
+        ));
+    }
+    let text = dialog.unwrap_or_default();
+    let mut picker = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter("PDF", &["pdf"])
+        .set_file_name(tauri_plugin_rusuite_mobile::pdf_file_name(&suggested_name));
+    if let Some(title) = text.title {
+        picker = picker.set_title(title);
+    }
+    let Some(path) = blocking(move || Ok(picker.blocking_save_file())).await? else {
+        return Ok(None);
+    };
+    let path = into_path(path)?;
+    blocking(move || {
+        tauri_plugin_rusuite_mobile::print_to_pdf(&window, &path, paper)
+            .map_err(|e| ShellError::Task(e.to_string()))?;
+        Ok(path.file_name().map(|n| n.to_string_lossy().into_owned()))
+    })
+    .await
+}
+
+/// File › Print: the webview's native print dialog (also the PDF export where `DESKTOP_PDF` is false).
 #[tauri::command]
 fn print_webview(window: tauri::WebviewWindow) -> Result<(), String> {
     window.print().map_err(|e| e.to_string())
@@ -816,6 +900,23 @@ async fn relay_set(
     dirs: tauri::State<'_, AppDirs>,
 ) -> Res<relay::RelayInfo> {
     Ok(RelayConfig::save(&dirs.data, &url, allow_http)?.info())
+}
+
+/// Settings › AI changed: stores the custom endpoint's origin for the window policy (`None`/built-in: none) →
+/// whether the running window's policy differs (a restart applies it).
+#[tauri::command]
+async fn ai_host_set(origin: Option<String>, dirs: tauri::State<'_, AppDirs>) -> Res<bool> {
+    let stored = relay::save_ai_host(&dirs.data, origin.as_deref())
+        .map_err(|e| ShellError::Args(e.to_string()))?;
+    Ok(stored.is_some() && stored != dirs.ai_host)
+}
+
+/// Whether the AI key is in a file of the app data directory (no OS keyring; Settings › AI warns).
+#[tauri::command]
+fn ai_key_info(dirs: tauri::State<'_, AppDirs>) -> KeysInfo {
+    KeysInfo {
+        in_file: dirs.secrets.ai_key_in_file(),
+    }
 }
 
 /// Restarts the app (a changed relay needs a new window policy).
@@ -892,6 +993,8 @@ pub fn run() {
     // Windows / Linux: a second start hands its files to this instance (P11-D1).
     launch::single_instance(tauri::Builder::default())
         .plugin(tauri_plugin_dialog::init())
+        // Marks the page `window.__RUSUITE_PDF__` where `export_pdf` works (ui-shared `capabilities.pdf`).
+        .plugin(tauri_plugin_rusuite_mobile::init())
         .manage(smoke::Smoke::from_args())
         .manage(NotesState::default())
         .manage(CloseGate::default())
@@ -932,8 +1035,13 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("rusuite-notes"));
             let relay = RelayConfig::load(&dir);
-            let csp = relay::csp(&relay.url);
-            app.manage(ConnectorState::new(&dir));
+            let ai_host = relay::load_ai_host(&dir);
+            let csp = relay::csp(&relay.url, ai_host.as_deref());
+            let secrets = std::sync::Arc::new(secrets::NotesSecrets::new(
+                std::sync::Arc::new(connectors_tauri::KeyringSecrets),
+                &dir,
+            ));
+            app.manage(ConnectorState::with_secrets(&dir, secrets.clone()));
             app.manage(FolderState(Mutex::new(Folders::load(
                 &dir,
                 &default_root(app),
@@ -945,6 +1053,8 @@ pub fn run() {
                 data: dir,
                 relay,
                 keys_in_file: AtomicBool::new(false),
+                ai_host,
+                secrets,
             });
             create_window(app, csp)?;
             // "Open with", a terminal: the files of the command line (P11-D1).
@@ -962,6 +1072,7 @@ pub fn run() {
             rebind_device,
             import_remote,
             export_updates,
+            export_update_chunks,
             version_vector,
             take_persist_effects,
             page_genesis,
@@ -979,6 +1090,7 @@ pub fn run() {
             store_get_blob,
             store_forget,
             store_clear,
+            store_folders,
             meta_get,
             meta_set,
             device_keys_get,
@@ -993,9 +1105,12 @@ pub fn run() {
             open_file,
             save_file,
             print_webview,
+            export_pdf,
             relay_get,
             relay_set,
             restart,
+            ai_host_set,
+            ai_key_info,
             close_now,
             launch::take_launch_files,
             connectors_tauri::connector_secret_get,

@@ -915,6 +915,7 @@
   "reader.pptx.tableStyle.diagonal": "diagonale kanter i tabeltypografi udeladt",
   "reader.pptx.tableStyle.threeD": "3D-effekter i tabeltypografi udeladt",
   "reader.pptx.tableStyle.partDropped": "tabeltypografidel {part} udeladt",
+  "ai.settings.keyFile": "Denne computer har ingen systemnøglering: nøglen gemmes i en fil i appens datamappe – ukrypteret: alle, der kan læse dine filer, kan læse den. Sendes aldrig andre steder hen end til udbyderen.",
   "launch.notOpened": "Der åbnes kun ét dokument ad gangen – du finder {names} under “{recent}”.",
   "launch.unsupported": "Denne app kan ikke åbne {names}.",
   "menu.about": "Om {app}",

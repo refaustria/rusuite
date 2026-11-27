@@ -540,5 +540,11 @@
   "notes.welcome.task4": "S vremena na vrijeme preuzmi sigurnosnu kopiju (Datoteka › Preuzmi sigurnosnu kopiju)",
   "notes.welcome.title": "Dobro došao/došla u Rusuite Notes",
   "notes.zoomIn": "Povećaj",
-  "notes.zoomOut": "Smanji"
+  "notes.zoomOut": "Smanji",
+  "notes.import.cancelled": "Otkazano – preostale datoteke nisu uvezene.",
+  "notes.desktop.remove": "Ukloni lokalne podatke",
+  "notes.desktop.removeFolders": "Izbriši i mape bilježnica…",
+  "notes.desktop.removeFoldersConfirm": "Notes zaboravlja sve bilježnice, svoje postavke i tvoje ključeve za dijeljenje te trajno briše ove mape bilježnica sa svim stranicama i slikama. Kopije koje drugi dijele s tobom ostaju kod njih. To se ne može poništiti.",
+  "notes.desktop.removeFoldersButton": "Trajno izbriši",
+  "notes.desktop.aiRestart": "Ponovno pokreni Notes kako bi asistent mogao doći do tvoje krajnje točke AI-ja."
 }

@@ -31,8 +31,9 @@ export interface NotesStore {
   deleteNotebook(notebook: string): Promise<void>;
   getMeta<T>(key: string): Promise<T | undefined>;
   setMeta(key: string, value: unknown): Promise<void>;
-  /** Everything this app stored in the browser (ADR 0009 rule 4). */
-  clearAll(): Promise<void>;
+  /** Everything this app stored in the browser (ADR 0009 rule 4). Desktop: `deleteFolders` also deletes the
+   *  notebook folders (the user confirmed them); the browser stores ignore it. */
+  clearAll(opts?: { deleteFolders?: boolean }): Promise<void>;
   /** What the last loads found and skipped (desktop: a torn log tail after a crash), since the last call. */
   takeWarnings?(): import("./generated/LoadWarning").LoadWarning[];
 }

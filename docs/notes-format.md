@@ -146,14 +146,32 @@ every request may carry `"now"`: the UI clock in Unix ms, the core has none). By
 | `load_doc(notebook, doc, snapshot, log)` | stored doc (log in §2 record framing) | JSON `loaded { warnings }` |
 | `dispatch({type:"openNotebook", id})` | after all `load_doc` calls | builds the search/tasks index (each page read once, kept as bytes until opened) |
 | `import_updates(doc, bytes)` | Loro updates from the editor mirror or the relay | JSON `imported { result }` (`changed`, `pending`, `version`) |
+| `import_remote(notebook, doc, bytes)` | relay updates of a shared notebook (a page may arrive before its tree node) | whether anything changed |
 | `export_updates(doc, vv)` | `VersionVector.encode()` bytes (empty = all) | Loro update bytes |
+| `export_update_chunks(doc, vv, max_bytes)` | as `export_updates`, plus a size limit (P11-X1) | the same updates as `{len:u32 LE, bytes}*` parts of at most `max_bytes` each (split by per-peer operation ranges; one part when it fits; a single operation over the limit is its own part). Any order of import gives the same doc. |
 | `version_vector(doc)` | – | `VersionVector.encode()` |
 | `take_persist_effects()` | – | effects (below) |
 | `export_backup(notebook, blobs)` / `import_backup(bytes)` | blobs as `{len:u32 LE, bytes}*` | `.rnotes` bytes / JSON `backupImported` |
 | `page_genesis()`, `blob_id(bytes)` | – | genesis bytes, SHA-256 hex |
 | `put_blob(notebook, bytes)` | an image / attachment | its SHA-256 hex; queues a Blob effect (kind 4) |
-| `import_file(request, bytes)` | an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request (JSON) + the file | JSON `fileImported` (§7) |
-| `export(request, blobs)` | an `exportPage` / `exportSection` request (JSON) + blobs as `{len:u32 LE, bytes}*` | file bytes (§7) |
+| `apply_import(request, plan)` | an `importOneNote` / `importMarkdown` / `importHtml` / `importDocx` request (JSON; its target fields count) + the plan frame the converter module's `import_file` made | JSON `fileImported` (§7) |
+
+**Converter module** (`app-notes-convert-wasm`, P11-N6b; loaded on first import/export/rich paste, never at
+start): pure conversions without a notebook. The core supplies context (`importContext`, `pageExportSource`,
+`sectionExportSource` via `dispatch`) and applies the result (`apply_import`, `put_blob`). Frames are
+`json_len:u32 LE` + JSON + `{len:u32 LE, bytes}*`.
+
+| Function | In | Out |
+|---|---|---|
+| `import_file(request, bytes)` | `{kind: oneNote\|markdown\|html\|docx, fileName, seed?, context?}` (context: the `importContext` reply) + the file | a plan frame for `apply_import` |
+| `export_file(request, blobs)` | `{format: md\|html\|docx, source}` (an `…ExportSource` reply) + the bytes of `source.blobs` as `{len:u32 LE, bytes}*` | file bytes (§7) |
+| `paste_html(request)` | `{html, context?}` | frame: `{content, warnings}` (a ProseMirror `doc`) + the `data:` images' bytes (store them with `put_blob`) |
+
+The web app runs the converter module in a **Web Worker** (`apps/notes/src/convert/worker.ts`, P11-X1): the page
+stays responsive during a long import/export, and **Cancel** terminates the worker (the next use starts a new one;
+nothing was applied, since `apply_import` runs on the main thread after the plan arrived – files imported before
+Cancel stay). The desktop app converts natively in Rust (`convert_import` / `convert_export` /
+`convert_paste_html` commands, same JSON and frames) and offers no Cancel.
 
 **Persist effects** (`encode_effects`): `count: u32` then per effect `kind: u8`, `notebook: u16 len + UTF-8`,
 `doc: u16 len + UTF-8`, `bytes: u32 len + bytes` (all little-endian). Kinds: **1** append record to
@@ -218,18 +236,18 @@ into `tags`/`checked`. `[[Title]]` in imported text becomes a `pageLink` when a 
 
 | Request | Path | Result |
 |---|---|---|
-| `importOneNote { fileName, notebook?, parent?, id? }` | `import_file` | `.onepkg` (CAB, sniffed by bytes) → a **new notebook** (`id` or random): section groups, sections with colours, pages with sub-page levels and created/modified times. `.one` → a **new section** of `notebook` (at the root, or in group `parent`). One undo step for the tree. |
-| `importMarkdown { fileName, notebook, parent, text? }` | dispatch (`text`) or `import_file` | a new page under `parent` (section or page) |
-| `importHtml { fileName, notebook, parent, html? }` | dispatch (`html`) or `import_file` | a new page (sanitised) |
-| `importDocx { fileName, notebook, parent }` | `import_file` | a new page |
-| `pasteHtml { notebook, html }` | dispatch | `pasted { content: doc, warnings }` – the editor's paste path; images become blobs of `notebook` |
-| `exportPage { docId, format: md\|html\|docx }` | `export` | `.md` (images as `data:` URIs) / standalone `.html` / `.docx` |
-| `exportSection { notebook, section, format }` | `export` | `md`: `.zip` of `NN Title.md` + `assets/`; `html`: one file, an `<article>` per page; `docx`: one document, each page a Heading 1 starting on a new page. Sub-pages follow their page. |
+| `importOneNote { fileName, notebook?, parent?, id? }` | converter `import_file` → `apply_import` | `.onepkg` (CAB, sniffed by bytes) → a **new notebook** (`id` or random): section groups, sections with colours, pages with sub-page levels and created/modified times. `.one` → a **new section** of `notebook` (at the root, or in group `parent`). One undo step for the tree. |
+| `importMarkdown { fileName, notebook, parent, text? }` | dispatch (`text`) or converter `import_file` → `apply_import` | a new page under `parent` (section or page) |
+| `importHtml { fileName, notebook, parent, html? }` | dispatch (`html`) or converter `import_file` → `apply_import` | a new page (sanitised) |
+| `importDocx { fileName, notebook, parent }` | converter `import_file` → `apply_import` | a new page |
+| `pasteHtml { notebook, html }` | dispatch (full core) or converter `paste_html` (the web: the main module is built without the converters) | `pasted { content: doc, warnings }` – the editor's paste path; images become blobs of `notebook` |
+| `exportPage { docId, format: md\|html\|docx }` | dispatch (full core) or `pageExportSource` → converter `export_file` | `.md` (images as `data:` URIs) / standalone `.html` / `.docx` |
+| `exportSection { notebook, section, format }` | dispatch (full core) or `sectionExportSource` → converter `export_file` | `md`: `.zip` of `NN Title.md` + `assets/`; `html`: one file, an `<article>` per page; `docx`: one document, each page a Heading 1 starting on a new page. Sub-pages follow their page. |
 
 `fileImported { notebook, tree, nodes, pages, warnings }`: `nodes` = the top-level nodes created, `pages` = every
 page (`{node, docId}`). Page titles: OneNote's; else a leading level-1 heading (removed from the content), else the
-HTML `<title>`, else the file name. Images and attachments are queued as blob effects (kind 4). `export` needs the
-bytes of the blobs the content uses (`referencedBlobs` lists a notebook's); missing images export as their alt text.
+HTML `<title>`, else the file name. Images and attachments are queued as blob effects (kind 4). `export_file` needs
+the bytes of the blobs the content uses (`referencedBlobs` lists a notebook's); missing images export as their alt text.
 
 ### 7.3 What each format keeps
 

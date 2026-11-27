@@ -138,6 +138,14 @@ A client whose marker is below n receives the snapshot as `Deliver { seq: n }` f
 the full Loro history (spec 9: no shallow snapshots). A snapshot is also accepted when the notebook is over quota if
 the result fits (compaction is the way out of a full quota).
 
+**Large documents** (P11-X1). The relay refuses document envelopes over its `envelope_max_bytes` (1 MB by default)
+with `TooLarge`. A client therefore sends the updates of one doc as **several `Update` envelopes of at most 512 KiB
+each** (the core's `export_update_chunks`: the operations split by per-peer counter ranges, each part a valid Loro
+update; members import them in any order – Loro holds a part whose dependencies are missing until they arrive). This
+matters for the first share of a large page (e.g. a long pasted text); images are blobs and travel separately. A
+compaction snapshot over 512 KiB is not uploaded: the doc keeps its log (catch-up costs more round trips, nothing is
+lost).
+
 **Blobs.** `Publish` a `Blob` envelope (≤ 25 MB) with the blob id as `doc_id`; `FetchBlob { notebook_id, blob_id }`
 → `Blob { envelope }` or `BlobMissing`.
 

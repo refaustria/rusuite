@@ -924,6 +924,7 @@
   "reader.pptx.tableStyle.diagonal": "bordi diagonali dello stile tabella eliminati",
   "reader.pptx.tableStyle.threeD": "effetti 3D dello stile tabella eliminati",
   "reader.pptx.tableStyle.partDropped": "parte dello stile tabella {part} eliminata",
+  "ai.settings.keyFile": "Questo computer non ha un portachiavi di sistema: la chiave è salvata in un file della cartella dati dell’app, non cifrata: chiunque possa leggere i tuoi file può leggerla. Non viene mai inviata ad altri che al fornitore.",
   "launch.notOpened": "Si apre un solo documento alla volta: trovi {names} in «{recent}».",
   "launch.unsupported": "Questa app non può aprire {names}.",
   "menu.about": "Informazioni su {app}",

@@ -540,5 +540,11 @@
   "notes.welcome.task4": "Descarcă din când în când o copie de rezervă (Fișier › Descarcă copia de rezervă)",
   "notes.welcome.title": "Bun venit în Rusuite Notes",
   "notes.zoomIn": "Mărește",
-  "notes.zoomOut": "Micșorează"
+  "notes.zoomOut": "Micșorează",
+  "notes.import.cancelled": "Anulat – fișierele rămase nu au fost importate.",
+  "notes.desktop.remove": "Elimină datele locale",
+  "notes.desktop.removeFolders": "Șterge și folderele carnetelor…",
+  "notes.desktop.removeFoldersConfirm": "Notes uită toate carnetele, setările sale și cheile tale de partajare și șterge definitiv aceste foldere cu toate paginile și imaginile. Copiile pe care alții le partajează cu tine rămân la ei. Acțiunea nu poate fi anulată.",
+  "notes.desktop.removeFoldersButton": "Șterge definitiv",
+  "notes.desktop.aiRestart": "Repornește Notes ca asistentul să poată ajunge la endpointul tău AI."
 }

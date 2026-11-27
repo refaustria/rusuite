@@ -29,6 +29,14 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
   useEffect(() => {
     void ai.loadKey();
   }, [ai]);
+  const [inFile, setInFile] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void ai.keyInFile().then((v) => live && setInFile(v));
+    return () => {
+      live = false;
+    };
+  }, [ai, hasKey]);
 
   const provider = draft.provider;
   const model = draft.models[provider];
@@ -134,7 +142,7 @@ export function AiSettingsPage({ ai, onDone }: { ai: Assistant; onDone: () => vo
           </button>
         </div>
         <span id={f("key-note")} className="text-xs text-ui-muted">
-          {t(web ? "ai.settings.keyWeb" : "ai.settings.keyDesktop")}
+          {t(web ? "ai.settings.keyWeb" : inFile ? "ai.settings.keyFile" : "ai.settings.keyDesktop")}
         </span>
       </div>
       <label className={row} htmlFor={f("base")}>

@@ -915,6 +915,7 @@
   "reader.pptx.tableStyle.diagonal": "diagonala kantlinjer i tabellformat ignorerades",
   "reader.pptx.tableStyle.threeD": "3D-effekter i tabellformat ignorerades",
   "reader.pptx.tableStyle.partDropped": "tabellformatdelen {part} ignorerades",
+  "ai.settings.keyFile": "Den här datorn har ingen systemnyckelring: nyckeln sparas i en fil i appens datamapp – okrypterad: alla som kan läsa dina filer kan läsa den. Skickas aldrig någon annanstans än till leverantören.",
   "launch.notOpened": "Bara ett dokument öppnas åt gången – du hittar {names} under ”{recent}”.",
   "launch.unsupported": "Den här appen kan inte öppna {names}.",
   "menu.about": "Om {app}",

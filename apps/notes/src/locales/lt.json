@@ -557,5 +557,11 @@
   "notes.welcome.task4": "Retkarčiais atsisiųsk atsarginę kopiją (Failas › Atsisiųsti atsarginę kopiją)",
   "notes.welcome.title": "Sveiki atvykę į „Rusuite Notes“",
   "notes.zoomIn": "Padidinti",
-  "notes.zoomOut": "Sumažinti"
+  "notes.zoomOut": "Sumažinti",
+  "notes.import.cancelled": "Atšaukta – likę failai nebuvo importuoti.",
+  "notes.desktop.remove": "Pašalinti vietinius duomenis",
+  "notes.desktop.removeFolders": "Ištrinti ir užrašų knygelių aplankus…",
+  "notes.desktop.removeFoldersConfirm": "Notes pamiršta visas užrašų knygeles, savo nustatymus ir tavo bendrinimo raktus bei visam laikui ištrina šiuos aplankus su visais puslapiais ir paveikslėliais. Kopijos, kurias kiti bendrina su tavimi, lieka pas juos. To negalima atšaukti.",
+  "notes.desktop.removeFoldersButton": "Ištrinti visam laikui",
+  "notes.desktop.aiRestart": "Paleisk Notes iš naujo, kad asistentas pasiektų tavo DI galinį tašką."
 }

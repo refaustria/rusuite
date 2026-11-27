@@ -557,5 +557,11 @@
   "notes.welcome.task4": "Z času na čas si stiahni zálohu (Súbor › Stiahnuť zálohu)",
   "notes.welcome.title": "Víta ťa Rusuite Notes",
   "notes.zoomIn": "Priblížiť",
-  "notes.zoomOut": "Oddialiť"
+  "notes.zoomOut": "Oddialiť",
+  "notes.import.cancelled": "Zrušené – zvyšné súbory sa neimportovali.",
+  "notes.desktop.remove": "Odstrániť miestne údaje",
+  "notes.desktop.removeFolders": "Odstrániť aj priečinky poznámkových blokov…",
+  "notes.desktop.removeFoldersConfirm": "Notes zabudne všetky poznámkové bloky, svoje nastavenia aj tvoje kľúče na zdieľanie a natrvalo odstráni tieto priečinky so všetkými stránkami a obrázkami. Kópie, ktoré s tebou zdieľajú iní, im zostanú. Túto akciu nemožno vrátiť.",
+  "notes.desktop.removeFoldersButton": "Odstrániť natrvalo",
+  "notes.desktop.aiRestart": "Reštartuj Notes, aby asistent dosiahol tvoj koncový bod AI."
 }

@@ -23,8 +23,15 @@ export const PRESENCE_HEARTBEAT_MS = 10_000;
 export const PRESENCE_TTL_MS = 30_000;
 /** At most one batch of document updates per this many ms (with presence well under the relay's 50 messages/s). */
 export const FLUSH_MIN_MS = 30;
+/** Document updates go out in parts of at most this many bytes (P11-X1): the relay refuses envelopes over 1 MB
+ * (its default `envelope_max_bytes`), so a first share of a large page is split; a compaction snapshot over it is
+ * not uploaded (the relay keeps the log). */
+export const UPDATE_PART_BYTES = 512 * 1024;
 /** Reconnect delays (ms), the last one repeats. */
 export const BACKOFF_MS = [500, 1000, 2000, 4000, 8000, 15000, 30000];
+/** Frames per second sent to the relay (its limit is 50 per connection; P11-X1: a first share of hundreds of pages
+ *  went over it and the refused subscriptions left the notebook "syncing" for good). Up to this many go at once. */
+export const SEND_PER_SEC = 40;
 
 export interface SocketLike {
   binaryType?: string;
@@ -48,6 +55,8 @@ export interface SyncDocHost {
   hasNotebook(localId: string): boolean;
   versionVector(doc: string): Promise<Uint8Array>;
   exportSince(doc: string, vv: Uint8Array): Promise<Uint8Array>;
+  /** `exportSince` in parts of at most `maxBytes` each (one part when it fits). */
+  exportChunks(doc: string, vv: Uint8Array, maxBytes: number): Promise<Uint8Array[]>;
   /** Remote Loro bytes for an open notebook's doc. */
   importRemote(localId: string, doc: string, bytes: Uint8Array, notebookDoc: boolean): Promise<void>;
   /** Joining: the notebook doc arrived – create the local notebook from these updates. */
@@ -156,6 +165,12 @@ export class NotebookSync {
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private sentOnThisSocket = new Set<number>();
+  /** Frames waiting for the send budget (this socket only). */
+  private sendQueue: Uint8Array[] = [];
+  private sendTokens = SEND_PER_SEC;
+  private sendAt = 0;
+  private sendTimer: ReturnType<typeof setTimeout> | null = null;
+  private resubscribeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     readonly notebook: string,
@@ -203,6 +218,10 @@ export class NotebookSync {
     if (this.heartbeat) clearInterval(this.heartbeat);
     this.heartbeat = null;
     this.retry = null;
+    if (this.sendTimer) clearTimeout(this.sendTimer);
+    if (this.resubscribeTimer) clearTimeout(this.resubscribeTimer);
+    this.sendTimer = this.resubscribeTimer = null;
+    this.sendQueue = [];
     const ws = this.ws;
     this.ws = null;
     if (ws) {
@@ -246,6 +265,9 @@ export class NotebookSync {
     this.subscribedDocs.clear();
     this.catchingUp.clear();
     this.sentOnThisSocket.clear();
+    this.sendQueue = [];
+    this.sendTokens = SEND_PER_SEC;
+    this.sendAt = this.now();
     this.member = false;
     if (this.phase !== "offline") this.setPhase("connecting");
     ws.onmessage = (ev) => this.onFrame(ev.data);
@@ -271,11 +293,48 @@ export class NotebookSync {
     }, delay);
   }
 
+  /** Sends at most SEND_PER_SEC frames a second (a token bucket), in order; the rest wait on this socket. */
   private send(frame: Uint8Array): boolean {
     const ws = this.ws;
     if (!ws || ws.readyState !== 1) return false;
-    ws.send(frame);
+    this.sendQueue.push(frame);
+    this.drainSends();
     return true;
+  }
+
+  private drainSends(): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== 1) {
+      this.sendQueue = [];
+      return;
+    }
+    const now = this.now();
+    this.sendTokens = Math.min(SEND_PER_SEC, this.sendTokens + ((now - this.sendAt) / 1000) * SEND_PER_SEC);
+    this.sendAt = now;
+    while (this.sendQueue.length > 0 && this.sendTokens >= 1) {
+      this.sendTokens -= 1;
+      ws.send(this.sendQueue.shift()!);
+    }
+    if (this.sendQueue.length > 0 && !this.sendTimer) {
+      const wait = Math.ceil(((1 - this.sendTokens) / SEND_PER_SEC) * 1000);
+      this.sendTimer = setTimeout(() => {
+        this.sendTimer = null;
+        this.drainSends();
+      }, Math.max(wait, 5));
+    }
+  }
+
+  /** The relay refused a request over its rate (not a publish: those come back as rejected and are retried): the
+   *  docs still catching up are subscribed again, so none stays "syncing". */
+  private resubscribeLater(): void {
+    if (this.resubscribeTimer) return;
+    this.resubscribeTimer = setTimeout(() => {
+      this.resubscribeTimer = null;
+      if (!this.ws || !this.member) return;
+      const docs = [...this.catchingUp];
+      for (const d of docs) this.subscribedDocs.delete(d);
+      this.subscribeDocs(docs);
+    }, 1000);
   }
 
   private setPhase(phase: SyncPhase, error: string | null = this.error): void {
@@ -388,6 +447,7 @@ export class NotebookSync {
       case "error":
         if (ev.code === "NotFound") this.onStopped();
         else if (ev.code === "BadSignature" || ev.code === "Internal") this.setPhase("error", ev.code);
+        else if (ev.code === "RateLimited") this.resubscribeLater();
         return;
       case "dropped":
         // Delivered before this device had the key (admission: the key wrap follows the member list): fetched again
@@ -741,13 +801,15 @@ export class NotebookSync {
         continue; // not open / unknown
       }
       if (!ahead(core, known)) continue;
-      const bytes = await this.host.exportSince(doc, encodeVV(known));
-      const env = this.crypto.sealDoc(this.notebook, doc, 0, bytes);
+      const parts = await this.host.exportChunks(doc, encodeVV(known), UPDATE_PART_BYTES);
       merge(known, core);
       this.state.known[doc] = vvEntries(known);
-      const o: OutEntry = { tag: this.state.nextTag++, kind: "update", env, doc: this.docHex(doc) };
-      this.state.outbox.push(o);
-      if (this.member) this.sendEntry(o);
+      for (const bytes of parts) {
+        const env = this.crypto.sealDoc(this.notebook, doc, 0, bytes);
+        const o: OutEntry = { tag: this.state.nextTag++, kind: "update", env, doc: this.docHex(doc) };
+        this.state.outbox.push(o);
+        if (this.member) this.sendEntry(o);
+      }
       queued = true;
     }
     for (const sha of [...this.dirtyBlobs]) {
@@ -814,6 +876,8 @@ export class NotebookSync {
     this.compacting.add(hex);
     void this.enqueue(async () => {
       const bytes = await this.host.exportSince(local, new Uint8Array());
+      // Too large for one envelope: the relay keeps the log (new members catch up from it).
+      if (bytes.length > UPDATE_PART_BYTES) return;
       const covers = this.state.markers[hex] ?? marker;
       const o: OutEntry = { tag: this.state.nextTag++, kind: "snapshot", env: this.crypto.sealDoc(this.notebook, local, covers, bytes), doc: hex, covers };
       this.state.outbox.push(o);

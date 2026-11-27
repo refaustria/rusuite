@@ -14,7 +14,7 @@ import { parseInviteHash } from "../sync/manager";
 
 export type DialogSpec =
   | { kind: "prompt"; title: string; label: string; initial?: string; confirm?: string; onSubmit: (value: string) => void }
-  | { kind: "confirm"; title: string; message: string; confirm: string; onConfirm: () => void }
+  | { kind: "confirm"; title: string; message: string; confirm: string; onConfirm: () => void; details?: readonly string[] }
   | { kind: "color"; title: string; value: string | null; onPick: (color: string | null) => void }
   | { kind: "link"; initial: string; onSubmit: (href: string, text: string) => void }
   | { kind: "pagePicker"; onPick: (page: { docId: string; title: string }) => void }
@@ -82,6 +82,15 @@ function ConfirmDialog({ spec, onClose }: { spec: Extract<DialogSpec, { kind: "c
     <Dialog open title={spec.title} onClose={onClose}>
       <div className="flex w-80 flex-col gap-3 text-sm" data-testid="confirm-dialog">
         <p>{spec.message}</p>
+        {spec.details && spec.details.length > 0 && (
+          <ul className="max-h-40 overflow-auto rounded border border-ui-border px-2 py-1 font-mono text-xs" data-testid="confirm-details">
+            {spec.details.map((d) => (
+              <li key={d} className="break-all py-0.5">
+                {d}
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="flex justify-end gap-2">
           <button type="button" className={BUTTON} onClick={onClose}>
             {t("notes.cancel")}

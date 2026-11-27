@@ -933,6 +933,7 @@
   "reader.pptx.tableStyle.diagonal": "pominięto ukośne obramowania stylu tabeli",
   "reader.pptx.tableStyle.threeD": "pominięto efekty 3-W stylu tabeli",
   "reader.pptx.tableStyle.partDropped": "pominięto część stylu tabeli {part}",
+  "ai.settings.keyFile": "Ten komputer nie ma systemowego pęku kluczy: klucz jest zapisany w pliku w folderze danych aplikacji – bez szyfrowania: każdy, kto może czytać twoje pliki, może go odczytać. Nigdy nie jest wysyłany nigdzie poza dostawcą.",
   "launch.notOpened": "Otwiera się tylko jeden dokument naraz – {names} znajdziesz w sekcji „{recent}”.",
   "launch.unsupported": "Ta aplikacja nie może otworzyć {names}.",
   "menu.about": "{app} – informacje",

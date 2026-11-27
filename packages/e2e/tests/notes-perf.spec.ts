@@ -1,9 +1,14 @@
 // P11-N3 / plan review focus 5: a large notebook – 500 pages (10 sections × 50), 200 of them with a small picture,
 // 50 changes of history on every page – generated through the core in the browser, stored in IndexedDB, then the
 // app is reloaded (the real start path). Measured in the page: opening a page (until its text is in the editor)
-// < 300 ms, a search < 100 ms. Numbers are printed (`notes perf:`).
+// < 300 ms, a search < 100 ms. Numbers are printed (`notes perf:`). With a relay (`NOTES_RELAY_DIR`, see
+// notes-sharing.spec.ts) also the first share of the whole notebook (P11-X1).
 
 import { expect, test } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+
+const relayDir = process.env.NOTES_RELAY_DIR;
 
 test.describe("Notes performance (P11-N3)", () => {
   test("500 pages, 200 pictures, 50 changes per page: open page < 300 ms, search < 100 ms", async ({ page }) => {
@@ -159,5 +164,27 @@ test.describe("Notes performance (P11-N3)", () => {
     await expect(page.getByTestId("search-hit")).toHaveCount(1);
     expect(median(opens)).toBeLessThan(300);
     expect(median(searches)).toBeLessThan(100);
+
+    // P11-X1: the first share of the whole notebook (every page through the relay, large ones in parts) completes.
+    if (relayDir) {
+      await page.getByTestId("share-button").click();
+      const dialog = page.getByTestId("share-dialog");
+      await dialog.getByTestId("share-name").fill("Perf");
+      await dialog.getByTestId("share-name-ok").click();
+      const s0 = Date.now();
+      await dialog.getByTestId("share-on").click();
+      await expect(page.getByTestId("sync-state")).toHaveAttribute("data-state", "synced", { timeout: 600_000 });
+      const shareMs = Date.now() - s0;
+      let bytes = 0;
+      const walk = (d: string) => {
+        for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+          const f = path.join(d, e.name);
+          if (e.isDirectory()) walk(f);
+          else bytes += fs.statSync(f).size;
+        }
+      };
+      walk(relayDir);
+      console.log(`notes perf: first share of 500 pages ${(shareMs / 1000).toFixed(1)} s, relay holds ${(bytes / 1048576).toFixed(1)} MB`);
+    }
   });
 });

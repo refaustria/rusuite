@@ -150,6 +150,29 @@
 .notes-ink path {
   shape-rendering: geometricPrecision;
 }
+/* Black ink follows the theme (as OneNote does): light on a dark page, black again on paper. The live stroke reads
+   the same variable (CanvasView `inkColor`). */
+:root {
+  --notes-ink-black: #000000;
+}
+:root[data-theme="dark"] {
+  --notes-ink-black: var(--ui-fg);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --notes-ink-black: var(--ui-fg);
+  }
+}
+@media print {
+  :root,
+  :root[data-theme="dark"],
+  :root:not([data-theme]) {
+    --notes-ink-black: #000000;
+  }
+}
+.notes-ink path[fill="#000000" i] {
+  fill: var(--notes-ink-black);
+}
 
 .notes-canvas-tool {
   position: absolute;

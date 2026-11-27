@@ -74,7 +74,13 @@ function release(el: Element | null, id: number): void {
   }
 }
 
-const NO_PREVIEW: Preview = { dx: 0, dy: 0, items: new Set(), strokes: new Set(), resize: null };
+/** The colour a stroke is shown in: black follows the theme (`--notes-ink-black`, canvas.css), the rest as stored. */
+function inkColor(color: string, el: Element): string {
+  if (color.toLowerCase() !== "#000000") return color;
+  return getComputedStyle(el).getPropertyValue("--notes-ink-black").trim() || color;
+}
+
+const NO_PREVIEW: Preview ={ dx: 0, dy: 0, items: new Set(), strokes: new Set(), resize: null };
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
 export function CanvasView({
@@ -280,7 +286,8 @@ export function CanvasView({
     if (!l) return;
     const c = l.ctx;
     const w = g.width * (ptToPx(1) / 10);
-    c.strokeStyle = g.color;
+    const color = inkColor(g.color, c.canvas);
+    c.strokeStyle = color;
     if (g.tool === "highlighter") {
       // Redrawn whole: overlapping translucent segments would darken.
       c.save();
@@ -307,7 +314,7 @@ export function CanvasView({
     }
     if (g.pts.length === 1) {
       const p = g.pts[0]!;
-      c.fillStyle = g.color;
+      c.fillStyle = color;
       c.beginPath();
       c.arc(p.x, p.y, radiusAt(w, p.p, true), 0, Math.PI * 2);
       c.fill();

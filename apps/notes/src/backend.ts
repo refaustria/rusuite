@@ -4,7 +4,7 @@
 
 import { base64ToBytes, bytesToBase64, WasmBackend, type BackendCapabilities, type PdfPaper, type ReportHost } from "@rusuite/ui-shared";
 import { LazyConverter, type ConvertLoader } from "./convert/loader";
-import { decodeEffects, frameRecords, type PersistEffect } from "./effects";
+import { decodeEffects, frameRecords, splitRecords, type PersistEffect } from "./effects";
 import type { Request } from "./generated/Request";
 import type { Response } from "./generated/Response";
 import type { ResponseBody } from "./generated/ResponseBody";
@@ -47,6 +47,8 @@ export interface NotesBackend extends ReportHost {
   /** Updates missing from `vv` (`VersionVector.encode()`, empty = all). */
   exportUpdates(doc: string, vv: Uint8Array): Promise<Uint8Array>;
   versionVector(doc: string): Promise<Uint8Array>;
+  /** `exportUpdates` in parts of at most `maxBytes` (a first share of a large page; the relay's envelope limit). */
+  exportUpdateChunks(doc: string, vv: Uint8Array, maxBytes: number): Promise<Uint8Array[]>;
   takePersistEffects(): Promise<PersistEffect[]>;
   exportBackup(notebook: string, blobs: readonly Uint8Array[]): Promise<Uint8Array>;
   importBackup(bytes: Uint8Array): Promise<Response>;
@@ -88,6 +90,7 @@ export interface NotesWasmModule {
   import_remote(notebook: string, doc: string, bytes: Uint8Array): boolean;
   rebind_device(from: string, to: string): void;
   export_updates(doc: string, vv: Uint8Array): Uint8Array;
+  export_update_chunks(doc: string, vv: Uint8Array, max_bytes: number): Uint8Array;
   version_vector(doc: string): Uint8Array;
   take_persist_effects(): Uint8Array;
   page_genesis(): Uint8Array;
@@ -158,6 +161,13 @@ export class WebNotesBackend implements NotesBackend {
   async exportUpdates(doc: string, vv: Uint8Array): Promise<Uint8Array> {
     try {
       return this.m.export_updates(doc, vv);
+    } catch (e) {
+      rethrow(e);
+    }
+  }
+  async exportUpdateChunks(doc: string, vv: Uint8Array, maxBytes: number): Promise<Uint8Array[]> {
+    try {
+      return splitRecords(this.m.export_update_chunks(doc, vv, maxBytes));
     } catch (e) {
       rethrow(e);
     }

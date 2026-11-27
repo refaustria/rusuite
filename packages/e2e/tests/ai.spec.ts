@@ -293,10 +293,14 @@ test.describe("AI assistant round 2 (P9-A1)", () => {
     await openWrite(page);
     await enableAi(page, { test: false });
     await editor(page).click();
+    // One input event per paragraph (as write.spec does): `keyboard.type` sent ~1 100 key events, each an editor
+    // update of the growing document – half of the test's time locally (6.3 → 3.3 s), and on a loaded runner with the
+    // live site behind `preparedCsp`'s route the test ran past its 45 s budget now and then (P11-X1).
     for (let i = 1; i <= 12; i++) {
-      await page.keyboard.type(`Paragraph ${i} of the annual report: the budget grows by ${i} percent and the plan stays the same.`);
+      await page.keyboard.insertText(`Paragraph ${i} of the annual report: the budget grows by ${i} percent and the plan stays the same.`);
       await page.keyboard.press("Enter");
     }
+    await expect(editor(page).locator("p", { hasText: "Paragraph 12 of the annual report" })).toHaveCount(1);
     await page.keyboard.press("Control+Shift+a");
     const pane = page.getByTestId("ai-pane");
     await pane.getByTestId("ai-include-document").check();

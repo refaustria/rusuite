@@ -924,6 +924,7 @@
   "reader.pptx.tableStyle.diagonal": "dijagonalni obrubi stila tablice izostavljeni",
   "reader.pptx.tableStyle.threeD": "3D efekti stila tablice izostavljeni",
   "reader.pptx.tableStyle.partDropped": "dio stila tablice {part} izostavljen",
+  "ai.settings.keyFile": "Ovo računalo nema sustavni privjesak za ključeve: ključ je spremljen u datoteci u mapi podataka aplikacije – nešifriran: svatko tko može čitati tvoje datoteke može ga pročitati. Nikad se ne šalje nikamo osim pružatelju.",
   "launch.notOpened": "Otvara se samo jedan dokument odjednom – {names} pronaći ćeš pod „{recent}”.",
   "launch.unsupported": "Ova aplikacija ne može otvoriti {names}.",
   "menu.about": "O aplikaciji {app}",

@@ -782,6 +782,73 @@ impl NotesHost {
         Ok(ld.export(ExportMode::updates(&vv))?)
     }
 
+    /// The same updates as [`Self::export_updates`], split into parts of at most `max_bytes` each (the relay's
+    /// envelope limit, `docs/notes-sync-protocol.md`): importing all parts gives the same document. Parts are
+    /// counter ranges of the peers' histories (Loro slices changes at range borders), packed greedily in order; a
+    /// single operation larger than `max_bytes` stays one (too large) part. One part when everything fits.
+    pub fn export_update_chunks(
+        &mut self,
+        doc: &str,
+        vv: &[u8],
+        max_bytes: usize,
+    ) -> Result<Vec<Vec<u8>>, CoreError> {
+        use loro::IdSpan;
+        let from = if vv.is_empty() {
+            VersionVector::new()
+        } else {
+            VersionVector::decode(vv)?
+        };
+        let (_, ld) = self.doc_ref(doc)?;
+        let all = ld.export(ExportMode::updates(&from))?;
+        if all.len() <= max_bytes {
+            return Ok(vec![all]);
+        }
+        let range = |spans: &[IdSpan]| ld.export(ExportMode::updates_in_range(spans.to_vec()));
+        // Leaves: per peer, halve the missing counter range until each part fits (or is one operation).
+        let mut peers: Vec<_> = ld.oplog_vv().iter().map(|(p, c)| (*p, *c)).collect();
+        peers.sort_unstable();
+        let mut pending: Vec<IdSpan> = peers
+            .into_iter()
+            .filter_map(|(peer, end)| {
+                let start = from.get(&peer).copied().unwrap_or(0);
+                (end > start).then(|| IdSpan::new(peer, start, end))
+            })
+            .rev()
+            .collect();
+        let mut leaves: Vec<(IdSpan, Vec<u8>)> = Vec::new();
+        while let Some(span) = pending.pop() {
+            let bytes = range(std::slice::from_ref(&span))?;
+            let (start, end) = (span.counter.start, span.counter.end);
+            if bytes.len() <= max_bytes || end - start <= 1 {
+                leaves.push((span, bytes));
+            } else {
+                let mid = start + (end - start) / 2;
+                pending.push(IdSpan::new(span.peer, mid, end));
+                pending.push(IdSpan::new(span.peer, start, mid));
+            }
+        }
+        // Pack neighbouring leaves while the export of the group still fits.
+        let mut out = Vec::new();
+        let mut group: Vec<IdSpan> = Vec::new();
+        let mut current: Option<Vec<u8>> = None;
+        for (span, bytes) in leaves {
+            if let Some(done) = current.take() {
+                group.push(span);
+                let joined = range(&group)?;
+                if joined.len() <= max_bytes {
+                    current = Some(joined);
+                    continue;
+                }
+                out.push(done);
+                group.clear();
+            }
+            group.push(span);
+            current = Some(bytes);
+        }
+        out.extend(current);
+        Ok(out)
+    }
+
     /// The encoded version vector of `doc`.
     pub fn version_vector(&mut self, doc: &str) -> Result<Vec<u8>, CoreError> {
         let (_, ld) = self.doc_ref(doc)?;

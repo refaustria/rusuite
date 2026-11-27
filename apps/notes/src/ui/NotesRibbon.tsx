@@ -236,11 +236,14 @@ export function NotesRibbon({ ctl, editor, rightSlot }: { ctl: NotesController; 
       {
         label: t("notes.timeStamp"),
         items: (
-          <RibbonStack>
-            <RibbonButton label={t("notes.date")} icon={<NotesIcon name="date" />} showLabel shortcut="Alt+Shift+D" disabled={off} onClick={run((ed) => insertDateTime(ed, "date"))} />
-            <RibbonButton label={t("notes.time")} icon={<NotesIcon name="time" />} showLabel shortcut="Alt+Shift+T" disabled={off} onClick={run((ed) => insertDateTime(ed, "time"))} />
-            <RibbonButton label={t("notes.dateTime")} icon={<NotesIcon name="date" />} showLabel shortcut="Alt+Shift+F" disabled={off} onClick={run((ed) => insertDateTime(ed, "both"))} />
-          </RibbonStack>
+          // Two rows fit the ribbon (P11-X1: a third row ran into the group label).
+          <>
+            <RibbonButton size="large" label={t("notes.dateTime")} icon={<NotesIcon name="date" size={22} />} shortcut="Alt+Shift+F" disabled={off} onClick={run((ed) => insertDateTime(ed, "both"))} />
+            <RibbonStack>
+              <RibbonButton label={t("notes.date")} icon={<NotesIcon name="date" />} showLabel shortcut="Alt+Shift+D" disabled={off} onClick={run((ed) => insertDateTime(ed, "date"))} />
+              <RibbonButton label={t("notes.time")} icon={<NotesIcon name="time" />} showLabel shortcut="Alt+Shift+T" disabled={off} onClick={run((ed) => insertDateTime(ed, "time"))} />
+            </RibbonStack>
+          </>
         ),
       },
     ],

@@ -235,6 +235,29 @@ impl Folders {
         }
     }
 
+    /// The folders of the known notebooks (for "Remove local data" › also delete the folders).
+    #[must_use]
+    pub fn folder_paths(&self) -> Vec<PathBuf> {
+        self.registry.values().cloned().collect()
+    }
+
+    /// "Remove local data" with the folders (P11-X1, after the user confirmed the listed paths): deletes every known
+    /// notebook's folder – only one that still holds a notebook (`notebook.json`), never anything else – then
+    /// [`Self::forget_all`]. A folder that cannot be deleted stops it with the error (the rest stay known).
+    pub fn delete_all(&mut self) -> Result<(), FolderError> {
+        let ids: Vec<String> = self.registry.keys().cloned().collect();
+        for id in ids {
+            let path = self.registry[&id].clone();
+            if path.join(MANIFEST).is_file() {
+                self.stores.remove(&id);
+                std::fs::remove_dir_all(&path)?;
+            }
+            self.registry.remove(&id);
+            self.save_registry()?;
+        }
+        self.forget_all()
+    }
+
     // ---- meta: one JSON file per key ------------------------------------------------------------------------
 
     fn meta_dir(&self) -> PathBuf {
@@ -399,6 +422,30 @@ mod tests {
             binary::load_doc(&mut host, id, &d.id, &d.snapshot, &d.log);
         }
         call(&mut host, json!({"type": "openNotebook", "id": id}))
+    }
+
+    #[test]
+    fn delete_all_removes_only_notebook_folders() {
+        let tmp = Tmp::new("delete-all");
+        let data = tmp.0.join("data");
+        let root = tmp.0.join("Documents").join(DEFAULT_ROOT_NAME);
+        let mut folders = Folders::load(&data, &root);
+        let (_, a) = make(&mut folders, "A");
+        let (_, b) = make(&mut folders, "B");
+        let pa = folders.path_of(&a).unwrap().to_path_buf();
+        let pb = folders.path_of(&b).unwrap().to_path_buf();
+        let other = root.join("Unrelated");
+        std::fs::create_dir_all(&other).unwrap();
+        // A folder that no longer holds a notebook is only forgotten.
+        std::fs::remove_file(pb.join(MANIFEST)).unwrap();
+        let mut paths = folders.folder_paths();
+        paths.sort();
+        assert_eq!(paths, [pa.clone(), pb.clone()]);
+        folders.delete_all().unwrap();
+        assert!(!pa.exists());
+        assert!(pb.exists() && other.exists());
+        assert!(folders.folder_paths().is_empty());
+        assert!(Folders::load(&data, &root).folder_paths().is_empty());
     }
 
     #[test]

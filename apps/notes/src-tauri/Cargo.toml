@@ -18,11 +18,15 @@ workspace = true
 [build-dependencies]
 tauri-build = { version = "=2.7.0", features = [] }
 
-# Desktop only (P11-N7): Notes has no mobile app, so no mobile plugin. The native core with the notebook folder
+# Desktop only (P11-N7): Notes has no mobile app. The native core with the notebook folder
 # store (`fs`) and the converters (`convert`); the webview still loads `app-notes-wasm`, for the sharing crypto only.
 [dependencies]
 tauri = { version = "=2.12.0", features = [] }
 tauri-plugin-dialog = "=2.8.0"
+# Export PDF (P11-X1, as Calc/Write/Show): the webview's own PDF renderer – WebKitGTK's print-to-file on Linux;
+# elsewhere `DESKTOP_PDF` is false and the page keeps the print dialog ("Save as PDF"). Only its PDF helpers are
+# used (Notes has no mobile app).
+tauri-plugin-rusuite-mobile = { path = "../../../crates/tauri-plugin-rusuite-mobile" }
 # OS file opens (P11-D1): a second start forwards its command line to the running instance.
 tauri-plugin-single-instance = "=2.5.5"
 notes-core = { path = "../core", features = ["fs", "convert"] }

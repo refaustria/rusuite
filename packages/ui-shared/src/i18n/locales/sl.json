@@ -933,6 +933,7 @@
   "reader.pptx.tableStyle.diagonal": "diagonalne obrobe sloga tabele izpuščene",
   "reader.pptx.tableStyle.threeD": "prostorski učinki sloga tabele izpuščeni",
   "reader.pptx.tableStyle.partDropped": "del sloga tabele {part} izpuščen",
+  "ai.settings.keyFile": "Ta računalnik nima sistemske verige ključev: ključ je shranjen v datoteki v podatkovni mapi aplikacije – nešifriran: kdorkoli lahko bere tvoje datoteke, ga lahko prebere. Nikoli se ne pošlje nikamor drugam kot ponudniku.",
   "launch.notOpened": "Naenkrat se odpre samo en dokument – {names} najdeš pod »{recent}«.",
   "launch.unsupported": "Ta aplikacija ne more odpreti {names}.",
   "menu.about": "O aplikaciji {app}",

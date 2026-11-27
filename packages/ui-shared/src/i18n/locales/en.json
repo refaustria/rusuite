@@ -915,6 +915,7 @@
   "reader.pptx.tableStyle.diagonal": "diagonal table style borders dropped",
   "reader.pptx.tableStyle.threeD": "3-D table style effects dropped",
   "reader.pptx.tableStyle.partDropped": "table style part {part} dropped",
+  "ai.settings.keyFile": "This computer has no system keyring: the key is stored in a file of the app's data folder – unencrypted: anyone who can read your files can read it. Never sent anywhere but the provider.",
   "launch.notOpened": "Only one document opens at a time – you'll find {names} under “{recent}”.",
   "launch.unsupported": "This app can't open {names}.",
   "menu.about": "About {app}",
