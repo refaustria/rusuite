@@ -2241,7 +2241,10 @@ items in pt; list order = z-order), `"ink"` strokes (1/10 pt, pressure 0–255),
 - **The converters load on first use**: they are a second wasm module (`app-notes-convert-wasm`, about 1.4 MB
   gzipped) fetched from the same site with a dynamic `import()` the first time an import, an export or a rich
   paste needs them ("Loading the converters…"); opening Notes never loads them. Without network access to the site
-  they cannot load and the import says so.
+  they cannot load and the import says so. Since P11-X1 the module runs in a **Web Worker** (`src/convert/worker.ts`),
+  so the page stays responsive during a long import or export; the progress card has **Cancel** (stops the worker;
+  files imported before stay, the result says the rest was not imported). The desktop app converts natively and
+  has no Cancel.
 
 #### Importing from OneNote
 
@@ -2300,9 +2303,11 @@ exposes it to the UI – `desktopShell()` is `null` on the web, which hides ever
   asks for the place first (native folder dialog), **File › Open notebook folder…** opens a folder with
   `notebook.json`. The backstage lists **Notebook folders** (the shell's recent list, newest first). A truncated log
   tail (crash while writing) is dropped on load and reported as a load warning. **Remove local data** forgets the
-  folders and the settings but leaves the folders on disk.
+  folders and the settings but leaves the folders on disk; **Also delete the notebook folders…** (P11-X1) lists
+  the folders' paths in the confirmation and deletes them too (only folders that still hold `notebook.json`).
 - **Backups:** **Save backup…** (native save dialog) and **Import from browser backup (.rnotes)…** move notebooks between
-  the web app and the desktop. PDF export goes through the print dialog (*Save as PDF*).
+  the web app and the desktop. **Export PDF…** (P11-X1) saves the PDF directly on Linux (WebKitGTK's print-to-file,
+  `tauri-plugin-rusuite-mobile`, as Calc/Write/Show); on macOS/Windows it opens the print dialog (*Save as PDF*).
 - **Sharing:** **File › Options › Sharing**: the relay URL (default `https://rusuit.es`; WebSocket
   `wss://rusuit.es/api/notes/ws`), https only unless *Allow an unencrypted connection (http) to a server on my local
   network* is ticked and the host is on the local network (`localhost`, `*.local`, `*.lan`, a private address …); **Save and restart** (the window's Content Security
@@ -2313,7 +2318,10 @@ exposes it to the UI – `desktopShell()` is `null` on the web, which hides ever
 - **AI assistant** (desktop only, off until enabled in *Options › AI*): the Home tab's **AI** group opens the shared
   assistant pane next to the page with *Summarise page*, *Rewrite selection*, *Extract tasks* (inserted as a checklist)
   and *Ask about this page* (`src/ai/notesAi.ts`). Results are ordinary editor edits (one undo step, synced like
-  typing). The CSP allows the two built-in cloud providers and a local server on this computer only.
+  typing). The CSP allows the two built-in cloud providers, a local server on this computer and the custom endpoint
+  configured in *Options › AI* (its origin, written to `ai-host.json`; a restart applies it – P11-X1). Without an OS
+  keyring the API key goes to an owner-only file in the app-data folder and *Options › AI* shows the same warning as
+  the other desktop apps.
 - Tests: `cargo test -p app-notes` (folders, crash tail, backup import, CSP, relay validation),
   `src/tauri/backend.test.ts` (adapter with a fake `invoke`), e2e `notes.spec.ts` (the entries are hidden on the web),
   `--smoke` start check in `scripts/desktop-smoke.sh`.
