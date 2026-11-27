@@ -205,7 +205,12 @@ test.describe("Downloads page", () => {
           await expect(section.locator(`[data-app="${app}"] a.button`).first()).toHaveAttribute("href", /github\.com\/refaustria\/rusuite\/releases\/download\//);
         }
       }
-      await expect(page.locator('[data-steps="macos15"]')).toContainText("Open Anyway");
+      // Scoped to the OS list: a preview box (below) carries its own macOS steps.
+      await expect(page.locator('#os-list [data-steps="macos15"]')).toContainText("Open Anyway");
+      // With or without preview assets: every preview download is hosted on this site (/dl/…).
+      for (const href of await page.locator('[data-testid="preview"] a.button').evaluateAll((els) => els.map((e) => e.getAttribute("href")))) {
+        expect(href).toMatch(/^\/dl\//);
+      }
     }
     await page.getByTestId("portal-language").selectOption("de");
     await expect(page.getByRole("heading", { level: 1, name: "Downloads" })).toBeVisible();
