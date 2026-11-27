@@ -1,1 +1,222 @@
-{ "version": "3.14159", "date": "2026-11-27", "assets": [] }
+{
+  "version": "3.14159",
+  "date": "2026-11-27",
+  "assets": [
+    {
+      "app": "calc",
+      "os": "linux",
+      "kind": "rpm",
+      "name": "Rusuite.Calc-3.14159.0-1.x86_64.rpm",
+      "url": "/dl/3.14159/Rusuite.Calc-3.14159.0-1.x86_64.rpm",
+      "size": 12619905,
+      "sha256": "70434480eeabdd5e51d9633d07146d0cd7246213aa228b28ff810a92af9a7b6b"
+    },
+    {
+      "app": "calc",
+      "os": "macos-arm",
+      "kind": "dmg",
+      "name": "Rusuite.Calc_3.14159.0_aarch64.dmg",
+      "url": "/dl/3.14159/Rusuite.Calc_3.14159.0_aarch64.dmg",
+      "size": 11262054,
+      "sha256": "cc142d2b2f752bafbe4044ff54a5618614c82e54550698dc2cd40605c8389f15"
+    },
+    {
+      "app": "calc",
+      "os": "linux",
+      "kind": "appimage",
+      "name": "Rusuite.Calc_3.14159.0_amd64.AppImage",
+      "url": "/dl/3.14159/Rusuite.Calc_3.14159.0_amd64.AppImage",
+      "size": 102963704,
+      "sha256": "ad98d58f570e0b22a8ccd450f85b97a33f767cc8da59da86e314512dfe7308b7"
+    },
+    {
+      "app": "calc",
+      "os": "linux",
+      "kind": "deb",
+      "name": "Rusuite.Calc_3.14159.0_amd64.deb",
+      "url": "/dl/3.14159/Rusuite.Calc_3.14159.0_amd64.deb",
+      "size": 12619606,
+      "sha256": "1dd7cb96f0b42257ba0183ab9709e5f715840161b7020b96486e31e3375b2a59"
+    },
+    {
+      "app": "calc",
+      "os": "windows",
+      "kind": "nsis",
+      "name": "Rusuite.Calc_3.14159.0_x64-setup.exe",
+      "url": "/dl/3.14159/Rusuite.Calc_3.14159.0_x64-setup.exe",
+      "size": 7686499,
+      "sha256": "36403d33c482038756faaed7a2986f1e77d4c1645219df81b1c361ba928a8c1b"
+    },
+    {
+      "app": "calc",
+      "os": "macos-intel",
+      "kind": "dmg",
+      "name": "Rusuite.Calc_3.14159.0_x64.dmg",
+      "url": "/dl/3.14159/Rusuite.Calc_3.14159.0_x64.dmg",
+      "size": 11797883,
+      "sha256": "9e0ae765da2c9d6feec13536e5b239bd35f4f7fda6f8cca8c58079e493046692"
+    },
+    {
+      "app": "notes",
+      "os": "linux",
+      "kind": "rpm",
+      "name": "Rusuite.Notes-3.14159.0-1.x86_64.rpm",
+      "url": "/dl/3.14159/Rusuite.Notes-3.14159.0-1.x86_64.rpm",
+      "size": 14209141,
+      "sha256": "eb94ce47621f04a4d28f449ef142257906708baadfcf048f48f30f7d77d77f7d"
+    },
+    {
+      "app": "notes",
+      "os": "macos-arm",
+      "kind": "dmg",
+      "name": "Rusuite.Notes_3.14159.0_aarch64.dmg",
+      "url": "/dl/3.14159/Rusuite.Notes_3.14159.0_aarch64.dmg",
+      "size": 12753868,
+      "sha256": "f2098ae8e9baa69dd6589f7da1c8acc6d57441b9ef79b62a572821b374cf4a58"
+    },
+    {
+      "app": "notes",
+      "os": "linux",
+      "kind": "appimage",
+      "name": "Rusuite.Notes_3.14159.0_amd64.AppImage",
+      "url": "/dl/3.14159/Rusuite.Notes_3.14159.0_amd64.AppImage",
+      "size": 104671736,
+      "sha256": "9f54fa04d6e129a51f5cf69ff9741a1d2b0d74a57e87aa5f5eef200d34341a91"
+    },
+    {
+      "app": "notes",
+      "os": "linux",
+      "kind": "deb",
+      "name": "Rusuite.Notes_3.14159.0_amd64.deb",
+      "url": "/dl/3.14159/Rusuite.Notes_3.14159.0_amd64.deb",
+      "size": 14209696,
+      "sha256": "3241a65469d5b65ea09f9fa809ff4f2d5fbfccfe19b53510daeee03329d55d3c"
+    },
+    {
+      "app": "notes",
+      "os": "windows",
+      "kind": "nsis",
+      "name": "Rusuite.Notes_3.14159.0_x64-setup.exe",
+      "url": "/dl/3.14159/Rusuite.Notes_3.14159.0_x64-setup.exe",
+      "size": 9460218,
+      "sha256": "d7ef7147302aa8a8d95f2ea1ce7cf0ad6d66d5beb9c03d1a9c52b800032fb8d3"
+    },
+    {
+      "app": "notes",
+      "os": "macos-intel",
+      "kind": "dmg",
+      "name": "Rusuite.Notes_3.14159.0_x64.dmg",
+      "url": "/dl/3.14159/Rusuite.Notes_3.14159.0_x64.dmg",
+      "size": 13332744,
+      "sha256": "b5103cf3f4fd4a4f7f5d34fdc058d0f2ad6663da12ee427bf17f7c26afbe0907"
+    },
+    {
+      "app": "show",
+      "os": "linux",
+      "kind": "rpm",
+      "name": "Rusuite.Show-3.14159.0-1.x86_64.rpm",
+      "url": "/dl/3.14159/Rusuite.Show-3.14159.0-1.x86_64.rpm",
+      "size": 10672156,
+      "sha256": "85a2bffe25bbb694b4c0603f57613f76b28594c8e2ac930e45b91f7e4f1fe58d"
+    },
+    {
+      "app": "show",
+      "os": "macos-arm",
+      "kind": "dmg",
+      "name": "Rusuite.Show_3.14159.0_aarch64.dmg",
+      "url": "/dl/3.14159/Rusuite.Show_3.14159.0_aarch64.dmg",
+      "size": 9297372,
+      "sha256": "c8b06babd1161fe137deae41345ac55afa85602222d6a7077c99f931630e569b"
+    },
+    {
+      "app": "show",
+      "os": "linux",
+      "kind": "appimage",
+      "name": "Rusuite.Show_3.14159.0_amd64.AppImage",
+      "url": "/dl/3.14159/Rusuite.Show_3.14159.0_amd64.AppImage",
+      "size": 101231096,
+      "sha256": "749b6bacf540f043281b159a58f8264cceb4419418acd3e2097daf4a95df1c7e"
+    },
+    {
+      "app": "show",
+      "os": "linux",
+      "kind": "deb",
+      "name": "Rusuite.Show_3.14159.0_amd64.deb",
+      "url": "/dl/3.14159/Rusuite.Show_3.14159.0_amd64.deb",
+      "size": 10671742,
+      "sha256": "5df792919d3809fe4d4d3bddf2802b557b22d1dff78bb4a44d4f1bbca9b77175"
+    },
+    {
+      "app": "show",
+      "os": "windows",
+      "kind": "nsis",
+      "name": "Rusuite.Show_3.14159.0_x64-setup.exe",
+      "url": "/dl/3.14159/Rusuite.Show_3.14159.0_x64-setup.exe",
+      "size": 6361600,
+      "sha256": "a5a2764a9a1ca6d202239c2958016051a5e6f53f2bf94b5483bcee113dcfd859"
+    },
+    {
+      "app": "show",
+      "os": "macos-intel",
+      "kind": "dmg",
+      "name": "Rusuite.Show_3.14159.0_x64.dmg",
+      "url": "/dl/3.14159/Rusuite.Show_3.14159.0_x64.dmg",
+      "size": 9692581,
+      "sha256": "4f4784af75a3d0b4be60ab5612ebcea1c55678b088dc5c6e6ee0676a342cd229"
+    },
+    {
+      "app": "write",
+      "os": "linux",
+      "kind": "rpm",
+      "name": "Rusuite.Write-3.14159.0-1.x86_64.rpm",
+      "url": "/dl/3.14159/Rusuite.Write-3.14159.0-1.x86_64.rpm",
+      "size": 10258905,
+      "sha256": "936e36674aae48713ed5cd06927cafeb06c500c2ad1b978712e7b350e707deca"
+    },
+    {
+      "app": "write",
+      "os": "macos-arm",
+      "kind": "dmg",
+      "name": "Rusuite.Write_3.14159.0_aarch64.dmg",
+      "url": "/dl/3.14159/Rusuite.Write_3.14159.0_aarch64.dmg",
+      "size": 8921292,
+      "sha256": "a7e7c7b3e7986350459bb415ec750c06b1fbccf9efa8bc2538c0346dd44ba1b8"
+    },
+    {
+      "app": "write",
+      "os": "linux",
+      "kind": "appimage",
+      "name": "Rusuite.Write_3.14159.0_amd64.AppImage",
+      "url": "/dl/3.14159/Rusuite.Write_3.14159.0_amd64.AppImage",
+      "size": 100899320,
+      "sha256": "b0281edab7a08ca2b60a09572ad0ce1826f5376cacdac2a105324af109b4f86d"
+    },
+    {
+      "app": "write",
+      "os": "linux",
+      "kind": "deb",
+      "name": "Rusuite.Write_3.14159.0_amd64.deb",
+      "url": "/dl/3.14159/Rusuite.Write_3.14159.0_amd64.deb",
+      "size": 10259366,
+      "sha256": "461156a8eec74cc56c442c8007afca057526efaa3d06c2dea0e6aa3341fb8d40"
+    },
+    {
+      "app": "write",
+      "os": "windows",
+      "kind": "nsis",
+      "name": "Rusuite.Write_3.14159.0_x64-setup.exe",
+      "url": "/dl/3.14159/Rusuite.Write_3.14159.0_x64-setup.exe",
+      "size": 6157298,
+      "sha256": "59a002e01f56524f2267a016fee87cc8d32475d533552e455c29e868ce72fa2c"
+    },
+    {
+      "app": "write",
+      "os": "macos-intel",
+      "kind": "dmg",
+      "name": "Rusuite.Write_3.14159.0_x64.dmg",
+      "url": "/dl/3.14159/Rusuite.Write_3.14159.0_x64.dmg",
+      "size": 9245986,
+      "sha256": "53731e0fc0132760dc9ad9ebd64efac0f79dd2981d2ad88726b8d9ac20228c7f"
+    }
+  ]
+}
