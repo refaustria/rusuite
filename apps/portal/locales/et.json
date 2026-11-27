@@ -63,6 +63,8 @@
   "portal.dl.unsigned.some.text": "Versioonid {oses} jaoks ei ole veel allkirjastatud. Kui sinu süsteem rakenduse esmakordsel avamisel hoiatab, on see ootuspärane ega viita kahjustusele; sammud on allalaadimisnuppude kohal. Et olla kindel, et fail on see, mille me koostasime, võrdle selle SHA-256 kontrollsummat allolevas loendis olevaga.",
   "portal.dl.sums.title": "Kontrolli allalaadimist",
   "portal.dl.sums.text": "Kõik kontrollsummad on ka failis <a href=\"{sums}\">SHA256SUMS</a>, mis on allkirjastatud <a href=\"rusuite-release-key.asc\">Rusuite'i väljalaskevõtmega</a> (sõrmejälg <code>{fingerprint}</code>) failis <a href=\"{sig}\">SHA256SUMS.asc</a>. Laadi mõlemad oma faili kõrvale ja käivita seejärel <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> ja <code>sha256sum --check --ignore-missing SHA256SUMS</code>.",
+  "portal.dl.preview.title": "Uus: Rusuite {version} – eelvaade Macile (Apple Silicon) ja Linuxile",
+  "portal.dl.preview.text": "Allkirjastamata testversioonid järgmisest versioonist. Windows ja Inteli Macid tulevad täisväljalaskega. Linuxi versioonid vajavad tänapäevast distributsiooni (glibc 2.41, nt Debian 13, Ubuntu 25.04, Fedora 42).",
   "portal.language": "Keel / Language",
   "portal.languagePending": "{name} (pole veel tõlgitud)",
   "portal.nav": "Sait",

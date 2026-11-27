@@ -134,7 +134,7 @@ test.describe("Portal", () => {
 test.describe("Downloads page", () => {
   // P10-S1: `signing` = the release's signing.json; a GPG-signed release also carries the .asc files and SHA256SUMS.
   type Signing = { macos: boolean; windows: boolean; linux: boolean };
-  const generate = (signing?: Signing): string => {
+  const generate = (signing?: Signing, preview = false): string => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rusuite-dl-"));
     const names = ["Calc", "Write", "Show"].flatMap((app) =>
       ["_0.1.0-rc.1_x64-setup.exe", "_0.1.0-rc.1_x64_en-US.msi", "_0.1.0-rc.1_aarch64.dmg", "_0.1.0-rc.1_x64.dmg",
@@ -164,7 +164,23 @@ test.describe("Downloads page", () => {
     };
     fs.writeFileSync(path.join(dir, "release.json"), JSON.stringify(release));
     const script = fileURLToPath(new URL("../../../scripts/gen-downloads.mjs", import.meta.url));
-    execFileSync("node", [script, "--in", path.join(dir, "release.json"), "--out", path.join(dir, "downloads.html")]);
+    const previewArgs: string[] = [];
+    if (preview) {
+      const assets = ["Calc", "Write", "Show", "Notes"].flatMap((app, i) => {
+        const mk = (os: string, kind: string, name: string, n: number) => ({
+          app: app.toLowerCase(), os, kind, name, url: `/dl/3.14159/${name}`, size: 5_000_000 + n, sha256: String(i + 1).repeat(64),
+        });
+        return [
+          mk("macos-arm", "dmg", `Rusuite.${app}_3.14159.0_aarch64.dmg`, 0),
+          mk("linux", "appimage", `Rusuite.${app}_3.14159.0_amd64.AppImage`, 1),
+          mk("linux", "deb", `Rusuite.${app}_3.14159.0_amd64.deb`, 2),
+          mk("linux", "rpm", `Rusuite.${app}-3.14159.0-1.x86_64.rpm`, 3),
+        ];
+      });
+      fs.writeFileSync(path.join(dir, "preview.json"), JSON.stringify({ version: "3.14159", date: "2026-11-27", assets }));
+      previewArgs.push("--preview", path.join(dir, "preview.json"));
+    }
+    execFileSync("node", [script, "--in", path.join(dir, "release.json"), ...previewArgs, "--out", path.join(dir, "downloads.html")]);
     return fs.readFileSync(path.join(dir, "downloads.html"), "utf8");
   };
 
@@ -244,6 +260,42 @@ test.describe("Downloads page", () => {
     await expect(sections.first()).toHaveAttribute("data-os", "windows");
     const host = new URL(page.url()).origin;
     expect(requests.filter((u) => !u.startsWith(host))).toEqual([]);
+    errors.expectNone();
+  });
+
+  test("the preview box for unsigned Mac builds sits above the OS sections, with checksums, and requests nothing from other hosts", async ({ page }) => {
+    const errors = trackErrors(page);
+    const html = generate(undefined, true);
+    await page.route("**/downloads.html*", (route) => route.fulfill({ contentType: "text/html; charset=utf-8", body: html }));
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(r.url()));
+    await page.goto("./downloads.html?os=linux");
+    const box = page.getByTestId("preview");
+    await expect(box.getByRole("heading", { level: 2, name: "New: Rusuite 3.14159 – preview for Mac (Apple Silicon) and Linux" })).toBeVisible();
+    await expect(box).toContainText("Unsigned test builds of the next version");
+    const mac = box.locator('[data-os="macos-arm"]');
+    const linux = box.locator('[data-os="linux"]');
+    await expect(mac.locator("a.button")).toHaveCount(4);
+    await expect(mac.locator('[data-app="calc"] a.button')).toHaveAttribute("href", "/dl/3.14159/Rusuite.Calc_3.14159.0_aarch64.dmg");
+    await expect(mac.locator("dd code").first()).toHaveText("1".repeat(64));
+    await expect(mac.locator('[data-steps="macos15"] code')).toHaveCount(4);
+    await expect(mac.locator('[data-steps="macos15"] code').last()).toHaveText('xattr -dr com.apple.quarantine "/Applications/Rusuite Notes.app"');
+    await expect(linux.locator("a.button")).toHaveCount(12);
+    await expect(linux.locator('[data-app="calc"] a.button').first()).toHaveAttribute("href", "/dl/3.14159/Rusuite.Calc_3.14159.0_amd64.AppImage");
+    await expect(linux.locator('[data-steps="linux"]')).toBeVisible();
+    await expect(page.locator("section.os")).toHaveCount(3);
+    expect((await box.boundingBox())!.y).toBeLessThan((await page.locator("section.os").first().boundingBox())!.y);
+    await page.getByTestId("portal-language").selectOption("de");
+    await expect(box.getByRole("heading", { name: "Neu: Rusuite 3.14159 – Vorschau für Mac (Apple Silicon) und Linux" })).toBeVisible();
+    await page.getByTestId("portal-language").selectOption("en");
+    const host = new URL(page.url()).origin;
+    expect(requests.filter((u) => !u.startsWith(host))).toEqual([]);
+    // Without a preview file there is no box.
+    const plain = generate();
+    await page.unroute("**/downloads.html*");
+    await page.route("**/downloads.html*", (route) => route.fulfill({ contentType: "text/html; charset=utf-8", body: plain }));
+    await page.goto("./downloads.html?os=linux");
+    await expect(page.getByTestId("preview")).toHaveCount(0);
     errors.expectNone();
   });
 

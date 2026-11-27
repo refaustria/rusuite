@@ -63,6 +63,8 @@
   "portal.dl.unsigned.some.text": "As versões para {oses} ainda não estão assinadas. Se o teu sistema avisar na primeira vez que abres uma aplicação, é esperado e não indica qualquer dano; os passos estão mesmo acima dos botões de transferência. Para teres a certeza de que um ficheiro é o que compilámos, compara a respetiva soma de verificação SHA-256 com a lista abaixo.",
   "portal.dl.sums.title": "Verificar uma transferência",
   "portal.dl.sums.text": "Todas as somas de verificação estão também em <a href=\"{sums}\">SHA256SUMS</a>, assinado com a <a href=\"rusuite-release-key.asc\">chave de lançamento do Rusuite</a> (impressão digital <code>{fingerprint}</code>) em <a href=\"{sig}\">SHA256SUMS.asc</a>. Transfere ambos para junto do teu ficheiro e depois executa <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> e <code>sha256sum --check --ignore-missing SHA256SUMS</code>.",
+  "portal.dl.preview.title": "Novo: Rusuite {version} – pré-visualização para Mac (Apple Silicon) e Linux",
+  "portal.dl.preview.text": "Versões de teste não assinadas da próxima versão. Windows e Macs Intel seguem com a versão completa. As versões para Linux precisam de uma distribuição atual (glibc 2.41, p. ex. Debian 13, Ubuntu 25.04, Fedora 42).",
   "portal.language": "Idioma / Language",
   "portal.languagePending": "{name} (ainda não traduzido)",
   "portal.nav": "Site",

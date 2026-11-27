@@ -63,6 +63,8 @@
   "portal.dl.unsigned.some.text": "De versies voor {oses} zijn nog niet ondertekend. Als je systeem een waarschuwing geeft de eerste keer dat je een app opent, is dat normaal en geen teken van beschadiging; de stappen staan direct boven de downloadknoppen. Om zeker te weten dat een bestand het bestand is dat wij hebben gebouwd, vergelijk je de SHA-256-controlesom ervan met de onderstaande lijst.",
   "portal.dl.sums.title": "Een download controleren",
   "portal.dl.sums.text": "Alle controlesommen staan ook in <a href=\"{sums}\">SHA256SUMS</a>, ondertekend met de <a href=\"rusuite-release-key.asc\">Rusuite-releasesleutel</a> (vingerafdruk <code>{fingerprint}</code>) in <a href=\"{sig}\">SHA256SUMS.asc</a>. Download beide naast je bestand en voer daarna <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> en <code>sha256sum --check --ignore-missing SHA256SUMS</code> uit.",
+  "portal.dl.preview.title": "Nieuw: Rusuite {version} – preview voor Mac (Apple Silicon) en Linux",
+  "portal.dl.preview.text": "Niet-ondertekende testversies van de volgende versie. Windows en Intel-Macs volgen met de volledige release. De Linux-builds vereisen een actuele distributie (glibc 2.41, bijv. Debian 13, Ubuntu 25.04, Fedora 42).",
   "portal.language": "Taal / Language",
   "portal.languagePending": "{name} (nog niet vertaald)",
   "portal.nav": "Site",

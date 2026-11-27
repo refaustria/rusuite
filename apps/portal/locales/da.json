@@ -63,6 +63,8 @@
   "portal.dl.unsigned.some.text": "Versionerne til {oses} er endnu ikke signeret. Hvis dit system advarer, første gang du åbner et program, er det forventet og ikke tegn på skade; trinnene står lige over downloadknapperne. For at være sikker på, at en fil er den, vi har bygget, kan du sammenligne dens SHA-256-kontrolsum med listen nedenfor.",
   "portal.dl.sums.title": "Kontrollér en download",
   "portal.dl.sums.text": "Alle kontrolsummer står også i <a href=\"{sums}\">SHA256SUMS</a>, signeret med <a href=\"rusuite-release-key.asc\">Rusuites udgivelsesnøgle</a> (fingeraftryk <code>{fingerprint}</code>) i <a href=\"{sig}\">SHA256SUMS.asc</a>. Download begge filer ved siden af din fil, og kør derefter <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> og <code>sha256sum --check --ignore-missing SHA256SUMS</code>.",
+  "portal.dl.preview.title": "Nyt: Rusuite {version} – forhåndsvisning til Mac (Apple Silicon) og Linux",
+  "portal.dl.preview.text": "Usignerede testbuilds af den næste version. Windows og Intel-Mac følger med den fulde udgivelse. Linux-buildsene kræver en aktuel distribution (glibc 2.41, f.eks. Debian 13, Ubuntu 25.04, Fedora 42).",
   "portal.language": "Sprog / Language",
   "portal.languagePending": "{name} (endnu ikke oversat)",
   "portal.nav": "Websted",

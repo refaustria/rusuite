@@ -63,6 +63,8 @@
   "portal.dl.unsigned.some.text": "Verzie pre {oses} zatiaľ nie sú podpísané. Ak tvoj systém pri prvom otvorení aplikácie zobrazí upozornenie, je to v poriadku a nie je to znak poškodenia; postup nájdeš hneď nad tlačidlami na stiahnutie. Ak si chceš overiť, že súbor je ten, ktorý sme zostavili, porovnaj jeho kontrolný súčet SHA-256 so zoznamom nižšie.",
   "portal.dl.sums.title": "Overiť stiahnutý súbor",
   "portal.dl.sums.text": "Všetky kontrolné súčty sú aj v súbore <a href=\"{sums}\">SHA256SUMS</a>, podpísanom <a href=\"rusuite-release-key.asc\">kľúčom pre vydania Rusuite</a> (odtlačok <code>{fingerprint}</code>) v súbore <a href=\"{sig}\">SHA256SUMS.asc</a>. Stiahni oba vedľa svojho súboru a potom spusti <code>gpg --verify SHA256SUMS.asc SHA256SUMS</code> a <code>sha256sum --check --ignore-missing SHA256SUMS</code>.",
+  "portal.dl.preview.title": "Novinka: Rusuite {version} – ukážka pre Mac (Apple Silicon) a Linux",
+  "portal.dl.preview.text": "Nepodpísané testovacie zostavenia ďalšej verzie. Windows a Macy s Intelom prídu s úplným vydaním. Zostavenia pre Linux vyžadujú aktuálnu distribúciu (glibc 2.41, napr. Debian 13, Ubuntu 25.04, Fedora 42).",
   "portal.language": "Jazyk / Language",
   "portal.languagePending": "{name} (zatiaľ nepreložené)",
   "portal.nav": "Web",
