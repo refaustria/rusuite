@@ -13,3 +13,5 @@ apps/*/src-wasm/pkg/
 apps/*/dist-web/
 .task/
 shots/
+# Added by code-review-graph
+.code-review-graph/

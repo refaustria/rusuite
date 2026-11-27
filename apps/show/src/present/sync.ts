@@ -146,7 +146,10 @@ export function audienceIdOf(search: string): string | null {
   return id && /^[a-z0-9]+$/i.test(id) ? id : null;
 }
 
-export const AUDIENCE_LABEL = "audience";
+/** The slide show window of document window `owner` (P11-D2: one per document window; as `audience_label` in the shell). */
+export function audienceLabel(owner: string): string {
+  return owner === "main" ? "audience" : `audience-${owner}`;
+}
 
 function audienceUrl(id: string): string {
   const url = new URL(window.location.href);
@@ -157,8 +160,9 @@ function audienceUrl(id: string): string {
 
 async function openTauriAudience(url: string): Promise<AudienceWindow | null> {
   const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const { currentMonitor } = await import("@tauri-apps/api/window");
-  await (await WebviewWindow.getByLabel(AUDIENCE_LABEL))?.close().catch(() => undefined);
+  const { currentMonitor, getCurrentWindow } = await import("@tauri-apps/api/window");
+  const label = audienceLabel(getCurrentWindow().label);
+  await (await WebviewWindow.getByLabel(label))?.close().catch(() => undefined);
   // Slide Show › Monitor (P9-S5): the chosen monitor, else (Automatic) one the presenter is not on – full screen like
   // PowerPoint; with one monitor, a normal window.
   let place: { x: number; y: number; fullscreen: boolean } | null = null;
@@ -170,7 +174,7 @@ async function openTauriAudience(url: string): Promise<AudienceWindow | null> {
   } catch {
     // Monitor information unavailable: a normal window.
   }
-  const win = new WebviewWindow(AUDIENCE_LABEL, {
+  const win = new WebviewWindow(label, {
     url,
     title: `Rusuite Show – ${t("show.slideShow")}`,
     width: 960,

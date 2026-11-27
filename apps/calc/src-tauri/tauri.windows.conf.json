@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": [
+          "xlsx"
+        ],
+        "name": "Excel Workbook",
+        "description": "Excel workbook",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "org.openxmlformats.spreadsheetml.sheet"
+        ],
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      },
+      {
+        "ext": [
+          "csv"
+        ],
+        "name": "CSV Document",
+        "description": "Comma-separated values",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "public.comma-separated-values-text"
+        ],
+        "mimeType": "text/csv"
+      },
+      {
+        "ext": [
+          "tsv"
+        ],
+        "name": "TSV Document",
+        "description": "Tab-separated values",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "public.tab-separated-values-text"
+        ],
+        "mimeType": "text/tab-separated-values"
+      }
+    ]
+  }
+}

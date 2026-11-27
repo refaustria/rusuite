@@ -27,6 +27,8 @@ tauri-plugin-dialog = "=2.8.0"
 # elsewhere `DESKTOP_PDF` is false and the page keeps the print dialog ("Save as PDF"). Only its PDF helpers are
 # used (Notes has no mobile app).
 tauri-plugin-rusuite-mobile = { path = "../../../crates/tauri-plugin-rusuite-mobile" }
+# OS file opens (P11-D1): a second start forwards its command line to the running instance.
+tauri-plugin-single-instance = "=2.5.5"
 notes-core = { path = "../core", features = ["fs", "convert"] }
 # `tauri-connectors`: the OS keyring commands (sharing device keys, the AI key) – the WebDAV client comes with the
 # feature but Notes never registers a connection.

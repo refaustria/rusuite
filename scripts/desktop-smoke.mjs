@@ -252,7 +252,12 @@ async function closeGuard(app) {
     const dialog = await until("the unsaved-changes dialog", () => s.find('[data-testid="confirm-discard"]'));
     if (!dialog) throw new Error("no dialog");
     if (!running(binary)) throw new Error("the window closed without asking");
-    await s.click(await s.findXPath(`//button[normalize-space(.)="Don't save"]`));
+    const dontSave = await s.findXPath(`//button[normalize-space(.)="Don't save"]`);
+    // The click closes the last window and ends the process, which may beat WebDriver's reply to it.
+    await s.click(dontSave).catch(async (e) => {
+      await new Promise((r) => setTimeout(r, 1_000));
+      if (running(binary)) throw e;
+    });
     await waitExit(binary, s);
   } catch (e) {
     await s.end();

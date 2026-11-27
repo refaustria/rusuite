@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": [
+          "rnotes"
+        ],
+        "name": "Rusuite Notes Backup",
+        "description": "Rusuite Notes backup",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "dev.rusuite.notes.backup"
+        ],
+        "mimeType": "application/x-rusuite-notes",
+        "exportedType": {
+          "identifier": "dev.rusuite.notes.backup",
+          "conformsTo": [
+            "public.zip-archive",
+            "public.data"
+          ]
+        }
+      },
+      {
+        "ext": [
+          "one",
+          "onepkg"
+        ],
+        "name": "OneNote File",
+        "description": "OneNote section or notebook package (imported)",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "dev.rusuite.notes.onenote"
+        ],
+        "mimeType": "application/onenote",
+        "exportedType": {
+          "identifier": "dev.rusuite.notes.onenote",
+          "conformsTo": [
+            "public.data"
+          ]
+        }
+      }
+    ]
+  }
+}

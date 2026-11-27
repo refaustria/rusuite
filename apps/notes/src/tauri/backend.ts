@@ -7,7 +7,7 @@
 
 import { base64ToBytes, bytesToBase64, isTauri, shellRendersPdf, type BackendCapabilities, type PdfPaper } from "@rusuite/ui-shared";
 import type { InvokeArgs } from "@tauri-apps/api/core";
-import { CoreError, rethrow, type NotesBackend, type NotesRequest } from "../backend";
+import { CoreError, rethrow, type LaunchFiles, type NotesBackend, type NotesRequest } from "../backend";
 import { LazyConverter, type ImportFileRequest } from "../convert/loader";
 import type { ExportFormat } from "../generated/ExportFormat";
 import type { ExportSource } from "../generated/ExportSource";
@@ -23,6 +23,15 @@ export type Invoke = (cmd: string, args?: InvokeArgs) => Promise<unknown>;
 
 /** The real `invoke`, loaded on first use (the web build never touches `@tauri-apps/api`). */
 export const tauriInvoke: Invoke = async (cmd, args) => (await import("@tauri-apps/api/core")).invoke(cmd, args);
+
+/** `listen` of `@tauri-apps/api/event` (injectable like `Invoke`). */
+export type Listen = (event: string, fn: () => void) => Promise<() => void>;
+
+/** The real `listen`, loaded on first use. */
+export const tauriListen: Listen = async (event, fn) => (await import("@tauri-apps/api/event")).listen(event, () => fn());
+
+/** Emitted by the shell when OS files wait (`apps/notes/src-tauri/src/launch.rs`). */
+export const OPEN_DOCUMENT_EVENT = "rusuite://open-document";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -103,8 +112,32 @@ export class TauriNotesBackend implements NotesBackend {
    *  PDFs itself (Linux, as Calc/Write/Show: `export_pdf`); elsewhere it is the print dialog's "Save as PDF". */
   readonly capabilities: BackendCapabilities = { print: true, pdf: shellRendersPdf(), saveAs: true, share: false };
 
-  constructor(private readonly invoke: Invoke = tauriInvoke) {
+  /** Desktop (P11-D1): the files the OS handed the shell (`take_launch_files`, the `open-document` event). */
+  readonly launchFiles: LaunchFiles;
+
+  constructor(
+    private readonly invoke: Invoke = tauriInvoke,
+    listen: Listen = tauriListen,
+  ) {
     this.converter = new TauriConverter(invoke);
+    this.launchFiles = {
+      take: async () => {
+        const [head, ...bytes] = splitRecords(await this.raw("take_launch_files", {}));
+        const r = JSON.parse(dec.decode(head)) as { files: string[]; unsupported: string[]; failed: string[] };
+        return { files: r.files.map((name, i) => ({ name, bytes: bytes[i] ?? new Uint8Array() })), unsupported: r.unsupported, failed: r.failed };
+      },
+      subscribe(fn) {
+        let stopped = false;
+        let unlisten: (() => void) | null = null;
+        void listen(OPEN_DOCUMENT_EVENT, fn)
+          .then((u) => (stopped ? u() : (unlisten = u)))
+          .catch(() => undefined);
+        return () => {
+          stopped = true;
+          unlisten?.();
+        };
+      },
+    };
   }
 
   private async raw(cmd: string, args: InvokeArgs): Promise<Uint8Array> {

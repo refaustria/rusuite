@@ -32,8 +32,11 @@ export interface DocStorage {
    * the list.
    */
   rememberRecent(name: string, snapshotJson: string | null): Promise<RecentEntry[]>;
-  /** Re-opens a recent entry. Rejects when the file or snapshot is gone (the entry is then dropped). */
-  openRecent(entry: RecentEntry): Promise<RecentSource>;
+  /**
+   * Re-opens a recent entry. Rejects when the file or snapshot is gone (the entry is then dropped). `null`: the
+   * desktop shell opened it in another window (P11-D2).
+   */
+  openRecent(entry: RecentEntry): Promise<RecentSource | null>;
   /** Recovery entries without their snapshot, newest first. */
   listRecovery(): Promise<RecoveryInfo[]>;
   getRecovery(id: string): Promise<RecoveryEntry | null>;

@@ -3,6 +3,6 @@
   "identifier": "presenter",
   "description": "Presenter view (P7-8): the main window opens the slide show window",
   "platforms": ["linux", "macOS", "windows"],
-  "windows": ["main"],
+  "windows": ["main", "doc-*"],
   "permissions": ["core:webview:allow-create-webview-window"]
 }

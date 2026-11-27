@@ -416,6 +416,7 @@ export class NotesController {
       }
     }).then(() => {
       if (this.state.phase === "loading") this.set({ phase: "failed" });
+      else if (this.state.phase === "ready") this.watchLaunchFiles();
     });
   }
 
@@ -1438,6 +1439,37 @@ export class NotesController {
       await this.addKnown(id, summary.info.name, summary.info.color);
       await this.selectIn(id, null, null);
     });
+  }
+
+  // ---- files from the OS (P11-D1, desktop) -------------------------------------------------------------------
+
+  private unsubscribeLaunch: (() => void) | null = null;
+
+  /** Takes the files the OS handed the shell now and whenever more arrive (once; after `start`). */
+  private watchLaunchFiles(): void {
+    const launch = this.backend.launchFiles;
+    if (!launch || this.unsubscribeLaunch) return;
+    this.unsubscribeLaunch = launch.subscribe(() => void this.openLaunchFiles());
+    void this.openLaunchFiles();
+  }
+
+  /** Finder / Explorer "Open with", a drop onto the window, a second start: `.rnotes` backups open as notebooks,
+   * everything else goes through File › Import; files Notes cannot read are named. */
+  async openLaunchFiles(): Promise<void> {
+    const launch = this.backend.launchFiles;
+    if (!launch) return;
+    try {
+      const got = await launch.take();
+      const problems = [...got.failed];
+      if (got.unsupported.length) problems.unshift(t("launch.unsupported", { names: got.unsupported.join(", ") }));
+      if (problems.length) this.fail(new Error(problems.join("\n")));
+      const backup = (f: { name: string }) => /\.rnotes$/i.test(f.name);
+      for (const f of got.files.filter(backup)) await this.importBackup(f.bytes);
+      const rest = got.files.filter((f) => !backup(f));
+      if (rest.length) await this.importFiles(rest);
+    } catch (e) {
+      this.fail(e);
+    }
   }
 
   /** File › Open backup: picks a file and opens it. */

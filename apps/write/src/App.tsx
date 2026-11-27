@@ -278,7 +278,8 @@ export default function App({ backend }: { backend: WriteBackend }) {
 
   const open = useCallback(async () => {
     try {
-      if ((await guard.ensureSaved()) === "cancel") return;
+      // Desktop (P11-D2): the shell opens the picked file in an empty or a new window, never over this document.
+      if (!guard.windows && (await guard.ensureSaved()) === "cancel") return;
       const file = await backend.openFile();
       if (file) await ctl.openDocx(file.bytesBase64, file.name);
     } catch (e) {
@@ -286,7 +287,8 @@ export default function App({ backend }: { backend: WriteBackend }) {
     }
   }, [backend, ctl, guard]);
 
-  const newDocument = useCallback(() => void guard.run(() => ctl.newDocument()), [guard, ctl]);
+  // Desktop (P11-D2): a new window.
+  const newDocument = useCallback(() => void guard.runNew(() => ctl.newDocument()), [guard, ctl]);
   // File › New › a template: fetched from the app's templates, opened as a new untitled document.
   const newFromTemplate = useCallback(
     (id: TemplateId) =>
@@ -425,7 +427,7 @@ export default function App({ backend }: { backend: WriteBackend }) {
       {editor && <TouchSelection editor={editor} ctl={ctl} features={features} />}
       {editor && <TableGutters editor={editor} />}
       <Toasts ctl={ctl} />
-      <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} />
+      <ShortcutLayer editor={editor} ctl={ctl} onNew={newDocument} onOpen={() => void open()} onCloseWindow={guard.windows ? () => void guard.closeWindow() : undefined} onSave={() => void save()} onSaveAs={(n) => void saveAs(n)} onFind={chrome.onFind} onReplace={chrome.onReplace} features={features} />
       <NewDocumentDialog
         open={newDialogOpen}
         onClose={() => features.ui.openDialog(null)}

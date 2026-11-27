@@ -58,6 +58,8 @@ export interface WriteShortcutProps {
   /** New document (asks about unsaved changes first). */
   onNew: () => void;
   onOpen: () => void;
+  /** Cmd/Ctrl+W (desktop, P11-D2): closes this window; absent where there is no window to close. */
+  onCloseWindow?: () => void;
   onSave: () => void;
   /** Save As under `name` (web: from the name prompt); without one the desktop's save dialog asks. */
   onSaveAs: (name?: string) => void;
@@ -67,7 +69,7 @@ export interface WriteShortcutProps {
   features?: WriteFeatures;
 }
 
-export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features }: WriteShortcutProps) {
+export function ShortcutLayer({ editor, ctl, onNew, onOpen, onCloseWindow, onSave, onSaveAs, onFind, onReplace, features }: WriteShortcutProps) {
   const t = useT();
   const [helpOpen, setHelpOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
@@ -141,6 +143,7 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
       ...word,
       "Mod+N": { label: t("write.sc.newDoc"), group: File, inField: true, run: () => onNew() },
       "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: () => void onOpen() },
+      ...(onCloseWindow ? { "Mod+W": { label: t("cmd.closeWindow"), group: File, inField: true, run: () => onCloseWindow() } } : {}),
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: () => void onSave() },
       // Word: F12 is Save As (Ctrl+Shift+S is Apply Styles). Desktop: the native save dialog; web: name the download first.
       F12: {
@@ -223,7 +226,7 @@ export function ShortcutLayer({ editor, ctl, onNew, onOpen, onSave, onSaveAs, on
         run: () => (features ? void features.newComment() : false),
       },
     };
-  }, [editor, ctl, onNew, onOpen, onSave, onSaveAs, onFind, onReplace, features, t]);
+  }, [editor, ctl, onNew, onOpen, onCloseWindow, onSave, onSaveAs, onFind, onReplace, features, t]);
 
   useShortcuts(map);
 

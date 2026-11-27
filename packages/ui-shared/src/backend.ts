@@ -7,6 +7,8 @@ import type { DispatchError } from "./generated/DispatchError";
 import { IdbDocStorage, dbNameFromPing } from "./recent/idb";
 import type { DocStorage } from "./recent/storage";
 import { TauriDocStorage } from "./recent/tauri";
+import { tauriLaunchDocuments, type LaunchDocuments } from "./recent/launch";
+import { macWindowTitle, onMac, tauriWindows, type DesktopWindows } from "./recent/windows";
 import { t } from "./i18n/locale";
 import { Connectors } from "./connectors/controller";
 import { extensionsOf, tauriConnectorPlatform, webConnectorPlatform } from "./connectors/platform";
@@ -205,6 +207,17 @@ export interface Backend<Req = unknown, Body = unknown> {
    * none. The session asks on start and whenever the page becomes visible again.
    */
   takeLaunchDocument?(): Promise<OpenedFile | null>;
+  /**
+   * Desktop shells (P11-D1): documents from the OS – Finder / Explorer "Open with", a file dropped onto the window
+   * (or the Dock icon), a second start. The session takes them on start and whenever the shell says more arrived.
+   */
+  readonly launchDocuments?: LaunchDocuments;
+  /**
+   * Desktop shells (P11-D2): one window per document. New opens a new window; Open and the recent list never
+   * replace this window's document (the shell opens them in an empty or a new window), so they need no
+   * unsaved-changes question.
+   */
+  readonly windows?: DesktopWindows;
 }
 
 export { bytesToBase64, base64ToBytes } from "./base64";
@@ -259,6 +272,8 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
   readonly ai?: Assistant;
   readonly capabilities: BackendCapabilities;
   readonly mobile: boolean;
+  readonly launchDocuments?: LaunchDocuments;
+  readonly windows?: DesktopWindows;
   private title: TitleDecorator;
 
   /**
@@ -279,9 +294,11 @@ export class TauriBackend<Req = unknown, Body = unknown> implements Backend<Req,
         ? async (title) => {
             document.title = title;
           }
-        : (title) => getCurrentWindow().setTitle(title),
+        : (title) => getCurrentWindow().setTitle(onMac() ? macWindowTitle(title) : title),
     );
     if (this.mobile) return;
+    this.launchDocuments = tauriLaunchDocuments();
+    this.windows = tauriWindows();
     this.ai = new Assistant({ store: new TauriAiStore() });
     this.connectors = new Connectors(tauriConnectorPlatform(extensionsOf(accept)));
     this.title.follow(this.connectors);

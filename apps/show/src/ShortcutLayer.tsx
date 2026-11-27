@@ -66,8 +66,11 @@ export function ShortcutLayer({ store, guard, enabled, onPresent, onPresenterVie
     const edit = (label: string) => action(store, label, t("sc.edit"));
     const slide = (label: string) => action(store, label, t("show.sc.slide"));
     return {
-      "Mod+N": { label: t("show.sc.newPres"), group: File, inField: true, run: () => void guard.run(() => store.newFile()) },
-      "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: fileIo(() => void guard.run(() => store.open())) },
+      // Desktop (P11-D2): New opens a new window, Open never replaces this window's document.
+      "Mod+N": { label: t("show.sc.newPres"), group: File, inField: true, run: () => void guard.runNew(() => store.newFile()) },
+      "Mod+O": { label: t("cmd.open"), group: File, inField: true, run: fileIo(() => void guard.runOpen(() => store.open())) },
+      // Cmd/Ctrl+W (desktop, P11-D2): closes this window; its close guard asks about unsaved changes.
+      ...(guard.windows ? { "Mod+W": { label: t("cmd.closeWindow"), group: File, inField: true, run: () => void guard.closeWindow() } } : {}),
       "Mod+S": { label: t("cmd.save"), group: File, inField: true, run: fileIo(() => void store.save()) },
       // Save As: F12 as in PowerPoint, and Ctrl+Shift+S (P9-X2: PowerPoint has no Apply Styles box, so both keys stay).
       F12: { label: t("cmd.saveAs"), group: File, inField: true, run: fileIo(() => setSaveAsOpen(true)) },
