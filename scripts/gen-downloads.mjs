@@ -43,7 +43,9 @@ export function loadStoreLinks(file = path.join(ROOT, "docs/store/links.json")) 
 
 /** The OSes of the preview box (per asset `os`) with their package kinds in display order (first = main button). */
 const PREVIEW_OSES = [
+  { id: "windows", os: "windows", title: "Windows (x64)", kinds: [{ id: "nsis", label: "portal.dl.kind.nsis" }] },
   { id: "macos-arm", os: "macos", title: "macOS (Apple Silicon)", kinds: [{ id: "dmg", label: "portal.dl.kind.arm64" }] },
+  { id: "macos-intel", os: "macos", title: "macOS (Intel)", kinds: [{ id: "dmg", label: "portal.dl.kind.x64" }] },
   {
     id: "linux",
     os: "linux",
@@ -57,9 +59,9 @@ const PREVIEW_OSES = [
 ];
 
 /**
- * The preview box (owner decision 2026-11-27): unsigned builds of the next version (macOS Apple Silicon, Linux x86_64),
+ * The preview box (owner decision 2026-11-27): unsigned builds of the next version (Windows, macOS Apple Silicon and Intel, Linux x86_64),
  * hosted on this server (`apps/portal/preview.json`, `--preview <file>`):
- * `{ version, date, assets: [{ app, os: "macos-arm"|"linux", kind: "dmg"|"deb"|"rpm"|"appimage", name, url, size, sha256 }] }`.
+ * `{ version, date, assets: [{ app, os: "windows"|"macos-arm"|"macos-intel"|"linux", kind: "nsis"|"dmg"|"deb"|"rpm"|"appimage", name, url, size, sha256 }] }`.
  * Returns null (no box) for a missing, malformed or empty file; invalid assets (unknown app/os/kind, non-local URL, bad
  * name) are skipped, so a bad file never breaks the page.
  */

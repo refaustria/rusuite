@@ -171,6 +171,8 @@ test.describe("Downloads page", () => {
           app: app.toLowerCase(), os, kind, name, url: `/dl/3.14159/${name}`, size: 5_000_000 + n, sha256: String(i + 1).repeat(64),
         });
         return [
+          mk("windows", "nsis", `Rusuite.${app}_3.14159.0_x64-setup.exe`, 4),
+          mk("macos-intel", "dmg", `Rusuite.${app}_3.14159.0_x64.dmg`, 5),
           mk("macos-arm", "dmg", `Rusuite.${app}_3.14159.0_aarch64.dmg`, 0),
           mk("linux", "appimage", `Rusuite.${app}_3.14159.0_amd64.AppImage`, 1),
           mk("linux", "deb", `Rusuite.${app}_3.14159.0_amd64.deb`, 2),
@@ -271,8 +273,17 @@ test.describe("Downloads page", () => {
     page.on("request", (r) => requests.push(r.url()));
     await page.goto("./downloads.html?os=linux");
     const box = page.getByTestId("preview");
-    await expect(box.getByRole("heading", { level: 2, name: "New: Rusuite 3.14159 – preview for Mac (Apple Silicon) and Linux" })).toBeVisible();
+    await expect(box.getByRole("heading", { level: 2, name: "New: Rusuite 3.14159 – preview" })).toBeVisible();
     await expect(box).toContainText("Unsigned test builds of the next version");
+    // Block order: Windows, Mac (Apple Silicon), Mac (Intel), Linux.
+    expect(await box.locator(".preview-os").evaluateAll((els) => els.map((e) => e.getAttribute("data-os")))).toEqual(["windows", "macos-arm", "macos-intel", "linux"]);
+    const win = box.locator('[data-os="windows"]');
+    await expect(win.locator("a.button")).toHaveCount(4);
+    await expect(win.locator('[data-app="calc"] a.button')).toHaveAttribute("href", "/dl/3.14159/Rusuite.Calc_3.14159.0_x64-setup.exe");
+    await expect(win.locator('[data-steps="windows"]')).toContainText("Run anyway");
+    const intel = box.locator('[data-os="macos-intel"]');
+    await expect(intel.locator('[data-app="calc"] a.button')).toHaveAttribute("href", "/dl/3.14159/Rusuite.Calc_3.14159.0_x64.dmg");
+    await expect(intel.locator('[data-steps="macos15"] code')).toHaveCount(4);
     const mac = box.locator('[data-os="macos-arm"]');
     const linux = box.locator('[data-os="linux"]');
     await expect(mac.locator("a.button")).toHaveCount(4);
@@ -286,7 +297,7 @@ test.describe("Downloads page", () => {
     await expect(page.locator("section.os")).toHaveCount(3);
     expect((await box.boundingBox())!.y).toBeLessThan((await page.locator("section.os").first().boundingBox())!.y);
     await page.getByTestId("portal-language").selectOption("de");
-    await expect(box.getByRole("heading", { name: "Neu: Rusuite 3.14159 – Vorschau für Mac (Apple Silicon) und Linux" })).toBeVisible();
+    await expect(box.getByRole("heading", { name: "Neu: Rusuite 3.14159 – Vorschau" })).toBeVisible();
     await page.getByTestId("portal-language").selectOption("en");
     const host = new URL(page.url()).origin;
     expect(requests.filter((u) => !u.startsWith(host))).toEqual([]);
