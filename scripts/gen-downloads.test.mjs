@@ -486,12 +486,20 @@ test("preview box: only the OSes present show; Notes only with its flag on; no b
   assert.equal(loadPreview(previewFile({ ...PREVIEW, assets: [{ ...a0, url: "https://evil.example/x.dmg" }, { ...a1, app: "x" }, { ...a1, kind: "deb" }, { ...a1, os: "macos-intel", kind: "nsis" }, { ...a1, os: "windows", kind: "dmg" }] })), null);
 });
 
-test("preview box: the committed apps/portal/preview.json is valid and has no assets yet", () => {
+test("preview box: the committed apps/portal/preview.json is valid", () => {
   const file = path.join(ROOT, "apps/portal/preview.json");
   const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-  assert.equal(raw.version, "3.14159");
-  assert.deepEqual(raw.assets, []);
-  assert.equal(loadPreview(file), null);
+  const preview = loadPreview(file);
+  assert.ok(preview, "loadPreview accepts the file");
+  assert.equal(preview.version, raw.version);
+  assert.equal(preview.assets.length, raw.assets.length, "every asset passes loadPreview");
+  assert.equal(new Set(raw.assets.map((a) => a.name)).size, raw.assets.length, "no duplicate names");
+  for (const a of raw.assets) {
+    assert.ok(a.url.startsWith(`/dl/${raw.version}/`), a.url);
+    assert.ok(a.url.endsWith(a.name), a.url);
+    assert.match(a.sha256, /^[0-9a-f]{64}$/, a.name);
+    assert.ok(a.size > 0, a.name);
+  }
 });
 
 test("preview box: the CLI reads --preview", () => {
