@@ -218,6 +218,10 @@ export class NotebookSync {
     if (this.heartbeat) clearInterval(this.heartbeat);
     this.heartbeat = null;
     this.retry = null;
+    if (this.sendTimer) clearTimeout(this.sendTimer);
+    if (this.resubscribeTimer) clearTimeout(this.resubscribeTimer);
+    this.sendTimer = this.resubscribeTimer = null;
+    this.sendQueue = [];
     const ws = this.ws;
     this.ws = null;
     if (ws) {
