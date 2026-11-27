@@ -414,6 +414,8 @@ const PREVIEW = {
   version: "3.14159",
   date: "2026-11-27",
   assets: [
+    ...APPS4.map((app, i) => asset(app, "windows", "nsis", `Rusuite.${cap(app)}_3.14159.0_x64-setup.exe`, 2 + i)),
+    ...APPS4.map((app, i) => asset(app, "macos-intel", "dmg", `Rusuite.${cap(app)}_3.14159.0_x64.dmg`, 3 + i)),
     ...APPS4.map((app, i) => asset(app, "macos-arm", "dmg", `Rusuite.${cap(app)}_3.14159.0_aarch64.dmg`, i)),
     ...APPS4.flatMap((app, i) => [
       asset(app, "linux", "appimage", `Rusuite.${cap(app)}_3.14159.0_amd64.AppImage`, 4 + i),
@@ -429,19 +431,31 @@ test("preview box: per OS buttons, checksums and first-open steps, above the OS 
   const html = render(fixture(), loadCatalog(), { flags: { notes: true }, preview });
   const box = boxOf(html);
   assert.ok(box.length > 0 && html.indexOf('class="preview"') < html.indexOf('id="os-list"'));
-  assert.match(box, /New: Rusuite 3\.14159 – preview for Mac \(Apple Silicon\) and Linux/);
-  assert.match(box, /Unsigned test builds of the next version\. Windows and Intel Macs follow/);
+  assert.match(box, /New: Rusuite 3\.14159 – preview<\/h2>/);
+  assert.match(box, /Unsigned test builds of the next version, for trying out\./);
+  // Block order: Windows, Mac (Apple Silicon), Mac (Intel), Linux.
+  const pos = ["windows", "macos-arm", "macos-intel", "linux"].map((id) => box.indexOf(`class="preview-os" data-os="${id}"`));
+  assert.deepEqual([...pos].sort((a, b) => a - b), pos);
+  assert.ok(pos[0] > 0);
   assert.match(box, /glibc 2\.41/);
-  const mac = box.slice(box.indexOf('data-os="macos-arm"'), box.indexOf('data-os="linux"'));
+  const win = box.slice(box.indexOf('data-os="windows"'), box.indexOf('data-os="macos-arm"'));
+  const mac = box.slice(box.indexOf('data-os="macos-arm"'), box.indexOf('data-os="macos-intel"'));
+  const intel = box.slice(box.indexOf('data-os="macos-intel"'), box.indexOf('data-os="linux"'));
   const linux = box.slice(box.indexOf('data-os="linux"'));
   for (const [i, app] of ["Calc", "Write", "Show", "Notes"].entries()) {
     assert.ok(mac.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_aarch64.dmg"`), app);
     assert.ok(mac.includes(`<code>${i.toString(16).repeat(64)}</code>`), app);
     assert.ok(mac.includes(`xattr -dr com.apple.quarantine &quot;/Applications/Rusuite ${app}.app&quot;`), app);
+    assert.ok(win.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_x64-setup.exe"`), app);
+    assert.ok(intel.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_x64.dmg"`), app);
+    assert.ok(intel.includes(`xattr -dr com.apple.quarantine &quot;/Applications/Rusuite ${app}.app&quot;`), app);
     assert.ok(linux.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_amd64.AppImage"`), app);
     assert.ok(linux.includes(`href="/dl/3.14159/Rusuite.${app}_3.14159.0_amd64.deb"`), app);
   }
   assert.match(mac, /data-steps="macos15"/);
+  assert.match(intel, /data-steps="macos15"/);
+  assert.match(win, /data-steps="windows"/);
+  assert.doesNotMatch(win, /xattr/);
   assert.match(linux, /data-steps="linux"/);
   assert.doesNotMatch(linux, /xattr/);
   // AppImage is the main button of a Linux row.
@@ -449,13 +463,15 @@ test("preview box: per OS buttons, checksums and first-open steps, above the OS 
   assert.match(linux, /<a class="button secondary" href="[^"]*\.deb"/);
   assert.doesNotMatch(box, /https?:\/\//);
   // The OS sections still show the GitHub release.
-  assert.equal(html.match(/<a class="button/g).length, 16 + 21);
+  assert.equal(html.match(/<a class="button/g).length, 24 + 21);
 });
 
 test("preview box: only the OSes present show; Notes only with its flag on; no box for empty, missing or malformed files", () => {
   const macOnly = loadPreview(previewFile({ ...PREVIEW, assets: PREVIEW.assets.filter((a) => a.os === "macos-arm") }));
   const m = boxOf(render(fixture(), loadCatalog(), { preview: macOnly }));
   assert.ok(m.includes('data-os="macos-arm"') && !m.includes('data-os="linux"') && !m.includes('data-steps="linux"'));
+  const winOnly = boxOf(render(fixture(), loadCatalog(), { preview: loadPreview(previewFile({ ...PREVIEW, assets: PREVIEW.assets.filter((a) => a.os === "windows") })) }));
+  assert.ok(winOnly.includes('data-os="windows"') && !winOnly.includes('data-os="macos') && !winOnly.includes('data-os="linux"'));
   const preview = loadPreview(previewFile(PREVIEW));
   const box = boxOf(render(fixture(), loadCatalog(), { flags: { notes: false }, preview }));
   assert.ok(box.includes("Rusuite Calc.app") && !box.includes("Notes"));
@@ -467,7 +483,7 @@ test("preview box: only the OSes present show; Notes only with its flag on; no b
   assert.doesNotMatch(render(fixture(), loadCatalog()), /class="preview"/);
   // Assets pointing to other hosts, unknown apps or a kind that does not fit the OS are dropped.
   const [a0, a1] = PREVIEW.assets;
-  assert.equal(loadPreview(previewFile({ ...PREVIEW, assets: [{ ...a0, url: "https://evil.example/x.dmg" }, { ...a1, app: "x" }, { ...a1, kind: "deb" }, { ...a1, os: "windows" }] })), null);
+  assert.equal(loadPreview(previewFile({ ...PREVIEW, assets: [{ ...a0, url: "https://evil.example/x.dmg" }, { ...a1, app: "x" }, { ...a1, kind: "deb" }, { ...a1, os: "macos-intel", kind: "nsis" }, { ...a1, os: "windows", kind: "dmg" }] })), null);
 });
 
 test("preview box: the committed apps/portal/preview.json is valid and has no assets yet", () => {
