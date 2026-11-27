@@ -56,7 +56,7 @@ export function checkListing(lang, data) {
       if (!a.fullDescription.includes(name)) errs.push(`${lang}/${app}.fullDescription: product name "${name}" missing`);
       if (!a.fullDescription.includes(EXT[app])) errs.push(`${lang}/${app}.fullDescription: ${EXT[app]} not mentioned`);
     }
-    if (typeof a.whatsNew === "string" && !a.whatsNew.includes("3.1415")) errs.push(`${lang}/${app}.whatsNew: version 3.1415 missing`);
+    if (typeof a.whatsNew === "string" && !a.whatsNew.includes("3.14159")) errs.push(`${lang}/${app}.whatsNew: version 3.14159 missing`);
     if (typeof a.keywords === "string" && /,\s|\s,/.test(a.keywords)) errs.push(`${lang}/${app}.keywords: no spaces around commas (App Store counts them)`);
   }
   return errs;

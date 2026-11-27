@@ -1,4 +1,4 @@
-Neu in 3.1415
+Neu in 3.14159
 • Apps für Smartphone und Tablet mit touchfreundlichem Layout
 • Bearbeiten per Touch: Auswahlgriffe, Zoomen mit zwei Fingern, Gesten
 • Export als PDF

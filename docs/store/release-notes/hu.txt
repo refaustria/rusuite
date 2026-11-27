@@ -1,4 +1,4 @@
-Újdonságok a 3.1415-ös verzióban
+Újdonságok a 3.14159-ös verzióban
 • Telefonra és táblagépre készült appok érintésre optimalizált elrendezéssel
 • Szerkesztés érintéssel: kijelölési fogantyúk, nagyítás két ujjal, gesztusok
 • Exportálás PDF-be

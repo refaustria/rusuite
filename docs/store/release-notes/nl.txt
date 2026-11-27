@@ -1,4 +1,4 @@
-Nieuw in 3.1415
+Nieuw in 3.14159
 • Apps voor telefoon en tablet met een indeling voor aanraking
 • Bewerken met aanraking: selectiehandvatten, zoomen met twee vingers, gebaren
 • Exporteren naar PDF

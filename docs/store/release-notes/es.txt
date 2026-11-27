@@ -1,4 +1,4 @@
-Novedades de la versión 3.1415
+Novedades de la versión 3.14159
 • Aplicaciones para móvil y tableta con un diseño pensado para el tacto
 • Edición táctil: controladores de selección, zoom con dos dedos, gestos
 • Exportación a PDF

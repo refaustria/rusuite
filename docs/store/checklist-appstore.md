@@ -12,8 +12,8 @@ addresses, phone numbers, keys) are placeholders in `<angle brackets>`.
 | SKU | `rusuite-calc` | `rusuite-write` | `rusuite-show` |
 | Artifact of `mobile-release.yml` | `ios-calc` | `ios-write` | `ios-show` |
 
-Team: `PM7LTV7M72`. Version record: `3.1415` (public name, [versioning.md](../versioning.md)); the build carries
-`CFBundleShortVersionString 3.1415.0` and `CFBundleVersion 4415000`.
+Team: `PM7LTV7M72`. Version record: `3.14159` (public name, [versioning.md](../versioning.md)); the build carries
+`CFBundleShortVersionString 3.14159.0` and `CFBundleVersion 17159000`.
 
 ## 0. Account and agreements (console, once)
 1. **console** – <https://appstoreconnect.apple.com/> › *Business* (formerly *Agreements, Tax, and Banking*): the
@@ -83,10 +83,10 @@ export-compliance --app <app> --build <number>`.
 
 ## 9. Version, build, review details (scripted, ×3)
 ```sh
-node scripts/store/asc.mjs version ensure --app <app> --version 3.1415          # iOS version, release MANUAL
-node scripts/store/asc.mjs version push   --app <app> --version 3.1415          # texts + screenshots
-node scripts/store/asc.mjs build attach   --app <app> --version 3.1415 --build 4415000   # waits for VALID
-node scripts/store/asc.mjs review notes   --app <app> --version 3.1415 --file docs/store/review-notes.txt \
+node scripts/store/asc.mjs version ensure --app <app> --version 3.14159          # iOS version, release MANUAL
+node scripts/store/asc.mjs version push   --app <app> --version 3.14159          # texts + screenshots
+node scripts/store/asc.mjs build attach   --app <app> --version 3.14159 --build 17159000   # waits for VALID
+node scripts/store/asc.mjs review notes   --app <app> --version 3.14159 --file docs/store/review-notes.txt \
   --contact-first <first> --contact-last <last> --contact-email <e-mail> --contact-phone <+43 …>
 ```
 Screenshots needed by Apple: iPhone 6.7"/6.9" (`phone-67`, 1290×2796) and iPad 13" (`tablet-10`, 2048×2732);
@@ -96,7 +96,7 @@ Screenshots needed by Apple: iPhone 6.7"/6.9" (`phone-67`, 1290×2796) and iPad 
 *Version Release*: **Manually release this version** (set by `version ensure`).
 
 ## 10. Submit (scripted with confirmation, then console)
-1. **scripted** – `node scripts/store/asc.mjs submit --app <app> --version 3.1415` prints state, build, locales and
+1. **scripted** – `node scripts/store/asc.mjs submit --app <app> --version 3.14159` prints state, build, locales and
    review details and changes nothing; with the owner's go: the same command with **`--yes`** creates the review
    submission and submits it. (Console alternative: version page › *Add for Review* › *Submit to App Review*.)
 2. Review takes ~1–3 days; a rejection arrives in *App Review* messages (answer in the console, fix, `submit` again).

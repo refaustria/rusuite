@@ -8,8 +8,8 @@ import { APPS, LANGS, checkDir, checkListing, checkReleaseNotes } from "./check-
 const good = (app) => {
   const name = `Rusuite ${app[0].toUpperCase()}${app.slice(1)}`;
   const ext = { calc: ".xlsx", write: ".docx", show: ".pptx" }[app];
-  const text = `${name} opens ${ext}.\n\nNew in 3.1415`;
-  return { title: name, shortDescription: "short", subtitle: "sub", fullDescription: text, description: text, keywords: "a,b,c", promotionalText: "promo", whatsNew: "New in 3.1415", privacyAnswer: "none" };
+  const text = `${name} opens ${ext}.\n\nNew in 3.14159`;
+  return { title: name, shortDescription: "short", subtitle: "sub", fullDescription: text, description: text, keywords: "a,b,c", promotionalText: "promo", whatsNew: "New in 3.14159", privacyAnswer: "none" };
 };
 const goodFile = () => Object.fromEntries(APPS.map((a) => [a, good(a)]));
 
@@ -39,7 +39,7 @@ test("length limits", () => {
 test("placeholder leftovers and unknown fields", () => {
   const d = goodFile();
   d.calc.promotionalText = "Hello {name}";
-  d.calc.whatsNew = "TODO 3.1415";
+  d.calc.whatsNew = "TODO 3.14159";
   d.calc.extra = "x";
   const e = checkListing("en", d);
   assert.ok(e.some((m) => m.includes("promotionalText: placeholder")));
@@ -50,7 +50,7 @@ test("placeholder leftovers and unknown fields", () => {
 test("title, product name, format and version are enforced", () => {
   const d = goodFile();
   d.calc.title = "Rusuite Tabellen";
-  d.write.fullDescription = d.write.description = "Text 3.1415";
+  d.write.fullDescription = d.write.description = "Text 3.14159";
   d.show.whatsNew = "New";
   const e = checkListing("de", d);
   assert.ok(e.some((m) => m.includes("calc.title")));
@@ -65,7 +65,7 @@ test("keywords must not contain spaces around commas", () => {
 });
 
 test("release notes", () => {
-  assert.deepEqual(checkReleaseNotes("en", "New in 3.1415\n• a\n"), []);
+  assert.deepEqual(checkReleaseNotes("en", "New in 3.14159\n• a\n"), []);
   assert.equal(checkReleaseNotes("en", "x".repeat(501)).length, 1);
   assert.equal(checkReleaseNotes("en", undefined).length, 1);
 });
@@ -76,7 +76,7 @@ test("a folder needs all 24 languages, release notes and review notes", () => {
   fs.mkdirSync(path.join(dir, "release-notes"));
   for (const l of LANGS) {
     fs.writeFileSync(path.join(dir, "listing", `${l}.json`), JSON.stringify(goodFile()));
-    fs.writeFileSync(path.join(dir, "release-notes", `${l}.txt`), "New in 3.1415\n");
+    fs.writeFileSync(path.join(dir, "release-notes", `${l}.txt`), "New in 3.14159\n");
   }
   assert.deepEqual(checkDir(dir), ["review-notes.txt: missing or empty"]);
   fs.writeFileSync(path.join(dir, "review-notes.txt"), "notes");

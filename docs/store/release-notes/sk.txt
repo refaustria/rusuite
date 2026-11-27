@@ -1,4 +1,4 @@
-Novinky vo verzii 3.1415
+Novinky vo verzii 3.14159
 • Aplikácie pre telefón a tablet s rozložením pre dotykové ovládanie
 • Úpravy dotykom: úchytky výberu, priblíženie dvoma prstami, gestá
 • Export do PDF

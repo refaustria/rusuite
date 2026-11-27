@@ -15,20 +15,20 @@ export const USAGE = `usage: node scripts/store/asc.mjs <command> [options]
   app info --bundle-id dev.rusuite.calc | --app calc
   app-info push --app calc [--langs en,de]        name/subtitle/privacy policy URL per locale, categories
                                                   Productivity + Business, age rating declaration (all "none")
-  version ensure --app calc --version 3.1415      create or get the iOS App Store version (release type MANUAL)
-  version push --app calc --version 3.1415 [--langs en,de] [--images own|all|none]
+  version ensure --app calc --version 3.14159      create or get the iOS App Store version (release type MANUAL)
+  version push --app calc --version 3.14159 [--langs en,de] [--images own|all|none]
                                                   description, keywords, whatsNew, promotionalText, support and
                                                   marketing URL per locale; screenshots (iPhone 6.7"/6.5",
                                                   iPad Pro 12.9") from docs/store/screenshots/<app>/
-  build attach --app calc --version 3.1415 --build <number>|latest [--timeout <minutes>] [--interval <seconds>]
+  build attach --app calc --version 3.14159 --build <number>|latest [--timeout <minutes>] [--interval <seconds>]
                                                   wait until the build is processed (VALID), attach it
   build export-compliance --build <id> | --app calc --build <number>
                                                   usesNonExemptEncryption = false
-  review notes --app calc --file docs/store/review-notes.txt [--version 3.1415]
+  review notes --app calc --file docs/store/review-notes.txt [--version 3.14159]
          [--contact-first … --contact-last … --contact-email … --contact-phone …]
                                                   review contact (or ASC_REVIEW_FIRST_NAME, ASC_REVIEW_LAST_NAME,
                                                   ASC_REVIEW_EMAIL, ASC_REVIEW_PHONE) and notes; no demo account
-  submit --app calc --version 3.1415 [--yes]      shows what would be submitted; submits for review only with --yes
+  submit --app calc --version 3.14159 [--yes]      shows what would be submitted; submits for review only with --yes
   testflight groups --app calc
   testflight add --group "Internal" --build <id> | --app calc --group "Internal" --build <number>
 

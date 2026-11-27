@@ -1,4 +1,4 @@
-New in 3.1415
+New in 3.14159
 • Phone and tablet apps with a touch-friendly layout
 • Touch editing: selection handles, pinch to zoom, gestures
 • Export as PDF

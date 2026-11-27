@@ -83,7 +83,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app-calc"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "base64 0.23.1",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "app-calc-wasm"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "calc-core",
  "engine-formula",
@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "app-common"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "base64 0.23.1",
  "core-model",
@@ -129,7 +129,7 @@ dependencies = [
 
 [[package]]
 name = "app-notes"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "notes-core",
@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "app-notes-convert-wasm"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "notes-core",
  "serde_json",
@@ -154,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "app-notes-wasm"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "notes-core",
  "notes-sync",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "app-show"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "core-model",
@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "app-show-wasm"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "serde_json",
  "show-core",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "app-write"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "base64 0.23.1",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "app-write-wasm"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "serde_json",
  "wasm-bindgen",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "calc-core"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "base64 0.23.1",
@@ -998,7 +998,7 @@ dependencies = [
 
 [[package]]
 name = "core-model"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "insta",
  "serde",
@@ -1539,7 +1539,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine-formula"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "insta",
  "proptest",
@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "fmt-docx"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "core-model",
  "fmt-ooxml",
@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "fmt-onenote"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "cab",
  "onenote_parser",
@@ -1745,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "fmt-ooxml"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "core-model",
  "quick-xml",
@@ -1757,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "fmt-pptx"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "core-model",
  "engine-formula",
@@ -1774,7 +1774,7 @@ dependencies = [
 
 [[package]]
 name = "fmt-xlsx"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "core-model",
  "engine-formula",
@@ -3292,7 +3292,7 @@ dependencies = [
 
 [[package]]
 name = "model-notes"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "loro",
  "serde",
@@ -3303,7 +3303,7 @@ dependencies = [
 
 [[package]]
 name = "model-sheet"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "base64 0.23.1",
  "core-model",
@@ -3317,7 +3317,7 @@ dependencies = [
 
 [[package]]
 name = "model-show"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "core-model",
@@ -3330,7 +3330,7 @@ dependencies = [
 
 [[package]]
 name = "model-text"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "core-model",
@@ -3437,7 +3437,7 @@ checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
 
 [[package]]
 name = "notes-convert"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "cab",
  "core-model",
@@ -3457,7 +3457,7 @@ dependencies = [
 
 [[package]]
 name = "notes-core"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "cab",
@@ -3477,7 +3477,7 @@ dependencies = [
 
 [[package]]
 name = "notes-relay"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "axum",
  "futures-util",
@@ -3492,7 +3492,7 @@ dependencies = [
 
 [[package]]
 name = "notes-sync"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "chacha20poly1305",
  "ed25519-dalek",
@@ -4542,7 +4542,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "report-relay"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -5161,7 +5161,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "show-core"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "core-model",
@@ -5698,7 +5698,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-rusuite-mobile"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "gtk",
  "serde",
@@ -7181,7 +7181,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "write-core"
-version = "3.1415.0"
+version = "3.14159.0"
 dependencies = [
  "app-common",
  "core-model",
